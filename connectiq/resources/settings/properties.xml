@@ -1,0 +1,12 @@
+<properties>
+    <property id="CP"      type="number">250</property>
+    <property id="Wprime"  type="number">20000</property>
+    <property id="fP"      type="float">0.35</property>
+    <property id="pPmax"   type="number">300</property>
+    <property id="tauP"    type="number">22</property>
+    <property id="tauG"    type="number">360</property>
+    <property id="lt1Frac" type="float">0.80</property>
+    <property id="eta"     type="float">0.80</property>
+    <property id="fatK"    type="float">0.75</property>
+    <property id="tauAer"  type="number">25</property>
+</properties>
