@@ -111,14 +111,34 @@ Each compute(info):
   pctP = 100*rP/cP; pctG = 100*rG/cG
 Guard against CP<=0 and Wprime<=0 (skip update, show "SET CP/W'").
 
-## Rendering (onUpdate(dc))
-- Two vertical bar gauges side by side: left = PCr (label "PCr"), right = GLY (label "GLY").
-- Each gauge: filled height proportional to its % ; color band green (>50%), amber (20–50%),
-  red (<20%); numeric "%" centered below; a small consumption readout (e.g. "-180W") when draining.
-- A thin combined-W'bal bar or number at the bottom (pctW).
-- Respect getObscurityFlags()/full-screen vs partial layouts; use dc.getWidth()/getHeight(),
-  no allocation inside onUpdate (precompute fonts/colors in onLayout).
-- Handle dark/light device themes via getBackgroundColor().
+## Rendering (onUpdate(dc)) — TWO STACKED HORIZONTAL GAUGES
+Use horizontal bars, NOT vertical — they pack better into a small/partial data-field slot.
+Two full-width bars stacked: top = PCr, bottom = GLY. Each bar fills LEFT→RIGHT proportional
+to its reserve %, with the label + "%" + live consumption drawn on/beside the bar.
+
+Color logic (per gauge, decided each frame):
+- **Idle / recovering (not being drained this frame):** DULL, desaturated fill.
+- **Actively depleting (consumption > 0 this frame):** BRIGHT, saturated fill.
+- **Depleted (reserve at/near 0, i.e. exhausted or pct <= ~3%):** RED, and FLASH.
+Base hues are fixed per system — **PCr = purple, GLY = green**:
+
+| System | Idle (dull) | Depleting (bright) | Depleted |
+|---|---|---|---|
+| PCr (purple) | `0x5A3A6E` muted purple | `0xB44DFF` bright purple | `0xFF0000` flashing |
+| GLY (green)  | `0x2E5A3A` muted green  | `0x37E85A` bright green  | `0xFF0000` flashing |
+
+- "Depleting this frame" = `consP > 0` (PCr bar) / `consG > 0` (GLY bar). Track these as state set in compute().
+- **Flash** = toggle the depleted bar between red and background each ~0.5 s. Since compute()/onUpdate
+  run at 1 Hz, keep a boolean `flashOn` that flips every update and use it only when that bar is depleted;
+  request extra redraws with `WatchUi.requestUpdate()` if you want a faster blink than 1 Hz.
+- Draw an empty-track outline (thin) behind each bar so 0% is still visible; fill = the color above.
+- Overlay per bar: left-aligned label ("PCr"/"GLY"), right-aligned "NN%", and the live draw
+  ("-180W") shown only while that bar is depleting.
+- Optional thin combined-W'bal tick/number (pctW) in a corner; keep it small.
+- Respect getObscurityFlags()/full-screen vs partial layouts; use dc.getWidth()/getHeight();
+  precompute fonts/colors in onLayout, no allocation inside onUpdate.
+- Handle dark/light device themes via getBackgroundColor() (the dull hues above read on a dark
+  background; if background is white, darken the dull fills ~15% for contrast).
 
 ## FIT recording (FitContributor)
 Create record-level fields in initialize():
@@ -150,23 +170,29 @@ each compute if simpler) via Application.Properties.getValue, recomputing cP/cG 
 
 ## Part 4 — UI sketch (what the prompt should produce)
 
+Two stacked **horizontal** bars, filling left→right. Color = system hue, brightness = whether
+that tank is being drained right now.
+
 ```
- ┌──────────────────────────┐
- │   PCr            GLY      │
- │   ███            ███      │   green
- │   ███            ███      │
- │   ███            ░░░      │   amber/red as level drops
- │   ███            ░░░      │
- │   ███            ░░░      │
- │   78%   -180W    41%      │   % reserve + live consumption
- │  ───────────────────────  │
- │   W'bal 63%   [!] if empty │
- └──────────────────────────┘
+ ┌───────────────────────────────────────┐
+ │ PCr ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░  78%        │  ← dull purple: not draining (recovering/steady)
+ │                                         │
+ │ GLY ██████████░░░░░░░░░░░░░  41% -180W  │  ← bright green: draining now, shows live watts
+ │                                    W' 59%│
+ └───────────────────────────────────────┘
+
+ depleted state (reserve ~0):
+ │ GLY ███████████████████████   0% ⚠     │  ← solid RED, flashing on/off ~2 Hz
 ```
 
-- **PCr gauge** = "how much punch is left" — moves fast, refills in seconds of soft-pedaling.
-- **GLY gauge** = "how much sustained dig is left" — moves slower, only refills when you back off
-  below LT1, and comes back over minutes.
+- **Brightness encodes action:** a bar sitting still (below-zone, steady, or recovering) is the
+  **dull** hue; the instant it starts supplying energy (that system's consumption > 0) it snaps to
+  the **bright** hue — so at a glance you see *which* tank the surge is coming out of.
+- **PCr bar (purple)** = "how much punch is left" — moves fast, flicks bright on any hard jump,
+  refills (dull) in seconds of soft-pedaling.
+- **GLY bar (green)** = "how much sustained dig is left" — moves slower, goes bright on sustained
+  supra-CP efforts, only refills when you drop below LT1, and comes back over minutes.
+- **Either bar → solid red + flash** when its tank empties, the "you've spent this system" warning.
 - Flash / red border when either tank hits ~0 (`exhausted`).
 
 ---
