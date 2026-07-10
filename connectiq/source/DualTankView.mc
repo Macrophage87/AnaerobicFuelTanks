@@ -436,16 +436,17 @@ class DualTankView extends WatchUi.DataField {
         var draining = isPcr ? (mConsP > 0.0) : (mConsG > 0.0);
 
         var col = isPcr ? COL_PCR_DULL : COL_GLY_DULL;
+        var fillW;
         if (depleted) {
             if (!mFlashOn) { return; }   // blink: skip fill on the "off" frame
             col = COL_RED;
-        } else if (draining) {
-            col = isPcr ? COL_PCR_BRIGHT : COL_GLY_BRIGHT;
+            fillW = bw - 2;              // full-width red flash when the tank is spent
+        } else {
+            if (draining) { col = isPcr ? COL_PCR_BRIGHT : COL_GLY_BRIGHT; }
+            fillW = ((bw - 2) * pct / 100.0).toNumber();
+            if (fillW < 0) { fillW = 0; }
+            if (fillW > bw - 2) { fillW = bw - 2; }
         }
-
-        var fillW = ((bw - 2) * pct / 100.0).toNumber();
-        if (fillW < 0) { fillW = 0; }
-        if (fillW > bw - 2) { fillW = bw - 2; }
         dc.setColor(col, Graphics.COLOR_TRANSPARENT);
         dc.fillRectangle(x + 1, y + 1, fillW, bh - 2);
 

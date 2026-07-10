@@ -17,3 +17,25 @@ python3 make_assets.py     # requires Pillow; writes into this folder
 ```
 
 Palette (RGB): PCr bright `#B44DFF` / deep `#6C26A8`; GLY bright `#37E85A` / deep `#1A8C3A`.
+
+## In-app screenshots
+
+Renders of the live data field (horizontal bars) mirroring `DualTankView.drawBar`, at four states:
+
+| File | State |
+|---|---|
+| `screenshot_full.png` | Easy — both tanks full (dull purple / green) |
+| `screenshot_surge.png` | Short surge — PCr bright + `-190W`, glycolytic barely touched |
+| `screenshot_sustain.png` | Sustained supra-CP — both draining (bright) |
+| `screenshot_empty.png` | PCr spent — full-width red flash |
+| `screenshots_grid.png` | 2×2 gallery of all four (preview) |
+
+Regenerate with `python3 make_screens.py`. These are representative renders for the gallery;
+for official store submission, capture at true device resolution from the Connect IQ **simulator**
+(it exports device-correct PNGs).
+
+## Icon fallback
+
+| File | Format |
+|---|---|
+| `device_icon_128_8bit_palette.png` | 128×128, 8-bit **palettized** PNG (color-type 3) — use if the store rejects the 64-bit icon |
