@@ -39,6 +39,7 @@ draw code allocation-free (no `new` inside `onUpdate`) to stay within data-field
 State: `rP` (PCr reserve, J), `rG` (glycolytic reserve, J).
 Params (from settings): `CP`, `Wprime`, `fP`, `pPmax`, `tauP`, `tauG`, `lt1Frac`, `eta`.
 Derived: `cP = fP*Wprime`, `cG = (1-fP)*Wprime`. Init `rP=cP`, `rG=cG`.
+Session accumulators (J, ride totals): `depP=0`, `depG=0` — total energy ever drawn from each tank.
 
 Each second, with power `P` and `dt=1`:
 
@@ -50,6 +51,7 @@ if delta > 0:                              # DEPLETION (above CP)
     rP    -= takeP;  need -= takeP
     takeG  = min(need, rG)                 # glycolytic covers remainder
     rG    -= takeG;  need -= takeG
+    depP  += takeP;  depG += takeG         # accumulate lifetime depletion (J)
     exhausted = (need > 0)
     consP = takeP/dt;  consG = takeG/dt    # live consumption (W)
 else:                                       # RESTORATION (at/below CP)
@@ -61,6 +63,7 @@ else:                                       # RESTORATION (at/below CP)
 
 clamp rP to [0,cP], rG to [0,cG]
 pctP = 100*rP/cP;  pctG = 100*rG/cG;  pctW = 100*(rP+rG)/Wprime
+kJ_P = depP/1000;  kJ_G = depG/1000            # session totals depleted per system (kJ)
 ```
 
 Optional (behind a setting): fatigue-slowed PCr recovery `tauPeff = tauP*(1 + k*(1 - rG/cG))`,
@@ -88,10 +91,12 @@ power. Produce a complete, buildable project (manifest, source, resources, setti
 6. `monkey.jungle` build file. Plus a short README with build/sideload steps.
 
 ## Model (implement EXACTLY this; dt = 1 second = one compute() call)
-State (Float, held on the view): rP (PCr reserve, J), rG (glycolytic reserve, J).
+State (Float, held on the view): rP (PCr reserve, J), rG (glycolytic reserve, J),
+depP (total J ever drawn from PCr this session), depG (total J ever drawn from glycolytic).
 Settings (with defaults): CP=250 (W), Wprime=20000 (J), fP=0.35, pPmax=300 (W),
 tauP=22 (s), tauG=360 (s), lt1Frac=0.80, eta=0.80.
-Derived: cP=fP*Wprime, cG=(1-fP)*Wprime. On init and onTimerStart-from-fresh: rP=cP, rG=cG.
+Derived: cP=fP*Wprime, cG=(1-fP)*Wprime. On init and onTimerStart-from-fresh: rP=cP, rG=cG,
+depP=0, depG=0.
 
 Each compute(info):
   P = info.currentPower has value ? info.currentPower : 0
@@ -100,6 +105,7 @@ Each compute(info):
       need  = delta
       takeP = min(need, rP, pPmax); rP -= takeP; need -= takeP
       takeG = min(need, rG);        rG -= takeG; need -= takeG
+      depP += takeP; depG += takeG      # session-total depletion accumulators (J)
       exhausted = need > 0; consP = takeP; consG = takeG
   else:
       rP += eta*(cP - rP)*(1 - Math.exp(-1.0/tauP))
@@ -135,17 +141,34 @@ Base hues are fixed per system — **PCr = purple, GLY = green**:
 - Overlay per bar: left-aligned label ("PCr"/"GLY"), right-aligned "NN%", and the live draw
   ("-180W") shown only while that bar is depleting.
 - Optional thin combined-W'bal tick/number (pctW) in a corner; keep it small.
+- Optional (if space): show running session totals "PCr N.n kJ / GLY N.n kJ" (depP/1000, depG/1000)
+  as small text — the same numbers written to the session FIT fields.
 - Respect getObscurityFlags()/full-screen vs partial layouts; use dc.getWidth()/getHeight();
   precompute fonts/colors in onLayout, no allocation inside onUpdate.
 - Handle dark/light device themes via getBackgroundColor() (the dull hues above read on a dark
   background; if background is white, darken the dull fills ~15% for contrast).
 
-## FIT recording (FitContributor)
-Create record-level fields in initialize():
-  - "PCr_pct" (FLOAT, units "%"), "GLY_pct" (FLOAT, "%"),
-  - "PCr_cons" (SINT16, "W"), "GLY_cons" (SINT16, "W").
-Set them each compute() so they record to the .FIT and sync to Garmin Connect.
-Optionally add session-level summary fields (min PCr%, min GLY%).
+## FIT recording (FitContributor) — REQUIRED
+Create fields in initialize() via createField(...). Two kinds:
+
+RECORD-level (written EVERY compute() = once per second, so they become 1 Hz streams in the FIT):
+  - "PCr_pct"  FLOAT, units "%",  MESG_TYPE_RECORD  → PCr reserve level each second
+  - "GLY_pct"  FLOAT, units "%",  MESG_TYPE_RECORD  → glycolytic reserve level each second
+  - "PCr_cons" SINT16, units "W", MESG_TYPE_RECORD  → live PCr draw (optional but useful)
+  - "GLY_cons" SINT16, units "W", MESG_TYPE_RECORD  → live glycolytic draw (optional)
+  You MUST call setData() on the two *_pct fields on every compute() tick (even during recovery
+  and when paused-but-recording is false, guard so you only write while the activity is recording),
+  guaranteeing a per-second reserve trace for the whole ride.
+
+SESSION-level (single summary value finalized at ride end):
+  - "PCr_depleted_kJ" FLOAT, units "kJ", MESG_TYPE_SESSION → total energy drawn from PCr = depP/1000
+  - "GLY_depleted_kJ" FLOAT, units "kJ", MESG_TYPE_SESSION → total energy drawn from glycolytic = depG/1000
+  Update these each compute() with the running depP/1000 and depG/1000; the FIT SDK keeps the last
+  value as the session summary, so the recorded totals reflect the whole session at save time.
+  Optionally also add session mins: "PCr_min_pct", "GLY_min_pct".
+
+Field IDs must be unique small integers. These record-level streams and session totals sync to
+Garmin Connect and flow on to intervals.icu / Strava as custom data.
 
 ## Settings (settings.xml / properties.xml)
 Expose CP, Wprime, fP, pPmax, tauP, tauG, lt1Frac, eta as editable properties with the defaults
@@ -154,7 +177,8 @@ each compute if simpler) via Application.Properties.getValue, recomputing cP/cG 
 
 ## Lifecycle
 - compute(info) does the model step and returns a value (e.g. pctP) for single-field fallback.
-- onTimerStart / onTimerReset: initialize reserves to full if starting fresh.
+- onTimerStart / onTimerReset: initialize reserves to full (rP=cP, rG=cG) AND zero the
+  session depletion accumulators (depP=0, depG=0) if starting fresh.
 - onTimerPause/onTimerStop: freeze state (no decay while stopped). Optionally persist to Storage.
 - Be null-safe on all Activity.Info fields.
 
