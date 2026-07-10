@@ -41,19 +41,22 @@ using Toybox.Lang;
 class DualTankView extends WatchUi.DataField {
 
     // ---- Colors (hue = system, brightness = draining now, red = empty) ----
-    hidden const COL_PCR_DULL   = 0x5A3A6E;  // muted purple  (idle / recovering)
-    hidden const COL_PCR_BRIGHT = 0xB44DFF;  // bright purple (actively depleting)
-    hidden const COL_GLY_DULL   = 0x2E5A3A;  // muted green
-    hidden const COL_GLY_BRIGHT = 0x37E85A;  // bright green
-    hidden const COL_RED        = 0xFF0000;  // depleted, flashing
+    const COL_PCR_DULL   = 0x5A3A6E;  // muted purple  (idle / recovering)
+    const COL_PCR_BRIGHT = 0xB44DFF;  // bright purple (actively depleting)
+    const COL_GLY_DULL   = 0x2E5A3A;  // muted green
+    const COL_GLY_BRIGHT = 0x37E85A;  // bright green
+    const COL_RED        = 0xFF0000;  // depleted, flashing
 
     // ---- FIT field ids ----
-    hidden const FID_PCR_PCT  = 0;
-    hidden const FID_GLY_PCT  = 1;
-    hidden const FID_PCR_CONS = 2;
-    hidden const FID_GLY_CONS = 3;
-    hidden const FID_PCR_KJ   = 4;
-    hidden const FID_GLY_KJ   = 5;
+    const FID_PCR_PCT  = 0;
+    const FID_GLY_PCT  = 1;
+    const FID_PCR_CONS = 2;
+    const FID_GLY_CONS = 3;
+    const FID_PCR_KJ   = 4;
+    const FID_GLY_KJ   = 5;
+
+    // Guard: cap a single pause's recovery to 24 h of rest (clock-change safety).
+    const MAX_PAUSE_SEC = 86400;
 
     // ---- Settings ----
     hidden var mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta;
@@ -93,6 +96,11 @@ class DualTankView extends WatchUi.DataField {
         mPaused = false;
         mPauseAt = 0;
 
+        // Fonts (also set in onLayout; initialized here so onUpdate is always safe).
+        mFontLabel = Graphics.FONT_XTINY;
+        mFontValue = Graphics.FONT_TINY;
+        mFontSmall = Graphics.FONT_XTINY;
+
         // Per-second record streams
         mFPcrPct  = createField("PCr_pct",  FID_PCR_PCT,  FitContributor.DATA_TYPE_FLOAT,
             { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "%" });
@@ -116,24 +124,28 @@ class DualTankView extends WatchUi.DataField {
         mFGlyKj.setData(0.0);
     }
 
-    hidden function propNum(key, dflt) {
+    // Read a numeric property, coerced to Float; dflt if unset/non-numeric.
+    hidden function propFloat(key, dflt) {
         var v = Application.Properties.getValue(key);
-        if (v == null) { return dflt; }
-        return v;
+        if (v instanceof Lang.Float)  { return v; }
+        if (v instanceof Lang.Double) { return v.toFloat(); }
+        if (v instanceof Lang.Number) { return v.toFloat(); }
+        if (v instanceof Lang.Long)   { return v.toFloat(); }
+        return dflt;
     }
 
     // Public so the app can push live settings changes.
     function reloadSettings() {
-        mCP      = propNum("CP", 250).toFloat();
-        mWprime  = propNum("Wprime", 20000).toFloat();
-        mFP      = propNum("fP", 0.35).toFloat();
-        mPPmax   = propNum("pPmax", 300).toFloat();
-        mTauP    = propNum("tauP", 22).toFloat();
-        mTauG    = propNum("tauG", 360).toFloat();
-        mLt1Frac = propNum("lt1Frac", 0.80).toFloat();
-        mEta     = propNum("eta", 0.80).toFloat();
-        mFatK    = propNum("fatK", 0.75).toFloat();
-        mTauAer  = propNum("tauAer", 25).toFloat();
+        mCP      = propFloat("CP", 250.0);
+        mWprime  = propFloat("Wprime", 20000.0);
+        mFP      = propFloat("fP", 0.35);
+        mPPmax   = propFloat("pPmax", 300.0);
+        mTauP    = propFloat("tauP", 22.0);
+        mTauG    = propFloat("tauG", 360.0);
+        mLt1Frac = propFloat("lt1Frac", 0.80);
+        mEta     = propFloat("eta", 0.80);
+        mFatK    = propFloat("fatK", 0.75);
+        mTauAer  = propFloat("tauAer", 25.0);
 
         if (mCP < 1.0)     { mCP = 1.0; }
         if (mWprime < 1.0) { mWprime = 1.0; }
@@ -149,9 +161,12 @@ class DualTankView extends WatchUi.DataField {
         if (mCapP < 1.0) { mCapP = 1.0; }
         if (mCapG < 1.0) { mCapG = 1.0; }
 
-        // Re-clamp existing reserves to any new capacities.
-        if (mRP != null && mRP > mCapP) { mRP = mCapP; }
-        if (mRG != null && mRG > mCapG) { mRG = mCapG; }
+        // Re-clamp existing reserves to any new capacities (locals for null-narrowing;
+        // mRP/mRG are null on the first call, made from initialize()).
+        var rp = mRP;
+        if (rp != null && rp > mCapP) { mRP = mCapP; }
+        var rg = mRG;
+        if (rg != null && rg > mCapG) { mRG = mCapG; }
     }
 
     // Fresh-ride initialization: full tanks, zeroed session totals.
@@ -184,6 +199,7 @@ class DualTankView extends WatchUi.DataField {
         if (mPaused) {
             var el = nowSec() - mPauseAt;
             if (el < 0) { el = 0; }
+            if (el > MAX_PAUSE_SEC) { el = MAX_PAUSE_SEC; }
             applyRestRecovery(el);
             mAer = 0.0;         // aerobic supply has decayed to rest during the pause
             mPaused = false;
@@ -275,8 +291,9 @@ class DualTankView extends WatchUi.DataField {
         }
 
         var p = 0.0;
-        if (info != null && (info has :currentPower) && info.currentPower != null) {
-            p = info.currentPower.toFloat();
+        if (info != null) {
+            var cp = info.currentPower;   // Number or null
+            if (cp != null) { p = cp.toFloat(); }
         }
 
         var dt = 1.0;
@@ -284,7 +301,7 @@ class DualTankView extends WatchUi.DataField {
         // Aerobic supply: first-order ramp toward min(P, CP) with tauAer, so the
         // anaerobic tanks cover the onset "oxygen deficit". tauAer <= 0 disables
         // the ramp and falls back to a hard CP boundary.
-        var supply;
+        var supply = mCP;
         if (mTauAer > 0.0) {
             var tgt = (p < mCP) ? p : mCP;
             mAer += (tgt - mAer) * (1.0 - Math.exp(-dt / mTauAer));
@@ -292,7 +309,6 @@ class DualTankView extends WatchUi.DataField {
             if (mAer > mCP) { mAer = mCP; }
             supply = mAer;
         } else {
-            supply = mCP;
             mAer = mCP;
         }
 
@@ -342,11 +358,10 @@ class DualTankView extends WatchUi.DataField {
         if (mRG > mCapG) { mRG = mCapG; }
 
         var pctP = 100.0 * mRP / mCapP;
-        var pctG = 100.0 * mRG / mCapG;
 
         // FIT: per-second reserve streams + live consumption
         mFPcrPct.setData(pctP);
-        mFGlyPct.setData(pctG);
+        mFGlyPct.setData(100.0 * mRG / mCapG);
         mFPcrCons.setData(mConsP.toNumber());
         mFGlyCons.setData(mConsG.toNumber());
         // FIT: running session totals (kJ) — SDK keeps last value as summary
@@ -420,14 +435,12 @@ class DualTankView extends WatchUi.DataField {
         var depleted = (pct <= 3.0);
         var draining = isPcr ? (mConsP > 0.0) : (mConsG > 0.0);
 
-        var col;
+        var col = isPcr ? COL_PCR_DULL : COL_GLY_DULL;
         if (depleted) {
             if (!mFlashOn) { return; }   // blink: skip fill on the "off" frame
             col = COL_RED;
         } else if (draining) {
             col = isPcr ? COL_PCR_BRIGHT : COL_GLY_BRIGHT;
-        } else {
-            col = isPcr ? COL_PCR_DULL : COL_GLY_DULL;
         }
 
         var fillW = ((bw - 2) * pct / 100.0).toNumber();

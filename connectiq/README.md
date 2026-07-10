@@ -78,16 +78,19 @@ Requires the [Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/) and 
 openssl genrsa -out developer_key.pem 4096
 openssl pkcs8 -topk8 -inform PEM -outform DER -in developer_key.pem -out developer_key.der -nocrypt
 
-# 2. build a runnable PRG for the simulator / a device
-monkeyc -d edge840 -f monkey.jungle -o bin/DualTank.prg -y developer_key.der
+# 2. build (wrapper handles paths); default device edge840
+./build.sh              # or: ./build.sh edge1040
 
-# 3. run in the simulator
-connectiq            # launch the simulator
-monkeydo bin/DualTank.prg edge840
-
-# 4. package a store/sideload .iq (all products)
-monkeyc -e -f monkey.jungle -o bin/DualTank.iq -y developer_key.der
+# --- or the raw commands the wrapper runs ---
+monkeyc -d edge840 -f monkey.jungle -o bin/DualTank.prg -y developer_key.der   # build a PRG
+connectiq && monkeydo bin/DualTank.prg edge840                                  # run in simulator
+monkeyc -e -f monkey.jungle -o bin/DualTank.iq -y developer_key.der             # package .iq (all products)
 ```
+
+> Tip: build with `-l 3` (strict type check) for the most thorough compiler pass:
+> `monkeyc -l 3 -d edge840 -f monkey.jungle -o bin/DualTank.prg -y developer_key.der`.
+> The source was written to pass strict type checking (property reads are `instanceof`-narrowed,
+> nullable `Activity.Info` fields are copied to locals before use).
 
 Sideload: copy the built `.prg` to the device's `GARMIN/APPS/` folder over USB, or distribute the
 `.iq` via the Connect IQ store. In VS Code, the **Monkey C** extension's *Build Current Project*
