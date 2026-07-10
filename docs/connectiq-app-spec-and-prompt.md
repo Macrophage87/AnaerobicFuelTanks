@@ -118,13 +118,15 @@ Each compute(info):
 Guard against CP<=0 and Wprime<=0 (skip update, show "SET CP/W'").
 
 ## Rendering (onUpdate(dc)) — ASPECT-ADAPTIVE TWO-BAR LAYOUT
-Pick orientation from the field's aspect ratio (`w`, `h` from `dc.getWidth()/getHeight()`):
-- **Wide/short slot** (`w*2 >= h*3`): two **horizontal** bars STACKED (top = PCr, bottom = GLY),
-  each filling LEFT→RIGHT; label on the left, "%" on the right.
-- **Square or tall slot** (e.g. a **1×2** cell): two **vertical** bars SIDE BY SIDE, each filling
-  BOTTOM→TOP; label above, "%" below.
+Pick layout from the field's aspect ratio (`w`, `h` from `dc.getWidth()/getHeight()`):
+- **Very wide** (`w >= h*3`): two **horizontal** bars SIDE BY SIDE (PCr left half, GLY right half),
+  each filling LEFT→RIGHT.
+- **Wide/short** (`h*1.5 <= w < h*3`, i.e. `w*2 >= h*3`): two **horizontal** bars STACKED
+  (top = PCr, bottom = GLY); label left, "%" right.
+- **Square or tall** (`w < h*1.5`, e.g. a **1×2** cell): two **vertical** bars SIDE BY SIDE, each
+  filling BOTTOM→TOP; label above, "%" below.
 Live consumption ("-NNW") is drawn inside the bar while that system drains. Same color rules in
-both orientations.
+all three layouts.
 
 Color logic (per gauge, decided each frame):
 - **Idle / recovering (not being drained this frame):** DULL, desaturated fill.

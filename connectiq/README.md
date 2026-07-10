@@ -62,9 +62,12 @@ connectiq/
 
 ### Layout
 
-The field **adapts to the data-field cell's aspect ratio**: a wide/short slot stacks the two
-bars horizontally; a square or tall slot (e.g. a **1×2** cell) shows them as two vertical bars
-**side by side**. Text/outline color also adapts to the background luminance (light & dark themes).
+The field **adapts to the data-field cell's aspect ratio**:
+- **very wide** (`w ≥ 3h`) → two horizontal bars **side by side** (PCr | GLY);
+- **wide/short** (`1.5h ≤ w < 3h`) → two horizontal bars **stacked**;
+- **square/tall** (`w < 1.5h`, e.g. a **1×2** cell) → two vertical bars **side by side**.
+
+Text/outline color also adapts to the background luminance (light & dark themes).
 
 ### Pause / resume
 

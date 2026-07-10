@@ -130,6 +130,39 @@ def render_field_v(W, H, st, bg=BLACK):
         d.text((cx - (tb[2]-tb[0])//2, barBot + 6), t, font=vf, fill=fg)
     return img
 
+def render_field_pair(W, H, st, bg=BLACK):
+    """Very-wide layout: two horizontal bars side by side (PCr | GLY)."""
+    fg = contrast(bg)
+    img = Image.new("RGB", (W, H), bg)
+    d = ImageDraw.Draw(img)
+    pad = int(W * 0.015)
+    gap = int(W * 0.02)
+    labelW = int(W * 0.075)
+    valueW = int(W * 0.075)
+    halfW = (W - gap) // 2
+    barH = min(int(H * 0.62), H - 2*pad)
+    y = (H - barH) // 2
+    lf = font(int(barH * 0.42))
+    vf = font(int(barH * 0.48))
+
+    lBarX = pad + labelW
+    lBarW = halfW - labelW - valueW - pad
+    draw_bar(d, lBarX, y, lBarW, barH, st["pctP"], True, st["consP"], st["flash"], fg)
+    rx = halfW + gap
+    rBarX = rx + labelW
+    rBarW = W - rBarX - valueW - pad
+    draw_bar(d, rBarX, y, rBarW, barH, st["pctG"], False, st["consG"], st["flash"], fg)
+
+    def vtext(x, s, f, anchor_right=False):
+        tb = d.textbbox((0,0), s, font=f)
+        tx = x - (tb[2]-tb[0]) if anchor_right else x
+        d.text((tx, y + barH//2 - (tb[3]-tb[1])//2 - tb[1]), s, font=f, fill=fg)
+    vtext(pad, "PCr", lf)
+    vtext(halfW, "{}%".format(int(round(st["pctP"]))), vf, anchor_right=True)
+    vtext(rx, "GLY", lf)
+    vtext(W - pad, "{}%".format(int(round(st["pctG"]))), vf, anchor_right=True)
+    return img
+
 def device_frame(field, caption):
     """Wrap a field render in a simple Edge-like bezel with a caption chin.
     Brand on the first chin line, caption centered on a second line (so it never
@@ -216,6 +249,17 @@ def make_screens():
     vp = os.path.join(OUT, "screenshots_vertical.png")
     vstrip.save(vp, "PNG")
     print("vertical:", vp, os.path.getsize(vp)//1024, "KB")
+
+    # very-wide layout: two horizontal bars side by side, states stacked in one column
+    PW, PH = 1500, 150
+    pframes = [device_frame(render_field_pair(PW, PH, st), cap) for _, cap, st in STATES]
+    pgw, pgh = pframes[0].size
+    pstrip = Image.new("RGB", (pgw + 2*gap, 4*pgh + 5*gap), (16,17,22))
+    for i, dev in enumerate(pframes):
+        pstrip.paste(dev, (gap, gap + i*(pgh+gap)))
+    pp = os.path.join(OUT, "screenshots_wide.png")
+    pstrip.save(pp, "PNG")
+    print("wide:", pp, os.path.getsize(pp)//1024, "KB")
 
 def make_palette_icon():
     src = Image.open(os.path.join(OUT, "device_icon_128_24bit.png")).convert("RGB")

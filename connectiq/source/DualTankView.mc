@@ -29,10 +29,11 @@ using Toybox.Lang;
 //   in closed form for the entire elapsed pause (rest recovery), with no depletion
 //   accumulated during the pause.
 //
-// RENDERING: the layout adapts to the field's aspect ratio — a wide/short slot stacks
-//   two HORIZONTAL bars; a square or tall slot (e.g. a 1x2 cell) shows two VERTICAL
-//   bars SIDE BY SIDE. Foreground color adapts to background luminance, so it reads on
-//   light and dark themes alike.
+// RENDERING: the layout adapts to the field's aspect ratio —
+//   very wide (w >= 3h): two HORIZONTAL bars SIDE BY SIDE (half width each);
+//   wide/short (1.5h <= w < 3h): two HORIZONTAL bars STACKED;
+//   square/tall (w < 1.5h, e.g. a 1x2 cell): two VERTICAL bars SIDE BY SIDE.
+//   Foreground color adapts to background luminance, so it reads on light and dark themes.
 //
 // Implements the model in docs/white-paper-dual-tank-anaerobic-model.md.
 //
@@ -412,14 +413,51 @@ class DualTankView extends WatchUi.DataField {
         var pctP = 100.0 * mRP / mCapP;
         var pctG = 100.0 * mRG / mCapG;
 
-        // Orientation by aspect ratio: a wide/short slot stacks the bars
-        // horizontally; a square or tall slot (e.g. a 1x2 cell) puts them
-        // side by side as vertical bars.
-        if (w * 2 >= h * 3) {
+        // Orientation by aspect ratio:
+        //   very wide (w >= 3h): two horizontal bars SIDE BY SIDE (half width each)
+        //   wide/short (1.5h <= w < 3h): two horizontal bars STACKED
+        //   square/tall (w < 1.5h, e.g. a 1x2 cell): two VERTICAL bars side by side
+        if (w >= h * 3) {
+            drawHorizontalPair(dc, w, h, fg, pctP, pctG);
+        } else if (w * 2 >= h * 3) {
             drawHorizontal(dc, w, h, fg, pctP, pctG);
         } else {
             drawVertical(dc, w, h, fg, pctP, pctG);
         }
+    }
+
+    // --- very wide slot: two horizontal bars side by side (PCr | GLY) ---
+    hidden function drawHorizontalPair(dc, w, h, fg, pctP, pctG) {
+        var pad = 4;
+        var gap = 8;
+        var labelW = 30;
+        var valueW = 42;
+        var halfW = (w - gap) / 2;
+        var barH = h - 2 * pad;
+        if (barH > 60) { barH = 60; }
+        if (barH < 6)  { barH = 6; }
+        var y = (h - barH) / 2;
+
+        var lBarX = pad + labelW;
+        var lBarW = halfW - labelW - valueW - pad;
+        if (lBarW < 10) { lBarW = 10; }
+        drawBarH(dc, lBarX, y, lBarW, barH, pctP, true, fg);
+
+        var rx = halfW + gap;
+        var rBarX = rx + labelW;
+        var rBarW = w - rBarX - valueW - pad;
+        if (rBarW < 10) { rBarW = 10; }
+        drawBarH(dc, rBarX, y, rBarW, barH, pctG, false, fg);
+
+        dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(pad, y + barH / 2, mFontLabel, "PCr",
+            Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
+        dc.drawText(halfW, y + barH / 2, mFontValue, fmtPct(pctP),
+            Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
+        dc.drawText(rx, y + barH / 2, mFontLabel, "GLY",
+            Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
+        dc.drawText(w - pad, y + barH / 2, mFontValue, fmtPct(pctG),
+            Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
     }
 
     // --- wide/short slot: two horizontal bars stacked ---
