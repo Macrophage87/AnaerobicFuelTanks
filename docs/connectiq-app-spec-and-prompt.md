@@ -123,10 +123,13 @@ Pick layout from the field's aspect ratio (`w`, `h` from `dc.getWidth()/getHeigh
   each filling LEFT→RIGHT.
 - **Wide/short** (`h*1.5 <= w < h*3`, i.e. `w*2 >= h*3`): two **horizontal** bars STACKED
   (top = PCr, bottom = GLY); label left, "%" right.
-- **Square or tall** (`w < h*1.5`, e.g. a **1×2** cell): two **vertical** bars SIDE BY SIDE, each
+- **Large portrait single field** (`w >= 200 && h >= 240`): two **vertical** tanks on the top ~60%,
+  then a summary panel — `DEPLETED (kJ)` with per-system session totals (`mDepP/1000`, `mDepG/1000`)
+  and a **Fatigue** level = `fatK*(1 - rG/cG)*100` (how much PCr recovery is currently slowed).
+- **Square or tall** (otherwise, e.g. a **1×2** cell): two **vertical** bars SIDE BY SIDE, each
   filling BOTTOM→TOP; label above, "%" below.
 Live consumption ("-NNW") is drawn inside the bar while that system drains. Same color rules in
-all three layouts.
+all layouts.
 
 Color logic (per gauge, decided each frame):
 - **Idle / recovering (not being drained this frame):** DULL, desaturated fill.

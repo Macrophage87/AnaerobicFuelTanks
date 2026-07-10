@@ -102,11 +102,8 @@ def draw_bar_v(d, x, y, bw, bh, pct, is_pcr, cons, flash_on, fg):
         tb = d.textbbox((0, 0), wtxt, font=f)
         d.text((x + bw//2 - (tb[2]-tb[0])//2, y + 6), wtxt, font=f, fill=fg)
 
-def render_field_v(W, H, st, bg=BLACK):
-    """Vertical side-by-side layout (square/tall slot)."""
-    fg = contrast(bg)
-    img = Image.new("RGB", (W, H), bg)
-    d = ImageDraw.Draw(img)
+def draw_vertical_region(d, x0, y0, W, hh, st, fg):
+    """Two vertical bars side by side within (x0,y0,W,hh)."""
     pad = int(W * 0.04)
     gap = int(W * 0.05)
     colW = (W - 2*pad - gap) // 2
@@ -114,20 +111,51 @@ def render_field_v(W, H, st, bg=BLACK):
     vf = font(int(colW * 0.30))
     lH = d.textbbox((0,0), "PCr", font=lf)[3]
     vH = d.textbbox((0,0), "100%", font=vf)[3]
-    barTop = pad + lH + 6
-    barBot = H - pad - vH - 6
+    barTop = y0 + pad + lH + 6
+    barBot = y0 + hh - pad - vH - 6
     barH = barBot - barTop
-    lx = pad
-    rx = pad + colW + gap
+    lx = x0 + pad
+    rx = x0 + pad + colW + gap
     draw_bar_v(d, lx, barTop, colW, barH, st["pctP"], True,  st["consP"], st["flash"], fg)
     draw_bar_v(d, rx, barTop, colW, barH, st["pctG"], False, st["consG"], st["flash"], fg)
     for (cx, lab) in [(lx + colW//2, "PCr"), (rx + colW//2, "GLY")]:
         tb = d.textbbox((0,0), lab, font=lf)
-        d.text((cx - (tb[2]-tb[0])//2, pad), lab, font=lf, fill=fg)
+        d.text((cx - (tb[2]-tb[0])//2, y0 + pad), lab, font=lf, fill=fg)
     for (cx, pct) in [(lx + colW//2, st["pctP"]), (rx + colW//2, st["pctG"])]:
         t = "{}%".format(int(round(pct)))
         tb = d.textbbox((0,0), t, font=vf)
         d.text((cx - (tb[2]-tb[0])//2, barBot + 6), t, font=vf, fill=fg)
+
+def render_field_v(W, H, st, bg=BLACK):
+    """Vertical side-by-side layout (square/tall slot)."""
+    fg = contrast(bg)
+    img = Image.new("RGB", (W, H), bg)
+    d = ImageDraw.Draw(img)
+    draw_vertical_region(d, 0, 0, W, H, st, fg)
+    return img
+
+def render_field_full(W, H, st, bg=BLACK):
+    """Large single-field screen: vertical tanks on top, summary stats below."""
+    fg = contrast(bg)
+    img = Image.new("RGB", (W, H), bg)
+    d = ImageDraw.Draw(img)
+    topH = H * 3 // 5
+    draw_vertical_region(d, 0, 0, W, topH, st, fg)
+    d.line([6, topH, W-6, topH], fill=fg, width=2)
+
+    sf = font(int(W * 0.058))
+    vf = font(int(W * 0.085))
+    def ctext(cx, yc, s, f):
+        tb = d.textbbox((0,0), s, font=f)
+        d.text((cx - (tb[2]-tb[0])//2, yc - (tb[3]-tb[1])//2 - tb[1]), s, font=f, fill=fg)
+    half = W // 2
+    avail = H - topH
+    yHdr = topH + int(avail*0.16); yKj = topH + int(avail*0.46); yFat = topH + int(avail*0.78)
+    ctext(W//2, yHdr, "DEPLETED (kJ)", sf)
+    ctext(half//2, yKj, "PCr {:.1f}".format(st["kjP"]), vf)
+    ctext(half + half//2, yKj, "GLY {:.1f}".format(st["kjG"]), vf)
+    fat = int(round(0.75 * (1 - st["pctG"]/100.0) * 100))
+    ctext(W//2, yFat, "Fatigue {}%".format(fat), vf)
     return img
 
 def render_field_pair(W, H, st, bg=BLACK):
@@ -191,10 +219,10 @@ def device_frame(field, caption):
     return body
 
 STATES = [
-    ("full",   "Easy — tanks full",        dict(pctP=100, pctG=100, consP=0,   consG=0,   flash=True)),
-    ("surge",  "Surge — spending PCr",      dict(pctP=58,  pctG=96,  consP=190, consG=0,   flash=True)),
-    ("sustain","Sustained — into glycolytic",dict(pctP=24, pctG=44,  consP=55,  consG=135, flash=True)),
-    ("empty",  "PCr spent — red flash",     dict(pctP=1,   pctG=17,  consP=0,   consG=90,  flash=True)),
+    ("full",   "Easy — tanks full",        dict(pctP=100, pctG=100, consP=0,   consG=0,   flash=True, kjP=0.0,  kjG=0.0)),
+    ("surge",  "Surge — spending PCr",      dict(pctP=58,  pctG=96,  consP=190, consG=0,   flash=True, kjP=8.4,  kjG=0.2)),
+    ("sustain","Sustained — into glycolytic",dict(pctP=24, pctG=44,  consP=55,  consG=135, flash=True, kjP=12.6, kjG=9.5)),
+    ("empty",  "PCr spent — red flash",     dict(pctP=1,   pctG=17,  consP=0,   consG=90,  flash=True, kjP=18.2, kjG=21.0)),
 ]
 
 def make_screens():
@@ -260,6 +288,17 @@ def make_screens():
     pp = os.path.join(OUT, "screenshots_wide.png")
     pstrip.save(pp, "PNG")
     print("wide:", pp, os.path.getsize(pp)//1024, "KB")
+
+    # large single-field screen: vertical tanks + summary stats
+    LW, LH = 560, 920
+    lfrs = [device_frame(render_field_full(LW, LH, st), cap) for _, cap, st in STATES]
+    lgw, lgh = lfrs[0].size
+    lful = Image.new("RGB", (4*lgw + 5*gap, lgh + 2*gap), (16,17,22))
+    for i, dev in enumerate(lfrs):
+        lful.paste(dev, (gap + i*(lgw+gap), gap))
+    fp = os.path.join(OUT, "screenshots_full.png")
+    lful.save(fp, "PNG")
+    print("full:", fp, os.path.getsize(fp)//1024, "KB")
 
 def make_palette_icon():
     src = Image.open(os.path.join(OUT, "device_icon_128_24bit.png")).convert("RGB")

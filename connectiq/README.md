@@ -65,6 +65,8 @@ connectiq/
 The field **adapts to the data-field cell's aspect ratio**:
 - **very wide** (`w ≥ 3h`) → two horizontal bars **side by side** (PCr | GLY);
 - **wide/short** (`1.5h ≤ w < 3h`) → two horizontal bars **stacked**;
+- **large portrait single field** (`w ≥ 200 & h ≥ 240`) → vertical tanks on top + a **summary
+  panel** (per-system depleted kJ and a fatigue level);
 - **square/tall** (`w < 1.5h`, e.g. a **1×2** cell) → two vertical bars **side by side**.
 
 Text/outline color also adapts to the background luminance (light & dark themes).

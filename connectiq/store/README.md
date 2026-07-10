@@ -32,6 +32,7 @@ Renders of the live data field (horizontal bars) mirroring `DualTankView.drawBar
 | `screenshots_grid_light.png` | same four states on a **light** background (theme-adaptation proof) |
 | `screenshots_vertical.png` | vertical **side-by-side** layout for a square/tall (e.g. 1×2) cell |
 | `screenshots_wide.png` | **very-wide** layout: two horizontal bars side by side |
+| `screenshots_full.png` | **large single-field** layout: vertical tanks + depleted-kJ & fatigue summary |
 
 Regenerate with `python3 make_screens.py`. These are representative renders for the gallery;
 for official store submission, capture at true device resolution from the Connect IQ **simulator**

@@ -32,7 +32,9 @@ using Toybox.Lang;
 // RENDERING: the layout adapts to the field's aspect ratio —
 //   very wide (w >= 3h): two HORIZONTAL bars SIDE BY SIDE (half width each);
 //   wide/short (1.5h <= w < 3h): two HORIZONTAL bars STACKED;
-//   square/tall (w < 1.5h, e.g. a 1x2 cell): two VERTICAL bars SIDE BY SIDE.
+//   large portrait single field (w>=200 & h>=240): VERTICAL tanks on top + a summary
+//     panel below (per-system depleted kJ and a fatigue level);
+//   otherwise square/tall (e.g. a 1x2 cell): two VERTICAL bars SIDE BY SIDE.
 //   Foreground color adapts to background luminance, so it reads on light and dark themes.
 //
 // Implements the model in docs/white-paper-dual-tank-anaerobic-model.md.
@@ -413,14 +415,17 @@ class DualTankView extends WatchUi.DataField {
         var pctP = 100.0 * mRP / mCapP;
         var pctG = 100.0 * mRG / mCapG;
 
-        // Orientation by aspect ratio:
+        // Layout by aspect ratio / size:
         //   very wide (w >= 3h): two horizontal bars SIDE BY SIDE (half width each)
         //   wide/short (1.5h <= w < 3h): two horizontal bars STACKED
-        //   square/tall (w < 1.5h, e.g. a 1x2 cell): two VERTICAL bars side by side
+        //   large portrait single field (w>=200, h>=240): vertical tanks + summary stats
+        //   otherwise square/tall (e.g. a 1x2 cell): two VERTICAL bars side by side
         if (w >= h * 3) {
             drawHorizontalPair(dc, w, h, fg, pctP, pctG);
         } else if (w * 2 >= h * 3) {
             drawHorizontal(dc, w, h, fg, pctP, pctG);
+        } else if (w >= 200 && h >= 240) {
+            drawFull(dc, w, h, fg, pctP, pctG);
         } else {
             drawVertical(dc, w, h, fg, pctP, pctG);
         }
@@ -488,29 +493,71 @@ class DualTankView extends WatchUi.DataField {
             Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
     }
 
-    // --- square/tall slot: two vertical bars side by side ---
-    hidden function drawVertical(dc, w, h, fg, pctP, pctG) {
+    // --- two vertical bars side by side, within the rect (x0,y0,w,hh) ---
+    hidden function drawVerticalIn(dc, x0, y0, w, hh, fg, pctP, pctG) {
         var pad = 4;
         var gap = 6;
         var labelH = dc.getFontHeight(mFontLabel);
         var valueH = dc.getFontHeight(mFontValue);
         var colW = (w - 2 * pad - gap) / 2;
         if (colW < 8) { colW = 8; }
-        var barTop = pad + labelH;
-        var barBot = h - pad - valueH;
+        var barTop = y0 + pad + labelH;
+        var barBot = y0 + hh - pad - valueH;
         var barH = barBot - barTop;
         if (barH < 10) { barH = 10; }
-        var lx = pad;
-        var rx = pad + colW + gap;
+        var lx = x0 + pad;
+        var rx = x0 + pad + colW + gap;
 
         drawBarV(dc, lx, barTop, colW, barH, pctP, true, fg);
         drawBarV(dc, rx, barTop, colW, barH, pctG, false, fg);
 
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(lx + colW / 2, pad, mFontLabel, "PCr", Graphics.TEXT_JUSTIFY_CENTER);
-        dc.drawText(rx + colW / 2, pad, mFontLabel, "GLY", Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(lx + colW / 2, y0 + pad, mFontLabel, "PCr", Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(rx + colW / 2, y0 + pad, mFontLabel, "GLY", Graphics.TEXT_JUSTIFY_CENTER);
         dc.drawText(lx + colW / 2, barBot, mFontValue, fmtPct(pctP), Graphics.TEXT_JUSTIFY_CENTER);
         dc.drawText(rx + colW / 2, barBot, mFontValue, fmtPct(pctG), Graphics.TEXT_JUSTIFY_CENTER);
+    }
+
+    // --- square/tall slot: two vertical bars filling the whole field ---
+    hidden function drawVertical(dc, w, h, fg, pctP, pctG) {
+        drawVerticalIn(dc, 0, 0, w, h, fg, pctP, pctG);
+    }
+
+    // Current fatigue level (%): how much PCr recovery is slowed right now, driven
+    // by glycolytic depletion — tauPeff/tauP - 1 = fatK*(1 - rG/cG).
+    hidden function fatiguePct() {
+        var fillG = mRG / mCapG;
+        if (fillG < 0.0) { fillG = 0.0; }
+        if (fillG > 1.0) { fillG = 1.0; }
+        var f = mFatK * (1.0 - fillG) * 100.0;
+        if (f < 0.0) { f = 0.0; }
+        return f;
+    }
+
+    // --- large single-field screen: vertical tanks on top, summary stats below ---
+    hidden function drawFull(dc, w, h, fg, pctP, pctG) {
+        var topH = h * 3 / 5;                 // ~60% for the two tanks
+        drawVerticalIn(dc, 0, 0, w, topH, fg, pctP, pctG);
+
+        // divider
+        dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+        dc.drawLine(6, topH, w - 6, topH);
+
+        // distribute the three stat rows across the panel below the divider
+        var half = w / 2;
+        var avail = h - topH;
+        var yHdr = topH + avail * 16 / 100;
+        var yKj  = topH + avail * 46 / 100;
+        var yFat = topH + avail * 78 / 100;
+        var ctr = Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER;
+
+        dc.drawText(w / 2, yHdr, mFontSmall, "DEPLETED (kJ)", ctr);
+        dc.drawText(half / 2, yKj, mFontValue,
+            "PCr " + (mDepP / 1000.0).format("%.1f"), ctr);
+        dc.drawText(half + half / 2, yKj, mFontValue,
+            "GLY " + (mDepG / 1000.0).format("%.1f"), ctr);
+        dc.drawText(w / 2, yFat, mFontValue,
+            "Fatigue " + fatiguePct().toNumber().toString() + "%", ctr);
     }
 
     hidden function fmtPct(v) {
