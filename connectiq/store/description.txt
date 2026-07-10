@@ -15,10 +15,10 @@ Two bars, one per system:
 PCr is purple, GLY is green.
 
 The layout adapts to your data-field cell:
-- Very wide -> two bars side by side
-- Wide / short -> two bars stacked
-- Full screen -> tanks on top, plus a summary panel with total energy spent per system (kJ) and a live Fatigue level
-- Tall 1x2 cell -> two vertical tanks side by side
+- Very wide: two bars side by side
+- Wide / short: two bars stacked
+- Full screen: tanks on top, plus a summary panel with total energy spent per system (kJ) and a live Fatigue level
+- Tall 1x2 cell: two vertical tanks side by side
 Reads clearly on light and dark themes.
 
 RECORDED TO YOUR RIDE
