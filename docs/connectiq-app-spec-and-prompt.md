@@ -117,10 +117,14 @@ Each compute(info):
   pctP = 100*rP/cP; pctG = 100*rG/cG
 Guard against CP<=0 and Wprime<=0 (skip update, show "SET CP/W'").
 
-## Rendering (onUpdate(dc)) — TWO STACKED HORIZONTAL GAUGES
-Use horizontal bars, NOT vertical — they pack better into a small/partial data-field slot.
-Two full-width bars stacked: top = PCr, bottom = GLY. Each bar fills LEFT→RIGHT proportional
-to its reserve %, with the label + "%" + live consumption drawn on/beside the bar.
+## Rendering (onUpdate(dc)) — ASPECT-ADAPTIVE TWO-BAR LAYOUT
+Pick orientation from the field's aspect ratio (`w`, `h` from `dc.getWidth()/getHeight()`):
+- **Wide/short slot** (`w*2 >= h*3`): two **horizontal** bars STACKED (top = PCr, bottom = GLY),
+  each filling LEFT→RIGHT; label on the left, "%" on the right.
+- **Square or tall slot** (e.g. a **1×2** cell): two **vertical** bars SIDE BY SIDE, each filling
+  BOTTOM→TOP; label above, "%" below.
+Live consumption ("-NNW") is drawn inside the bar while that system drains. Same color rules in
+both orientations.
 
 Color logic (per gauge, decided each frame):
 - **Idle / recovering (not being drained this frame):** DULL, desaturated fill.

@@ -29,6 +29,11 @@ using Toybox.Lang;
 //   in closed form for the entire elapsed pause (rest recovery), with no depletion
 //   accumulated during the pause.
 //
+// RENDERING: the layout adapts to the field's aspect ratio — a wide/short slot stacks
+//   two HORIZONTAL bars; a square or tall slot (e.g. a 1x2 cell) shows two VERTICAL
+//   bars SIDE BY SIDE. Foreground color adapts to background luminance, so it reads on
+//   light and dark themes alike.
+//
 // Implements the model in docs/white-paper-dual-tank-anaerobic-model.md.
 //
 // TEST TRACES (expected behaviour):
@@ -407,6 +412,18 @@ class DualTankView extends WatchUi.DataField {
         var pctP = 100.0 * mRP / mCapP;
         var pctG = 100.0 * mRG / mCapG;
 
+        // Orientation by aspect ratio: a wide/short slot stacks the bars
+        // horizontally; a square or tall slot (e.g. a 1x2 cell) puts them
+        // side by side as vertical bars.
+        if (w * 2 >= h * 3) {
+            drawHorizontal(dc, w, h, fg, pctP, pctG);
+        } else {
+            drawVertical(dc, w, h, fg, pctP, pctG);
+        }
+    }
+
+    // --- wide/short slot: two horizontal bars stacked ---
+    hidden function drawHorizontal(dc, w, h, fg, pctP, pctG) {
         var pad = 4;
         var labelW = 30;
         var valueW = 42;
@@ -419,10 +436,9 @@ class DualTankView extends WatchUi.DataField {
         var barW = w - xBar - valueW - pad;
         if (barW < 10) { barW = 10; }
 
-        drawBar(dc, xBar, yTop, barW, barH, pctP, true, fg);
-        drawBar(dc, xBar, yBot, barW, barH, pctG, false, fg);
+        drawBarH(dc, xBar, yTop, barW, barH, pctP, true, fg);
+        drawBarH(dc, xBar, yBot, barW, barH, pctG, false, fg);
 
-        // Labels (left) and percentages (right)
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
         dc.drawText(pad, yTop + barH / 2, mFontLabel, "PCr",
             Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
@@ -434,26 +450,60 @@ class DualTankView extends WatchUi.DataField {
             Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
     }
 
+    // --- square/tall slot: two vertical bars side by side ---
+    hidden function drawVertical(dc, w, h, fg, pctP, pctG) {
+        var pad = 4;
+        var gap = 6;
+        var labelH = dc.getFontHeight(mFontLabel);
+        var valueH = dc.getFontHeight(mFontValue);
+        var colW = (w - 2 * pad - gap) / 2;
+        if (colW < 8) { colW = 8; }
+        var barTop = pad + labelH;
+        var barBot = h - pad - valueH;
+        var barH = barBot - barTop;
+        if (barH < 10) { barH = 10; }
+        var lx = pad;
+        var rx = pad + colW + gap;
+
+        drawBarV(dc, lx, barTop, colW, barH, pctP, true, fg);
+        drawBarV(dc, rx, barTop, colW, barH, pctG, false, fg);
+
+        dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(lx + colW / 2, pad, mFontLabel, "PCr", Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(rx + colW / 2, pad, mFontLabel, "GLY", Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(lx + colW / 2, barBot, mFontValue, fmtPct(pctP), Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(rx + colW / 2, barBot, mFontValue, fmtPct(pctG), Graphics.TEXT_JUSTIFY_CENTER);
+    }
+
     hidden function fmtPct(v) {
         return v.toNumber().toString() + "%";
     }
 
-    hidden function drawBar(dc, x, y, bw, bh, pct, isPcr, fg) {
-        // Empty-track outline so 0% is still visible.
+    // pick fill color by state; returns null when the depleted "off" flash frame
+    // should draw no fill at all.
+    hidden function fillColor(isPcr, depleted, draining) {
+        if (depleted) {
+            if (!mFlashOn) { return null; }
+            return COL_RED;
+        }
+        if (draining) { return isPcr ? COL_PCR_BRIGHT : COL_GLY_BRIGHT; }
+        return isPcr ? COL_PCR_DULL : COL_GLY_DULL;
+    }
+
+    // horizontal bar: fills left -> right
+    hidden function drawBarH(dc, x, y, bw, bh, pct, isPcr, fg) {
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
         dc.drawRectangle(x, y, bw, bh);
 
         var depleted = (pct <= 3.0);
         var draining = isPcr ? (mConsP > 0.0) : (mConsG > 0.0);
+        var col = fillColor(isPcr, depleted, draining);
+        if (col == null) { return; }
 
-        var col = isPcr ? COL_PCR_DULL : COL_GLY_DULL;
         var fillW;
         if (depleted) {
-            if (!mFlashOn) { return; }   // blink: skip fill on the "off" frame
-            col = COL_RED;
-            fillW = bw - 2;              // full-width red flash when the tank is spent
+            fillW = bw - 2;
         } else {
-            if (draining) { col = isPcr ? COL_PCR_BRIGHT : COL_GLY_BRIGHT; }
             fillW = ((bw - 2) * pct / 100.0).toNumber();
             if (fillW < 0) { fillW = 0; }
             if (fillW > bw - 2) { fillW = bw - 2; }
@@ -461,12 +511,39 @@ class DualTankView extends WatchUi.DataField {
         dc.setColor(col, Graphics.COLOR_TRANSPARENT);
         dc.fillRectangle(x + 1, y + 1, fillW, bh - 2);
 
-        // Live consumption readout while draining.
         if (draining && !depleted) {
             var wtxt = "-" + (isPcr ? mConsP : mConsG).toNumber().toString() + "W";
             dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
             dc.drawText(x + bw - 3, y + bh / 2, mFontSmall, wtxt,
                 Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
+        }
+    }
+
+    // vertical bar: fills bottom -> top
+    hidden function drawBarV(dc, x, y, bw, bh, pct, isPcr, fg) {
+        dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+        dc.drawRectangle(x, y, bw, bh);
+
+        var depleted = (pct <= 3.0);
+        var draining = isPcr ? (mConsP > 0.0) : (mConsG > 0.0);
+        var col = fillColor(isPcr, depleted, draining);
+        if (col == null) { return; }
+
+        var fillH;
+        if (depleted) {
+            fillH = bh - 2;
+        } else {
+            fillH = ((bh - 2) * pct / 100.0).toNumber();
+            if (fillH < 0) { fillH = 0; }
+            if (fillH > bh - 2) { fillH = bh - 2; }
+        }
+        dc.setColor(col, Graphics.COLOR_TRANSPARENT);
+        dc.fillRectangle(x + 1, y + bh - 1 - fillH, bw - 2, fillH);
+
+        if (draining && !depleted) {
+            var wtxt = "-" + (isPcr ? mConsP : mConsG).toNumber().toString() + "W";
+            dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(x + bw / 2, y + 2, mFontSmall, wtxt, Graphics.TEXT_JUSTIFY_CENTER);
         }
     }
 }

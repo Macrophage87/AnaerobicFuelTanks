@@ -60,6 +60,12 @@ connectiq/
   resynthesis slows as the glycolytic tank empties (the observed bout-to-bout slowing). Set
   `fatK = 0` to disable.
 
+### Layout
+
+The field **adapts to the data-field cell's aspect ratio**: a wide/short slot stacks the two
+bars horizontally; a square or tall slot (e.g. a **1×2** cell) shows them as two vertical bars
+**side by side**. Text/outline color also adapts to the background luminance (light & dark themes).
+
 ### Pause / resume
 
 Depletion is **frozen while the timer is paused or stopped** (nothing accumulates). On resume the

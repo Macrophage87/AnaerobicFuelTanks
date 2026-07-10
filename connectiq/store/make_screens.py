@@ -80,11 +80,63 @@ def render_field(W, H, st, bg=BLACK):
         d.text((W - pad - (tb[2]-tb[0]), yy + barH//2 - (tb[3]-tb[1])//2 - tb[1]), t, font=vf, fill=fg)
     return img
 
+def draw_bar_v(d, x, y, bw, bh, pct, is_pcr, cons, flash_on, fg):
+    d.rectangle([x, y, x + bw, y + bh], outline=fg, width=3)
+    depleted = pct <= 3.0
+    draining = cons > 0
+    col = PCR_DULL if is_pcr else GLY_DULL
+    if depleted:
+        if not flash_on:
+            return
+        col = RED
+        fillh = bh - 3
+    else:
+        if draining:
+            col = PCR_BRIGHT if is_pcr else GLY_BRIGHT
+        fillh = int((bh - 3) * pct / 100.0)
+        fillh = max(0, min(bh - 3, fillh))
+    d.rectangle([x + 2, y + bh - 2 - fillh, x + bw - 2, y + bh - 2], fill=col)  # bottom-up
+    if draining and not depleted:
+        wtxt = "-{}W".format(int(cons))
+        f = font(max(12, int(bw * 0.20)))
+        tb = d.textbbox((0, 0), wtxt, font=f)
+        d.text((x + bw//2 - (tb[2]-tb[0])//2, y + 6), wtxt, font=f, fill=fg)
+
+def render_field_v(W, H, st, bg=BLACK):
+    """Vertical side-by-side layout (square/tall slot)."""
+    fg = contrast(bg)
+    img = Image.new("RGB", (W, H), bg)
+    d = ImageDraw.Draw(img)
+    pad = int(W * 0.04)
+    gap = int(W * 0.05)
+    colW = (W - 2*pad - gap) // 2
+    lf = font(int(colW * 0.34))
+    vf = font(int(colW * 0.30))
+    lH = d.textbbox((0,0), "PCr", font=lf)[3]
+    vH = d.textbbox((0,0), "100%", font=vf)[3]
+    barTop = pad + lH + 6
+    barBot = H - pad - vH - 6
+    barH = barBot - barTop
+    lx = pad
+    rx = pad + colW + gap
+    draw_bar_v(d, lx, barTop, colW, barH, st["pctP"], True,  st["consP"], st["flash"], fg)
+    draw_bar_v(d, rx, barTop, colW, barH, st["pctG"], False, st["consG"], st["flash"], fg)
+    for (cx, lab) in [(lx + colW//2, "PCr"), (rx + colW//2, "GLY")]:
+        tb = d.textbbox((0,0), lab, font=lf)
+        d.text((cx - (tb[2]-tb[0])//2, pad), lab, font=lf, fill=fg)
+    for (cx, pct) in [(lx + colW//2, st["pctP"]), (rx + colW//2, st["pctG"])]:
+        t = "{}%".format(int(round(pct)))
+        tb = d.textbbox((0,0), t, font=vf)
+        d.text((cx - (tb[2]-tb[0])//2, barBot + 6), t, font=vf, fill=fg)
+    return img
+
 def device_frame(field, caption):
-    """Wrap a field render in a simple Edge-like bezel with a caption chin."""
+    """Wrap a field render in a simple Edge-like bezel with a caption chin.
+    Brand on the first chin line, caption centered on a second line (so it never
+    collides on narrow/portrait frames)."""
     fw, fh = field.size
     bez = 34
-    chin = 74
+    chin = 96
     W, H = fw + 2*bez, fh + 2*bez + chin
     body = Image.new("RGB", (W, H), (32, 34, 40))
     d = ImageDraw.Draw(body)
@@ -95,11 +147,14 @@ def device_frame(field, caption):
     # screen inset
     body.paste(field, (bez, bez))
     d.rectangle([bez-2, bez-2, bez+fw+1, bez+fh+1], outline=(12,12,14), width=3)
-    # chin: brand + caption
-    d.text((bez, bez+fh+16), "GARMIN  EDGE", font=font(20), fill=(150,155,165))
+    # chin line 1: brand (left)
+    d.text((bez, bez+fh+12), "GARMIN  EDGE", font=font(18), fill=(140,145,155))
+    # chin line 2: caption (centered), shrunk to fit
     cf = font(26)
+    while cf.size > 12 and d.textbbox((0,0), caption, font=cf)[2] > W - 2*bez:
+        cf = font(cf.size - 2)
     tb = d.textbbox((0,0), caption, font=cf)
-    d.text((W - bez - (tb[2]-tb[0]), bez+fh+13), caption, font=cf, fill=(225,228,235))
+    d.text((W//2 - (tb[2]-tb[0])//2, bez+fh+44), caption, font=cf, fill=(228,231,238))
     return body
 
 STATES = [
@@ -144,6 +199,23 @@ def make_screens():
     lp = os.path.join(OUT, "screenshots_grid_light.png")
     lstrip.save(lp, "PNG")
     print("grid(light):", lp, os.path.getsize(lp)//1024, "KB")
+
+    # vertical / side-by-side layout for a square-or-tall (e.g. 1x2) cell
+    VW, VH = 360, 560
+    vframes = []
+    for key, cap, st in STATES:
+        field = render_field_v(VW, VH, st)
+        dev = device_frame(field, cap)
+        p = os.path.join(OUT, "screenshot_v_{}.png".format(key))
+        dev.save(p, "PNG")
+        vframes.append(dev)
+    vgw, vgh = vframes[0].size
+    vstrip = Image.new("RGB", (4*vgw + 5*gap, vgh + 2*gap), (16,17,22))
+    for i, dev in enumerate(vframes):
+        vstrip.paste(dev, (gap + i*(vgw+gap), gap))
+    vp = os.path.join(OUT, "screenshots_vertical.png")
+    vstrip.save(vp, "PNG")
+    print("vertical:", vp, os.path.getsize(vp)//1024, "KB")
 
 def make_palette_icon():
     src = Image.open(os.path.join(OUT, "device_icon_128_24bit.png")).convert("RGB")

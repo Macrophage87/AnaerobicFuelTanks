@@ -30,6 +30,7 @@ Renders of the live data field (horizontal bars) mirroring `DualTankView.drawBar
 | `screenshot_empty.png` | PCr spent — full-width red flash |
 | `screenshots_grid.png` | 2×2 gallery of all four (preview) |
 | `screenshots_grid_light.png` | same four states on a **light** background (theme-adaptation proof) |
+| `screenshots_vertical.png` | vertical **side-by-side** layout for a square/tall (e.g. 1×2) cell |
 
 Regenerate with `python3 make_screens.py`. These are representative renders for the gallery;
 for official store submission, capture at true device resolution from the Connect IQ **simulator**
@@ -43,3 +44,6 @@ for official store submission, capture at true device resolution from the Connec
 
 > The field adapts to light **and** dark themes: `DualTankView.contrastColor()` picks black or white
 > foreground by background luminance, so labels, outlines and readouts stay legible either way.
+
+> The field **adapts its layout to the cell's aspect ratio**: a wide/short slot stacks two
+> horizontal bars; a square or tall slot (like a 1×2 cell) shows two vertical bars side by side.
