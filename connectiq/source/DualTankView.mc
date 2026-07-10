@@ -1,0 +1,316 @@
+using Toybox.WatchUi;
+using Toybox.Graphics;
+using Toybox.Activity;
+using Toybox.Application;
+using Toybox.FitContributor;
+using Toybox.Math;
+using Toybox.Lang;
+
+//======================================================================
+// Dual-Tank Anaerobic Reserve data field.
+//
+// UNITS / ASSUMPTIONS
+//   - Energies are in JOULES; power in WATTS; dt = 1 s = one compute() call.
+//   - W' is split into a fast PCr tank (cP) and a slow glycolytic tank (cG);
+//     fP (the split) is a MODELING CHOICE, not a measured quantity.
+//   - Demand above CP is met PCr-first (rate-limited), glycolytic-second.
+//   - Below CP: PCr recovers fast (tauP, efficiency eta); glycolytic recovers
+//     slowly (tauG) and only below LT1 (lt1Frac * CP).
+//
+// Implements the reduced model in docs/white-paper-dual-tank-anaerobic-model.md.
+//
+// TEST TRACES (expected behaviour):
+//   - 5 s @ 800 W then 60 s @ 100 W (CP 250): PCr bar drops sharply & bright,
+//     GLY barely moves; PCr back to ~full (dull) within ~45-60 s.
+//   - 3 min @ 300 W: PCr empties in ~20-40 s, then GLY bleeds; both low at end.
+//   - 8x(20 s @ 400 / 40 s @ 120): PCr sawtooths; GLY trends down across the set.
+//   - 20 min @ 150 W: both stay ~full; GLY slowly tops off since P < LT1.
+//======================================================================
+class DualTankView extends WatchUi.DataField {
+
+    // ---- Colors (hue = system, brightness = draining now, red = empty) ----
+    hidden const COL_PCR_DULL   = 0x5A3A6E;  // muted purple  (idle / recovering)
+    hidden const COL_PCR_BRIGHT = 0xB44DFF;  // bright purple (actively depleting)
+    hidden const COL_GLY_DULL   = 0x2E5A3A;  // muted green
+    hidden const COL_GLY_BRIGHT = 0x37E85A;  // bright green
+    hidden const COL_RED        = 0xFF0000;  // depleted, flashing
+
+    // ---- FIT field ids ----
+    hidden const FID_PCR_PCT  = 0;
+    hidden const FID_GLY_PCT  = 1;
+    hidden const FID_PCR_CONS = 2;
+    hidden const FID_GLY_CONS = 3;
+    hidden const FID_PCR_KJ   = 4;
+    hidden const FID_GLY_KJ   = 5;
+
+    // ---- Settings ----
+    hidden var mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta;
+    // ---- Derived capacities ----
+    hidden var mCapP, mCapG;
+    // ---- State ----
+    hidden var mRP, mRG;        // reserves (J)
+    hidden var mDepP, mDepG;    // session totals depleted per system (J)
+    hidden var mConsP, mConsG;  // live draw (W)
+    hidden var mExhausted;
+    hidden var mFlashOn;
+    hidden var mStarted;
+    // ---- FIT fields ----
+    hidden var mFPcrPct, mFGlyPct, mFPcrCons, mFGlyCons, mFPcrKj, mFGlyKj;
+    // ---- Draw resources ----
+    hidden var mFontLabel, mFontValue, mFontSmall;
+
+    function initialize() {
+        DataField.initialize();
+        reloadSettings();
+
+        mRP = mCapP;
+        mRG = mCapG;
+        mDepP = 0.0;
+        mDepG = 0.0;
+        mConsP = 0.0;
+        mConsG = 0.0;
+        mExhausted = false;
+        mFlashOn = false;
+        mStarted = false;
+
+        // Per-second record streams
+        mFPcrPct  = createField("PCr_pct",  FID_PCR_PCT,  FitContributor.DATA_TYPE_FLOAT,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "%" });
+        mFGlyPct  = createField("GLY_pct",  FID_GLY_PCT,  FitContributor.DATA_TYPE_FLOAT,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "%" });
+        mFPcrCons = createField("PCr_cons", FID_PCR_CONS, FitContributor.DATA_TYPE_SINT16,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "W" });
+        mFGlyCons = createField("GLY_cons", FID_GLY_CONS, FitContributor.DATA_TYPE_SINT16,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "W" });
+        // Session totals (kJ) — finalized at ride save
+        mFPcrKj   = createField("PCr_depleted_kJ", FID_PCR_KJ, FitContributor.DATA_TYPE_FLOAT,
+            { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "kJ" });
+        mFGlyKj   = createField("GLY_depleted_kJ", FID_GLY_KJ, FitContributor.DATA_TYPE_FLOAT,
+            { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "kJ" });
+
+        mFPcrPct.setData(100.0);
+        mFGlyPct.setData(100.0);
+        mFPcrCons.setData(0);
+        mFGlyCons.setData(0);
+        mFPcrKj.setData(0.0);
+        mFGlyKj.setData(0.0);
+    }
+
+    hidden function propNum(key, dflt) {
+        var v = Application.Properties.getValue(key);
+        if (v == null) { return dflt; }
+        return v;
+    }
+
+    // Public so the app can push live settings changes.
+    function reloadSettings() {
+        mCP      = propNum("CP", 250).toFloat();
+        mWprime  = propNum("Wprime", 20000).toFloat();
+        mFP      = propNum("fP", 0.35).toFloat();
+        mPPmax   = propNum("pPmax", 300).toFloat();
+        mTauP    = propNum("tauP", 22).toFloat();
+        mTauG    = propNum("tauG", 360).toFloat();
+        mLt1Frac = propNum("lt1Frac", 0.80).toFloat();
+        mEta     = propNum("eta", 0.80).toFloat();
+
+        if (mCP < 1.0)     { mCP = 1.0; }
+        if (mWprime < 1.0) { mWprime = 1.0; }
+        if (mFP < 0.0)     { mFP = 0.0; }
+        if (mFP > 1.0)     { mFP = 1.0; }
+        if (mTauP < 1.0)   { mTauP = 1.0; }
+        if (mTauG < 1.0)   { mTauG = 1.0; }
+
+        mCapP = mFP * mWprime;
+        mCapG = (1.0 - mFP) * mWprime;
+        if (mCapP < 1.0) { mCapP = 1.0; }
+        if (mCapG < 1.0) { mCapG = 1.0; }
+
+        // Re-clamp existing reserves to any new capacities.
+        if (mRP != null && mRP > mCapP) { mRP = mCapP; }
+        if (mRG != null && mRG > mCapG) { mRG = mCapG; }
+    }
+
+    // Fresh-ride initialization: full tanks, zeroed session totals.
+    hidden function resetSession() {
+        mRP = mCapP;
+        mRG = mCapG;
+        mDepP = 0.0;
+        mDepG = 0.0;
+        mConsP = 0.0;
+        mConsG = 0.0;
+        mExhausted = false;
+    }
+
+    function onTimerStart() {
+        if (!mStarted) { resetSession(); mStarted = true; }
+    }
+
+    function onTimerReset() {
+        resetSession();
+        mStarted = false;
+    }
+
+    function onLayout(dc) {
+        mFontLabel = Graphics.FONT_XTINY;
+        mFontValue = Graphics.FONT_TINY;
+        mFontSmall = Graphics.FONT_XTINY;
+    }
+
+    //------------------------------------------------------------------
+    // Model step — called once per second by the system.
+    //------------------------------------------------------------------
+    function compute(info) {
+        var p = 0.0;
+        if (info != null && (info has :currentPower) && info.currentPower != null) {
+            p = info.currentPower.toFloat();
+        }
+
+        var dt = 1.0;
+        var delta = p - mCP;
+        var takeP = 0.0;
+        var takeG = 0.0;
+
+        if (delta > 0.0) {
+            // DEPLETION — PCr first (rate-limited), glycolytic covers the remainder.
+            var need = delta * dt;
+
+            takeP = need;
+            if (takeP > mRP) { takeP = mRP; }
+            var pcap = mPPmax * dt;
+            if (takeP > pcap) { takeP = pcap; }
+            mRP -= takeP;
+            need -= takeP;
+
+            takeG = need;
+            if (takeG > mRG) { takeG = mRG; }
+            mRG -= takeG;
+            need -= takeG;
+
+            mDepP += takeP;
+            mDepG += takeG;
+            mExhausted = (need > 0.0);
+            mConsP = takeP / dt;
+            mConsG = takeG / dt;
+        } else {
+            // RESTORATION
+            mRP += mEta * (mCapP - mRP) * (1.0 - Math.exp(-dt / mTauP));
+            var lt1 = mLt1Frac * mCP;
+            if (p < lt1 && lt1 > 0.0) {
+                var gate = (lt1 - p) / lt1;
+                mRG += gate * (mCapG - mRG) * (1.0 - Math.exp(-dt / mTauG));
+            }
+            mConsP = 0.0;
+            mConsG = 0.0;
+            mExhausted = false;
+        }
+
+        // Clamp
+        if (mRP < 0.0) { mRP = 0.0; }
+        if (mRP > mCapP) { mRP = mCapP; }
+        if (mRG < 0.0) { mRG = 0.0; }
+        if (mRG > mCapG) { mRG = mCapG; }
+
+        var pctP = 100.0 * mRP / mCapP;
+        var pctG = 100.0 * mRG / mCapG;
+
+        // FIT: per-second reserve streams + live consumption
+        mFPcrPct.setData(pctP);
+        mFGlyPct.setData(pctG);
+        mFPcrCons.setData(mConsP.toNumber());
+        mFGlyCons.setData(mConsG.toNumber());
+        // FIT: running session totals (kJ) — SDK keeps last value as summary
+        mFPcrKj.setData(mDepP / 1000.0);
+        mFGlyKj.setData(mDepG / 1000.0);
+
+        // Drive the depleted-bar blink (toggles at 1 Hz -> ~0.5 Hz visible).
+        mFlashOn = !mFlashOn;
+
+        return pctP;
+    }
+
+    //------------------------------------------------------------------
+    // Rendering — two stacked horizontal bars.
+    //------------------------------------------------------------------
+    function onUpdate(dc) {
+        var bg = getBackgroundColor();
+        var fg = (bg == Graphics.COLOR_BLACK) ? Graphics.COLOR_WHITE : Graphics.COLOR_BLACK;
+        dc.setColor(bg, bg);
+        dc.clear();
+
+        var w = dc.getWidth();
+        var h = dc.getHeight();
+
+        if (mCP <= 0.0 || mWprime <= 0.0) {
+            dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(w / 2, h / 2, mFontValue, "SET CP/W'",
+                Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+            return;
+        }
+
+        var pctP = 100.0 * mRP / mCapP;
+        var pctG = 100.0 * mRG / mCapG;
+
+        var pad = 4;
+        var labelW = 30;
+        var valueW = 42;
+        var barH = (h - 3 * pad) / 2;
+        if (barH > 34) { barH = 34; }
+        if (barH < 6)  { barH = 6; }
+        var yTop = pad;
+        var yBot = h - pad - barH;
+        var xBar = pad + labelW;
+        var barW = w - xBar - valueW - pad;
+        if (barW < 10) { barW = 10; }
+
+        drawBar(dc, xBar, yTop, barW, barH, pctP, true, fg);
+        drawBar(dc, xBar, yBot, barW, barH, pctG, false, fg);
+
+        // Labels (left) and percentages (right)
+        dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(pad, yTop + barH / 2, mFontLabel, "PCr",
+            Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
+        dc.drawText(pad, yBot + barH / 2, mFontLabel, "GLY",
+            Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
+        dc.drawText(w - pad, yTop + barH / 2, mFontValue, fmtPct(pctP),
+            Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
+        dc.drawText(w - pad, yBot + barH / 2, mFontValue, fmtPct(pctG),
+            Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
+    }
+
+    hidden function fmtPct(v) {
+        return v.toNumber().toString() + "%";
+    }
+
+    hidden function drawBar(dc, x, y, bw, bh, pct, isPcr, fg) {
+        // Empty-track outline so 0% is still visible.
+        dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+        dc.drawRectangle(x, y, bw, bh);
+
+        var depleted = (pct <= 3.0);
+        var draining = isPcr ? (mConsP > 0.0) : (mConsG > 0.0);
+
+        var col;
+        if (depleted) {
+            if (!mFlashOn) { return; }   // blink: skip fill on the "off" frame
+            col = COL_RED;
+        } else if (draining) {
+            col = isPcr ? COL_PCR_BRIGHT : COL_GLY_BRIGHT;
+        } else {
+            col = isPcr ? COL_PCR_DULL : COL_GLY_DULL;
+        }
+
+        var fillW = ((bw - 2) * pct / 100.0).toNumber();
+        if (fillW < 0) { fillW = 0; }
+        if (fillW > bw - 2) { fillW = bw - 2; }
+        dc.setColor(col, Graphics.COLOR_TRANSPARENT);
+        dc.fillRectangle(x + 1, y + 1, fillW, bh - 2);
+
+        // Live consumption readout while draining.
+        if (draining && !depleted) {
+            var wtxt = "-" + (isPcr ? mConsP : mConsG).toNumber().toString() + "W";
+            dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(x + bw - 3, y + bh / 2, mFontSmall, wtxt,
+                Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
+        }
+    }
+}

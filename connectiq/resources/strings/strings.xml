@@ -1,0 +1,21 @@
+<strings>
+    <string id="AppName">Dual Tank Anaerobic</string>
+
+    <!-- Settings screen titles / prompts -->
+    <string id="sCP">Critical Power (W)</string>
+    <string id="sCPp">Highest sustainable power; from a CP test (~FTP+a few %).</string>
+    <string id="sWprime">W-prime (J)</string>
+    <string id="sWprimep">Total work capacity above CP, in joules (e.g. 20000).</string>
+    <string id="sFP">PCr fraction of W-prime</string>
+    <string id="sFPp">Share of W-prime assigned to the phosphocreatine tank (0-1).</string>
+    <string id="sPPmax">PCr max power (W)</string>
+    <string id="sPPmaxp">Max rate the PCr tank can deliver above CP.</string>
+    <string id="sTauP">PCr recovery tau (s)</string>
+    <string id="sTauPp">Time constant of phosphocreatine recovery (fast, ~22 s).</string>
+    <string id="sTauG">Glycolytic recovery tau (s)</string>
+    <string id="sTauGp">Time constant of glycolytic recovery (slow, ~360 s).</string>
+    <string id="sLt1">LT1 fraction of CP</string>
+    <string id="sLt1p">Below this fraction of CP the glycolytic tank refills (~0.80).</string>
+    <string id="sEta">PCr recovery efficiency</string>
+    <string id="sEtap">Fraction of recovery energy stored as usable PCr (0-1).</string>
+</strings>

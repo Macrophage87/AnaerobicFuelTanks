@@ -1,0 +1,26 @@
+<settings>
+    <setting propertyKey="@Properties.CP" title="@Strings.sCP" prompt="@Strings.sCPp">
+        <settingConfig type="numeric" min="50" max="700"/>
+    </setting>
+    <setting propertyKey="@Properties.Wprime" title="@Strings.sWprime" prompt="@Strings.sWprimep">
+        <settingConfig type="numeric" min="1000" max="60000"/>
+    </setting>
+    <setting propertyKey="@Properties.fP" title="@Strings.sFP" prompt="@Strings.sFPp">
+        <settingConfig type="numeric" min="0.0" max="1.0"/>
+    </setting>
+    <setting propertyKey="@Properties.pPmax" title="@Strings.sPPmax" prompt="@Strings.sPPmaxp">
+        <settingConfig type="numeric" min="50" max="1500"/>
+    </setting>
+    <setting propertyKey="@Properties.tauP" title="@Strings.sTauP" prompt="@Strings.sTauPp">
+        <settingConfig type="numeric" min="5" max="120"/>
+    </setting>
+    <setting propertyKey="@Properties.tauG" title="@Strings.sTauG" prompt="@Strings.sTauGp">
+        <settingConfig type="numeric" min="60" max="1800"/>
+    </setting>
+    <setting propertyKey="@Properties.lt1Frac" title="@Strings.sLt1" prompt="@Strings.sLt1p">
+        <settingConfig type="numeric" min="0.3" max="1.0"/>
+    </setting>
+    <setting propertyKey="@Properties.eta" title="@Strings.sEta" prompt="@Strings.sEtap">
+        <settingConfig type="numeric" min="0.1" max="1.0"/>
+    </setting>
+</settings>
