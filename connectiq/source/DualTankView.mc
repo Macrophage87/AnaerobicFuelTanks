@@ -220,7 +220,7 @@ class DualTankView extends WatchUi.DataField {
     hidden function applyRestRecovery(secs) {
         if (secs <= 0) { return; }
         // Glycolytic first (gate = 1 at rest): b = 1 - e^(-1/tauG)
-        var bG = 1.0 - Math.exp(-1.0 / mTauG);
+        var bG = 1.0 - Math.pow(Math.E, -1.0 / mTauG);
         if (bG < 0.0) { bG = 0.0; }
         if (bG > 1.0) { bG = 1.0; }
         mRG = mCapG - (mCapG - mRG) * Math.pow(1.0 - bG, secs);
@@ -229,7 +229,7 @@ class DualTankView extends WatchUi.DataField {
         // PCr with fatigue-slowed tau, evaluated at the (now largely recovered)
         // glycolytic fill: a = eta * (1 - e^(-1/tauPeff))
         var tauPeff = pcrTau();
-        var aP = mEta * (1.0 - Math.exp(-1.0 / tauPeff));
+        var aP = mEta * (1.0 - Math.pow(Math.E, -1.0 / tauPeff));
         if (aP < 0.0) { aP = 0.0; }
         if (aP > 1.0) { aP = 1.0; }
         mRP = mCapP - (mCapP - mRP) * Math.pow(1.0 - aP, secs);
@@ -312,7 +312,7 @@ class DualTankView extends WatchUi.DataField {
         var supply = mCP;
         if (mTauAer > 0.0) {
             var tgt = (p < mCP) ? p : mCP;
-            mAer += (tgt - mAer) * (1.0 - Math.exp(-dt / mTauAer));
+            mAer += (tgt - mAer) * (1.0 - Math.pow(Math.E, -dt / mTauAer));
             if (mAer < 0.0) { mAer = 0.0; }
             if (mAer > mCP) { mAer = mCP; }
             supply = mAer;
@@ -348,11 +348,11 @@ class DualTankView extends WatchUi.DataField {
         } else {
             // RESTORATION — PCr with fatigue-slowed tau; glycolytic gated below LT1.
             var tauPeff = pcrTau();
-            mRP += mEta * (mCapP - mRP) * (1.0 - Math.exp(-dt / tauPeff));
+            mRP += mEta * (mCapP - mRP) * (1.0 - Math.pow(Math.E, -dt / tauPeff));
             var lt1 = mLt1Frac * mCP;
             if (p < lt1 && lt1 > 0.0) {
                 var gate = (lt1 - p) / lt1;
-                mRG += gate * (mCapG - mRG) * (1.0 - Math.exp(-dt / mTauG));
+                mRG += gate * (mCapG - mRG) * (1.0 - Math.pow(Math.E, -dt / mTauG));
             }
             mConsP = 0.0;
             mConsG = 0.0;
