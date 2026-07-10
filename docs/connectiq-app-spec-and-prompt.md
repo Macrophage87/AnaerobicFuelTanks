@@ -179,8 +179,14 @@ each compute if simpler) via Application.Properties.getValue, recomputing cP/cG 
 - compute(info) does the model step and returns a value (e.g. pctP) for single-field fallback.
 - onTimerStart / onTimerReset: initialize reserves to full (rP=cP, rG=cG) AND zero the
   session depletion accumulators (depP=0, depG=0) if starting fresh.
-- onTimerPause/onTimerStop: freeze state (no decay while stopped). Optionally persist to Storage.
+- onTimerPause/onTimerStop: freeze depletion (no accumulation while paused) and stamp the pause
+  time. onTimerResume (or a start from a stopped-not-reset timer): recover both tanks in closed
+  form for the ENTIRE elapsed pause at rest — `cap - (cap-R)*(1-a)^N` for N pause-seconds — so a
+  long stop refills correctly even if the device stops calling compute() while paused.
 - Be null-safe on all Activity.Info fields.
+- Realism terms (implemented, tunable): aerobic ramp (`tauAer`, first-order aerobic supply toward
+  min(P,CP); 0 = hard CP) and fatigue-slowed PCr recovery (`tauPeff = tauP*(1+fatK*(1-rG/cG))`;
+  fatK=0 disables). See the scaffold in `../connectiq/`.
 
 ## Quality bar
 - Compiles with the Connect IQ SDK; no runtime allocation in onUpdate; documented constants;

@@ -18,4 +18,8 @@
     <string id="sLt1p">Below this fraction of CP the glycolytic tank refills (~0.80).</string>
     <string id="sEta">PCr recovery efficiency</string>
     <string id="sEtap">Fraction of recovery energy stored as usable PCr (0-1).</string>
+    <string id="sFatK">PCr fatigue slowing</string>
+    <string id="sFatKp">How much low glycolytic reserve slows PCr recovery; 0 disables (~0.75).</string>
+    <string id="sTauAer">Aerobic ramp tau (s)</string>
+    <string id="sTauAerp">Aerobic supply response time toward min(P,CP); 0 = hard CP edge (~25).</string>
 </strings>

@@ -46,8 +46,26 @@ connectiq/
 | `tauG` | glycolytic recovery time constant (s) | 360 |
 | `lt1Frac` | fraction of CP below which glycolytic refills | 0.80 |
 | `eta` | PCr recovery efficiency (0–1) | 0.80 |
+| `fatK` | fatigue slowing of PCr recovery (0 disables) | 0.75 |
+| `tauAer` | aerobic ramp time constant, s (0 = hard CP edge) | 25 |
 
 > `fP` is a modeling choice, not a measured value — personalize it (and the τ's) per athlete.
+
+### Realism terms (now built in, tunable)
+
+- **Aerobic ramp (`tauAer`)** — aerobic supply follows a first-order response toward `min(P, CP)`
+  instead of switching at a hard CP edge, so the tanks absorb the onset oxygen deficit. Set
+  `tauAer = 0` for the original hard-CP behaviour.
+- **Fatigue-slowed PCr recovery (`fatK`)** — `τ_p,eff = τ_p · (1 + fatK·(1 − rG/cG))`, so PCr
+  resynthesis slows as the glycolytic tank empties (the observed bout-to-bout slowing). Set
+  `fatK = 0` to disable.
+
+### Pause / resume
+
+Depletion is **frozen while the timer is paused or stopped** (nothing accumulates). On resume the
+tanks are **recovered in closed form for the entire elapsed pause** (rest recovery), so a long stop
+refills them correctly even if the device stops calling `compute()` while paused. A full activity
+reset re-fills the tanks and zeroes the session kJ totals.
 
 ## Build & run
 
@@ -88,5 +106,5 @@ supra-CP → GLY bleeds and only refills below LT1).
   and validate before trusting absolute numbers (white paper §6–7).
 - The session kJ totals are **gross energy drawn** from each system, so on a long ride they can
   exceed a tank's capacity (a tank can be spent and refilled many times) — that is intended.
-- Optional realism (fatigue-slowed PCr recovery, aerobic ramp) from the white paper is **not** wired
-  up here; this is the clean baseline model.
+- Both realism terms (fatigue-slowed PCr recovery, aerobic ramp) are wired up and on by default;
+  set `fatK = 0` and `tauAer = 0` to recover the clean baseline model.

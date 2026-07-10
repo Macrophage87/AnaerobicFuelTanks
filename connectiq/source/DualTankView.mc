@@ -4,6 +4,7 @@ using Toybox.Activity;
 using Toybox.Application;
 using Toybox.FitContributor;
 using Toybox.Math;
+using Toybox.Time;
 using Toybox.Lang;
 
 //======================================================================
@@ -13,11 +14,22 @@ using Toybox.Lang;
 //   - Energies are in JOULES; power in WATTS; dt = 1 s = one compute() call.
 //   - W' is split into a fast PCr tank (cP) and a slow glycolytic tank (cG);
 //     fP (the split) is a MODELING CHOICE, not a measured quantity.
-//   - Demand above CP is met PCr-first (rate-limited), glycolytic-second.
-//   - Below CP: PCr recovers fast (tauP, efficiency eta); glycolytic recovers
+//   - Demand above the aerobic supply is met PCr-first (rate-limited), glycolytic-second.
+//   - Below supply: PCr recovers (tauP, efficiency eta); glycolytic recovers
 //     slowly (tauG) and only below LT1 (lt1Frac * CP).
 //
-// Implements the reduced model in docs/white-paper-dual-tank-anaerobic-model.md.
+// REALISM TERMS (from white paper, tunable via settings):
+//   - Aerobic ramp: aerobic supply is a first-order response toward min(P,CP) with
+//     time constant tauAer (default 25 s), so the tanks cover the onset O2 deficit.
+//     Set tauAer = 0 to fall back to a hard CP boundary.
+//   - Fatigue-slowed PCr recovery: tauPeff = tauP * (1 + fatK * (1 - rG/cG)), so PCr
+//     resynthesis slows as the glycolytic tank empties. Set fatK = 0 to disable.
+//
+// PAUSE/RESUME: depletion is frozen while paused; on resume the tanks are recovered
+//   in closed form for the entire elapsed pause (rest recovery), with no depletion
+//   accumulated during the pause.
+//
+// Implements the model in docs/white-paper-dual-tank-anaerobic-model.md.
 //
 // TEST TRACES (expected behaviour):
 //   - 5 s @ 800 W then 60 s @ 100 W (CP 250): PCr bar drops sharply & bright,
@@ -45,15 +57,20 @@ class DualTankView extends WatchUi.DataField {
 
     // ---- Settings ----
     hidden var mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta;
+    hidden var mFatK;    // PCr recovery fatigue-slowing coefficient (0 = disabled)
+    hidden var mTauAer;  // aerobic ramp time constant, s (0 = disabled -> hard CP)
     // ---- Derived capacities ----
     hidden var mCapP, mCapG;
     // ---- State ----
     hidden var mRP, mRG;        // reserves (J)
     hidden var mDepP, mDepG;    // session totals depleted per system (J)
     hidden var mConsP, mConsG;  // live draw (W)
+    hidden var mAer;            // aerobic supply (W), when ramp enabled
     hidden var mExhausted;
     hidden var mFlashOn;
     hidden var mStarted;
+    hidden var mPaused;         // timer paused/stopped
+    hidden var mPauseAt;        // unix seconds when the pause began
     // ---- FIT fields ----
     hidden var mFPcrPct, mFGlyPct, mFPcrCons, mFGlyCons, mFPcrKj, mFGlyKj;
     // ---- Draw resources ----
@@ -69,9 +86,12 @@ class DualTankView extends WatchUi.DataField {
         mDepG = 0.0;
         mConsP = 0.0;
         mConsG = 0.0;
+        mAer = 0.0;
         mExhausted = false;
         mFlashOn = false;
         mStarted = false;
+        mPaused = false;
+        mPauseAt = 0;
 
         // Per-second record streams
         mFPcrPct  = createField("PCr_pct",  FID_PCR_PCT,  FitContributor.DATA_TYPE_FLOAT,
@@ -112,6 +132,8 @@ class DualTankView extends WatchUi.DataField {
         mTauG    = propNum("tauG", 360).toFloat();
         mLt1Frac = propNum("lt1Frac", 0.80).toFloat();
         mEta     = propNum("eta", 0.80).toFloat();
+        mFatK    = propNum("fatK", 0.75).toFloat();
+        mTauAer  = propNum("tauAer", 25).toFloat();
 
         if (mCP < 1.0)     { mCP = 1.0; }
         if (mWprime < 1.0) { mWprime = 1.0; }
@@ -119,6 +141,8 @@ class DualTankView extends WatchUi.DataField {
         if (mFP > 1.0)     { mFP = 1.0; }
         if (mTauP < 1.0)   { mTauP = 1.0; }
         if (mTauG < 1.0)   { mTauG = 1.0; }
+        if (mFatK < 0.0)   { mFatK = 0.0; }
+        if (mTauAer < 0.0) { mTauAer = 0.0; }
 
         mCapP = mFP * mWprime;
         mCapG = (1.0 - mFP) * mWprime;
@@ -138,16 +162,94 @@ class DualTankView extends WatchUi.DataField {
         mDepG = 0.0;
         mConsP = 0.0;
         mConsG = 0.0;
+        mAer = 0.0;
         mExhausted = false;
     }
 
+    hidden function nowSec() {
+        return Time.now().value();
+    }
+
+    // On pause/stop: freeze depletion, remember when the pause started.
+    hidden function enterPause() {
+        if (!mPaused) {
+            mPaused = true;
+            mPauseAt = nowSec();
+        }
+    }
+
+    // On resume: recover the tanks for the WHOLE elapsed pause (closed form),
+    // without having accumulated any depletion while paused.
+    hidden function exitPause() {
+        if (mPaused) {
+            var el = nowSec() - mPauseAt;
+            if (el < 0) { el = 0; }
+            applyRestRecovery(el);
+            mAer = 0.0;         // aerobic supply has decayed to rest during the pause
+            mPaused = false;
+        }
+    }
+
+    // Closed-form recovery over `secs` seconds at rest (power = 0), i.e. the
+    // per-second exponential recovery applied N times without a loop:
+    //   cap - R_N = (cap - R_0) * (1 - a)^N
+    hidden function applyRestRecovery(secs) {
+        if (secs <= 0) { return; }
+        // Glycolytic first (gate = 1 at rest): b = 1 - e^(-1/tauG)
+        var bG = 1.0 - Math.exp(-1.0 / mTauG);
+        if (bG < 0.0) { bG = 0.0; }
+        if (bG > 1.0) { bG = 1.0; }
+        mRG = mCapG - (mCapG - mRG) * Math.pow(1.0 - bG, secs);
+        if (mRG < 0.0) { mRG = 0.0; }
+        if (mRG > mCapG) { mRG = mCapG; }
+        // PCr with fatigue-slowed tau, evaluated at the (now largely recovered)
+        // glycolytic fill: a = eta * (1 - e^(-1/tauPeff))
+        var tauPeff = pcrTau();
+        var aP = mEta * (1.0 - Math.exp(-1.0 / tauPeff));
+        if (aP < 0.0) { aP = 0.0; }
+        if (aP > 1.0) { aP = 1.0; }
+        mRP = mCapP - (mCapP - mRP) * Math.pow(1.0 - aP, secs);
+        if (mRP < 0.0) { mRP = 0.0; }
+        if (mRP > mCapP) { mRP = mCapP; }
+    }
+
+    // Fatigue-slowed PCr recovery time constant:
+    //   tauPeff = tauP * (1 + fatK * (1 - rG/cG))   (slows as glycolytic empties)
+    hidden function pcrTau() {
+        var fillG = mRG / mCapG;
+        if (fillG < 0.0) { fillG = 0.0; }
+        if (fillG > 1.0) { fillG = 1.0; }
+        var t = mTauP * (1.0 + mFatK * (1.0 - fillG));
+        if (t < 1.0) { t = 1.0; }
+        return t;
+    }
+
     function onTimerStart() {
-        if (!mStarted) { resetSession(); mStarted = true; }
+        if (!mStarted) {
+            resetSession();
+            mStarted = true;
+            mPaused = false;
+        } else {
+            exitPause();   // resume from a stopped (but not reset) timer
+        }
+    }
+
+    function onTimerResume() {
+        exitPause();
+    }
+
+    function onTimerPause() {
+        enterPause();
+    }
+
+    function onTimerStop() {
+        enterPause();
     }
 
     function onTimerReset() {
         resetSession();
         mStarted = false;
+        mPaused = false;
     }
 
     function onLayout(dc) {
@@ -160,13 +262,41 @@ class DualTankView extends WatchUi.DataField {
     // Model step — called once per second by the system.
     //------------------------------------------------------------------
     function compute(info) {
+        // While paused/stopped: freeze depletion (no accumulation). Recovery for
+        // the pause is applied in one shot on resume (see exitPause()).
+        if (mPaused) {
+            mConsP = 0.0;
+            mConsG = 0.0;
+            mFPcrPct.setData(100.0 * mRP / mCapP);
+            mFGlyPct.setData(100.0 * mRG / mCapG);
+            mFPcrCons.setData(0);
+            mFGlyCons.setData(0);
+            return 100.0 * mRP / mCapP;
+        }
+
         var p = 0.0;
         if (info != null && (info has :currentPower) && info.currentPower != null) {
             p = info.currentPower.toFloat();
         }
 
         var dt = 1.0;
-        var delta = p - mCP;
+
+        // Aerobic supply: first-order ramp toward min(P, CP) with tauAer, so the
+        // anaerobic tanks cover the onset "oxygen deficit". tauAer <= 0 disables
+        // the ramp and falls back to a hard CP boundary.
+        var supply;
+        if (mTauAer > 0.0) {
+            var tgt = (p < mCP) ? p : mCP;
+            mAer += (tgt - mAer) * (1.0 - Math.exp(-dt / mTauAer));
+            if (mAer < 0.0) { mAer = 0.0; }
+            if (mAer > mCP) { mAer = mCP; }
+            supply = mAer;
+        } else {
+            supply = mCP;
+            mAer = mCP;
+        }
+
+        var delta = p - supply;
         var takeP = 0.0;
         var takeG = 0.0;
 
@@ -192,8 +322,9 @@ class DualTankView extends WatchUi.DataField {
             mConsP = takeP / dt;
             mConsG = takeG / dt;
         } else {
-            // RESTORATION
-            mRP += mEta * (mCapP - mRP) * (1.0 - Math.exp(-dt / mTauP));
+            // RESTORATION — PCr with fatigue-slowed tau; glycolytic gated below LT1.
+            var tauPeff = pcrTau();
+            mRP += mEta * (mCapP - mRP) * (1.0 - Math.exp(-dt / tauPeff));
             var lt1 = mLt1Frac * mCP;
             if (p < lt1 && lt1 > 0.0) {
                 var gate = (lt1 - p) / lt1;
