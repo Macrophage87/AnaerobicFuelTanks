@@ -1,0 +1,41 @@
+Dual-Tank Anaerobic — see your two anaerobic energy systems, live.
+
+Most power models treat your anaerobic capacity ("W-prime") as a single tank. Your body has two, and they behave very differently:
+
+- PCr (phosphocreatine / alactic) — your "punch." Highest power, small capacity, refills fast (seconds) once you ease off.
+- GLY (glycolytic / lactic) — your "sustained dig." Larger capacity, lower power, refills slowly (minutes) and only when you drop below threshold.
+
+Dual-Tank Anaerobic splits your anaerobic reserve into these two tanks and drives them entirely from your power meter, so at a glance you can see WHICH system you're spending and HOW FAST each will come back.
+
+HOW IT READS
+Two bars, one per system:
+- Dull color = full or recovering
+- Bright color = draining right now (shows live watts)
+- Solid red + flash = tank spent
+PCr is purple, GLY is green.
+
+The layout adapts to your data-field cell:
+- Very wide -> two bars side by side
+- Wide / short -> two bars stacked
+- Full screen -> tanks on top, plus a summary panel with total energy spent per system (kJ) and a live Fatigue level
+- Tall 1x2 cell -> two vertical tanks side by side
+Reads clearly on light and dark themes.
+
+RECORDED TO YOUR RIDE
+Every second it writes PCr% and GLY% reserve (plus live consumption) to the FIT file, and at ride end it saves the total kilojoules drawn from each system. These sync to Garmin Connect and flow on to intervals.icu and Strava for post-ride analysis.
+
+THE MODEL
+Demand above your aerobic supply is met PCr-first (rate-limited), then glycolytic. Recovery is system-specific: PCr recovers fast but is efficiency-limited and slows as you fatigue; glycolytic recovers slowly and only below your first lactate threshold. Optional realism: an aerobic on-ramp for the oxygen deficit at the start of efforts, and fatigue-slowed PCr recovery across repeated bouts. Pauses are handled correctly — the tanks keep refilling for the whole break.
+
+SET IT UP
+Enter your numbers in the field settings:
+- CP (critical power) and W-prime from a power-duration test
+- PCr share of W-prime and its max power
+- Recovery time constants, LT1 fraction, recovery efficiency
+- Fatigue and aerobic-ramp strength (set to 0 to disable)
+Defaults are sensible; personalize for best accuracy.
+
+WHO IT'S FOR
+Racers and interval riders who attack, recover, and repeat — criteriums, cyclocross, punchy road races, hard group rides — where knowing whether you have one more surge in you actually matters.
+
+Note: tank levels are a pacing model, not a measurement of muscle chemistry. Calibrate to your own testing and treat them as a guide. Requires a cycling power meter.
