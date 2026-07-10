@@ -377,9 +377,20 @@ class DualTankView extends WatchUi.DataField {
     //------------------------------------------------------------------
     // Rendering — two stacked horizontal bars.
     //------------------------------------------------------------------
+    // Readable foreground for ANY background (black, white, gray, or custom color),
+    // chosen by luminance so the field works on light and dark themes alike.
+    hidden function contrastColor(bg) {
+        if (bg == Graphics.COLOR_TRANSPARENT) { return Graphics.COLOR_WHITE; }
+        var r = (bg >> 16) & 0xFF;
+        var g = (bg >> 8) & 0xFF;
+        var b = bg & 0xFF;
+        var lum = (r * 30 + g * 59 + b * 11) / 100;   // ~perceived brightness 0..255
+        return (lum > 140) ? Graphics.COLOR_BLACK : Graphics.COLOR_WHITE;
+    }
+
     function onUpdate(dc) {
         var bg = getBackgroundColor();
-        var fg = (bg == Graphics.COLOR_BLACK) ? Graphics.COLOR_WHITE : Graphics.COLOR_BLACK;
+        var fg = contrastColor(bg);
         dc.setColor(bg, bg);
         dc.clear();
 

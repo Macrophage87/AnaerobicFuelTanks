@@ -22,9 +22,14 @@ def font(sz):
     try: return ImageFont.truetype(FONT, sz)
     except: return ImageFont.load_default()
 
-def draw_bar(d, x, y, bw, bh, pct, is_pcr, cons, flash_on):
-    # outline track (fg white), matches dc.drawRectangle
-    d.rectangle([x, y, x + bw, y + bh], outline=WHITE, width=3)
+def contrast(bg):
+    r, g, b = bg
+    lum = (r*30 + g*59 + b*11) // 100
+    return BLACK if lum > 140 else WHITE
+
+def draw_bar(d, x, y, bw, bh, pct, is_pcr, cons, flash_on, fg):
+    # outline track (fg), matches dc.drawRectangle
+    d.rectangle([x, y, x + bw, y + bh], outline=fg, width=3)
     depleted = pct <= 3.0
     draining = cons > 0
     col = PCR_DULL if is_pcr else GLY_DULL
@@ -44,11 +49,13 @@ def draw_bar(d, x, y, bw, bh, pct, is_pcr, cons, flash_on):
         wtxt = "-{}W".format(int(cons))
         f = font(int(bh * 0.34))
         tb = d.textbbox((0, 0), wtxt, font=f)
-        d.text((x + bw - 10 - (tb[2]-tb[0]), y + bh//2 - (tb[3]-tb[1])//2 - tb[1]), wtxt, font=f, fill=WHITE)
+        # text sits over the bright fill on the left / bg on the right; use fg for legibility
+        d.text((x + bw - 10 - (tb[2]-tb[0]), y + bh//2 - (tb[3]-tb[1])//2 - tb[1]), wtxt, font=f, fill=fg)
 
-def render_field(W, H, st):
-    """st = dict(pctP,pctG,consP,consG,flash)"""
-    img = Image.new("RGB", (W, H), BLACK)
+def render_field(W, H, st, bg=BLACK):
+    """st = dict(pctP,pctG,consP,consG,flash); bg = field background color"""
+    fg = contrast(bg)
+    img = Image.new("RGB", (W, H), bg)
     d = ImageDraw.Draw(img)
     pad = int(W * 0.035)
     labelW = int(W * 0.11)
@@ -59,18 +66,18 @@ def render_field(W, H, st):
     xBar = pad + labelW
     barW = W - xBar - valueW - pad
 
-    draw_bar(d, xBar, yTop, barW, barH, st["pctP"], True,  st["consP"], st["flash"])
-    draw_bar(d, xBar, yBot, barW, barH, st["pctG"], False, st["consG"], st["flash"])
+    draw_bar(d, xBar, yTop, barW, barH, st["pctP"], True,  st["consP"], st["flash"], fg)
+    draw_bar(d, xBar, yBot, barW, barH, st["pctG"], False, st["consG"], st["flash"], fg)
 
     lf = font(int(barH * 0.5))
     vf = font(int(barH * 0.52))
     for (yy, lab) in [(yTop, "PCr"), (yBot, "GLY")]:
         lb = d.textbbox((0, 0), lab, font=lf)
-        d.text((pad, yy + barH//2 - (lb[3]-lb[1])//2 - lb[1]), lab, font=lf, fill=WHITE)
+        d.text((pad, yy + barH//2 - (lb[3]-lb[1])//2 - lb[1]), lab, font=lf, fill=fg)
     for (yy, pct) in [(yTop, st["pctP"]), (yBot, st["pctG"])]:
         t = "{}%".format(int(round(pct)))
         tb = d.textbbox((0, 0), t, font=vf)
-        d.text((W - pad - (tb[2]-tb[0]), yy + barH//2 - (tb[3]-tb[1])//2 - tb[1]), t, font=vf, fill=WHITE)
+        d.text((W - pad - (tb[2]-tb[0]), yy + barH//2 - (tb[3]-tb[1])//2 - tb[1]), t, font=vf, fill=fg)
     return img
 
 def device_frame(field, caption):
@@ -123,6 +130,20 @@ def make_screens():
     sp = os.path.join(OUT, "screenshots_grid.png")
     strip.save(sp, "PNG")
     print("grid:", sp, os.path.getsize(sp)//1024, "KB")
+
+    # light-background proof: same states rendered on a white field
+    WHITE_BG = (255, 255, 255)
+    lframes = []
+    for key, cap, st in STATES:
+        field = render_field(FW, FH, st, bg=WHITE_BG)
+        lframes.append((cap, device_frame(field, cap + "  (light)")))
+    lstrip = Image.new("RGB", (cols*gw + (cols+1)*gap, rows*gh + (rows+1)*gap), (16,17,22))
+    for i,(cap,dev) in enumerate(lframes):
+        r,c = divmod(i, cols)
+        lstrip.paste(dev, (gap + c*(gw+gap), gap + r*(gh+gap)))
+    lp = os.path.join(OUT, "screenshots_grid_light.png")
+    lstrip.save(lp, "PNG")
+    print("grid(light):", lp, os.path.getsize(lp)//1024, "KB")
 
 def make_palette_icon():
     src = Image.open(os.path.join(OUT, "device_icon_128_24bit.png")).convert("RGB")
