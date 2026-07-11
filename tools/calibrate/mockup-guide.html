@@ -1,0 +1,69 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  :root{--pcr:#B44DFF;--gly:#37E85A;--brass:#C9A227;--parch:#EDE0C8;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Georgia,'Times New Roman',serif;color:var(--parch);
+    background:radial-gradient(1200px 800px at 30% -10%,#3a2817 0%,#20160E 60%,#150e07 100%);}
+  .head{display:flex;align-items:center;justify-content:center;height:56px;
+    background:linear-gradient(180deg,#3a2817,#20160E);border-bottom:2px solid var(--brass);
+    font-weight:bold;letter-spacing:.14em;color:var(--brass);font-size:22px;text-shadow:0 1px 0 #000}
+  .main{padding:16px 20px}
+  .tabs{display:flex;gap:4px;margin-bottom:-2px}
+  .tab{padding:8px 14px;font-size:13px;border:2px solid var(--brass);border-bottom:none;border-radius:9px 9px 0 0;
+    color:var(--parch);background:linear-gradient(180deg,#2b1e12,#1a120a)}
+  .tab.active{background:var(--brass);color:#20160E;font-weight:bold}
+  .card{border:2px solid var(--brass);border-radius:12px;background:linear-gradient(180deg,#2b1e12,#1a120a);
+    box-shadow:inset 0 0 0 1px rgba(201,162,39,.25),0 8px 22px rgba(0,0,0,.55);padding:20px 24px}
+  .guide{max-width:920px;line-height:1.5}
+  .guide h4{color:var(--brass);margin:16px 0 6px;letter-spacing:.05em}
+  .guide h4:first-child{margin-top:0}
+  .guide li{margin:5px 0} .guide p{margin:6px 0}
+  .guide table{border-collapse:collapse;margin:8px 0} .guide th,.guide td{border:1px solid var(--brass);padding:5px 11px;text-align:left}
+  .guide th{color:var(--brass);background:rgba(0,0,0,.25)}
+  .guide .pcr{color:var(--pcr);font-weight:bold} .guide .gly{color:var(--gly);font-weight:bold}
+</style></head><body>
+  <div class="head">⚙&nbsp;&nbsp;DUAL-TANK PARAMETER ESTIMATOR&nbsp;&nbsp;⚙</div>
+  <div class="main">
+    <div class="tabs">
+      <div class="tab active">★ Guide</div><div class="tab">Power-duration</div>
+      <div class="tab">CP / W' fit</div><div class="tab">Anchor editor</div>
+      <div class="tab">Recovery fit</div><div class="tab">App parameters</div><div class="tab">Trends</div>
+    </div>
+    <div class="card"><div class="guide">
+      <h4>What this tool does</h4>
+      <p>Upload your ride files and it estimates the parameters for the <span class="pcr">PCr</span> /
+      <span class="gly">glycolytic</span> dual-tank Connect IQ data field, flagging anything it cannot pin down.</p>
+
+      <h4>Step by step</h4>
+      <ol>
+      <li><b>Upload FIT files</b> in the Boiler Room (left): best-effort tests, races, hard group rides, interval sets.</li>
+      <li>Read <b>CP</b> and <b>W'</b> on the <i>Power-duration</i> and <i>CP / W' fit</i> tabs — the most reliable numbers.</li>
+      <li>On <i>Anchor editor</i>, <b>click each ride's reserve trace</b> where you were maximal or cracked
+      (final sprint, an attack you could not follow, the moment you got dropped). Tick repeated-bout
+      workouts as <b>interval sets</b> in the sidebar.</li>
+      <li>Press <b>Fit fP / tauP / tauG / eta on every ride</b>. Per-ride results appear on <i>Recovery fit</i>;
+      the final set with uncertainty flags is on <i>App parameters</i>.</li>
+      <li><b>Export</b> (sidebar): a Connect IQ settings file, a dated YAML reading, or a PDF report.</li>
+      </ol>
+
+      <h4>What it can and cannot know</h4>
+      <table>
+      <tr><th>Parameter</th><th>Source</th><th>Reliable?</th></tr>
+      <tr><td>CP, Wprime, pPmax</td><td>best across all files (power-duration curve)</td><td>yes</td></tr>
+      <tr><td>fP, tauP, tauG, eta</td><td>model fit on rides with maximal anchors</td><td>only with the right data</td></tr>
+      <tr><td>lt1Frac, fatK, tauAer</td><td>defaults</td><td>need special tests</td></tr>
+      </table>
+      <p>A single all-out effort obeys t_lim = W'/(P-CP), so it gives only CP and W'. The tank split and
+      recovery rates appear only across <b>repeated efforts with recovery</b>, and only where you anchor
+      maximal moments.</p>
+
+      <h4>Applying the settings</h4>
+      <p><b>Export Connect IQ settings (JSON)</b> writes a file keyed exactly like the data field's settings.
+      Type those values into Garmin Connect → the field's settings (Garmin does not import files), or load
+      the JSON in the Connect IQ simulator or your own build.</p>
+
+      <h4>Colour key</h4>
+      <p><span class="pcr">Purple = PCr</span> (fast, small tank) ·
+      <span class="gly">Green = glycolytic</span> (slow, large tank). Lines marked <b>uncertain</b> are weakly constrained.</p>
+    </div></div>
+  </div>
+</body></html>

@@ -7,7 +7,7 @@ anaerobic energy systems live from cycling power:
 - **GLY (glycolytic / lactic)** — green bar, "how much sustained dig is left"
 
 Each bar fills left→right with the reserve %, is **dull** when idle/recovering, **bright** when
-that system is actively being drained, and turns **solid red and flashes** when the tank empties.
+that system is actively being drained, and turns **solid red and flashes** when the tank empties. The bars have rounded, tank-like ends.
 It implements the reduced dual-tank model in
 [`../docs/white-paper-dual-tank-anaerobic-model.md`](../docs/white-paper-dual-tank-anaerobic-model.md);
 the full field/UI/FIT spec is in

@@ -220,7 +220,7 @@ class DualTankView extends WatchUi.DataField {
     hidden function applyRestRecovery(secs) {
         if (secs <= 0) { return; }
         // Glycolytic first (gate = 1 at rest): b = 1 - e^(-1/tauG)
-        var bG = 1.0 - Math.exp(-1.0 / mTauG);
+        var bG = 1.0 - Math.pow(Math.E, -1.0 / mTauG);
         if (bG < 0.0) { bG = 0.0; }
         if (bG > 1.0) { bG = 1.0; }
         mRG = mCapG - (mCapG - mRG) * Math.pow(1.0 - bG, secs);
@@ -229,7 +229,7 @@ class DualTankView extends WatchUi.DataField {
         // PCr with fatigue-slowed tau, evaluated at the (now largely recovered)
         // glycolytic fill: a = eta * (1 - e^(-1/tauPeff))
         var tauPeff = pcrTau();
-        var aP = mEta * (1.0 - Math.exp(-1.0 / tauPeff));
+        var aP = mEta * (1.0 - Math.pow(Math.E, -1.0 / tauPeff));
         if (aP < 0.0) { aP = 0.0; }
         if (aP > 1.0) { aP = 1.0; }
         mRP = mCapP - (mCapP - mRP) * Math.pow(1.0 - aP, secs);
@@ -312,7 +312,7 @@ class DualTankView extends WatchUi.DataField {
         var supply = mCP;
         if (mTauAer > 0.0) {
             var tgt = (p < mCP) ? p : mCP;
-            mAer += (tgt - mAer) * (1.0 - Math.exp(-dt / mTauAer));
+            mAer += (tgt - mAer) * (1.0 - Math.pow(Math.E, -dt / mTauAer));
             if (mAer < 0.0) { mAer = 0.0; }
             if (mAer > mCP) { mAer = mCP; }
             supply = mAer;
@@ -348,11 +348,11 @@ class DualTankView extends WatchUi.DataField {
         } else {
             // RESTORATION — PCr with fatigue-slowed tau; glycolytic gated below LT1.
             var tauPeff = pcrTau();
-            mRP += mEta * (mCapP - mRP) * (1.0 - Math.exp(-dt / tauPeff));
+            mRP += mEta * (mCapP - mRP) * (1.0 - Math.pow(Math.E, -dt / tauPeff));
             var lt1 = mLt1Frac * mCP;
             if (p < lt1 && lt1 > 0.0) {
                 var gate = (lt1 - p) / lt1;
-                mRG += gate * (mCapG - mRG) * (1.0 - Math.exp(-dt / mTauG));
+                mRG += gate * (mCapG - mRG) * (1.0 - Math.pow(Math.E, -dt / mTauG));
             }
             mConsP = 0.0;
             mConsG = 0.0;
@@ -575,10 +575,22 @@ class DualTankView extends WatchUi.DataField {
         return isPcr ? COL_PCR_DULL : COL_GLY_DULL;
     }
 
-    // horizontal bar: fills left -> right
+    // rounded-rectangle "tank" fill helper (radius clamped to fit)
+    hidden function fillTank(dc, col, x, y, w, h, r) {
+        if (w <= 0 || h <= 0) { return; }
+        var rr = r - 1;
+        if (rr > w / 2) { rr = w / 2; }
+        if (rr > h / 2) { rr = h / 2; }
+        if (rr < 1) { rr = 1; }
+        dc.setColor(col, Graphics.COLOR_TRANSPARENT);
+        dc.fillRoundedRectangle(x, y, w, h, rr);
+    }
+
+    // horizontal bar: rounded "tank" filling left -> right
     hidden function drawBarH(dc, x, y, bw, bh, pct, isPcr, fg) {
+        var r = bh / 3; if (r < 2) { r = 2; }
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-        dc.drawRectangle(x, y, bw, bh);
+        dc.drawRoundedRectangle(x, y, bw, bh, r);
 
         var depleted = (pct <= 3.0);
         var draining = isPcr ? (mConsP > 0.0) : (mConsG > 0.0);
@@ -593,8 +605,7 @@ class DualTankView extends WatchUi.DataField {
             if (fillW < 0) { fillW = 0; }
             if (fillW > bw - 2) { fillW = bw - 2; }
         }
-        dc.setColor(col, Graphics.COLOR_TRANSPARENT);
-        dc.fillRectangle(x + 1, y + 1, fillW, bh - 2);
+        fillTank(dc, col, x + 1, y + 1, fillW, bh - 2, r);
 
         if (draining && !depleted) {
             var wtxt = "-" + (isPcr ? mConsP : mConsG).toNumber().toString() + "W";
@@ -604,10 +615,11 @@ class DualTankView extends WatchUi.DataField {
         }
     }
 
-    // vertical bar: fills bottom -> top
+    // vertical bar: rounded "tank" filling bottom -> top
     hidden function drawBarV(dc, x, y, bw, bh, pct, isPcr, fg) {
+        var r = bw / 3; if (r < 2) { r = 2; }
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-        dc.drawRectangle(x, y, bw, bh);
+        dc.drawRoundedRectangle(x, y, bw, bh, r);
 
         var depleted = (pct <= 3.0);
         var draining = isPcr ? (mConsP > 0.0) : (mConsG > 0.0);
@@ -622,8 +634,7 @@ class DualTankView extends WatchUi.DataField {
             if (fillH < 0) { fillH = 0; }
             if (fillH > bh - 2) { fillH = bh - 2; }
         }
-        dc.setColor(col, Graphics.COLOR_TRANSPARENT);
-        dc.fillRectangle(x + 1, y + bh - 1 - fillH, bw - 2, fillH);
+        fillTank(dc, col, x + 1, y + bh - 1 - fillH, bw - 2, fillH, r);
 
         if (draining && !depleted) {
             var wtxt = "-" + (isPcr ? mConsP : mConsG).toNumber().toString() + "W";

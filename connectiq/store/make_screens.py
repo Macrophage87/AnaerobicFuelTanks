@@ -28,8 +28,8 @@ def contrast(bg):
     return BLACK if lum > 140 else WHITE
 
 def draw_bar(d, x, y, bw, bh, pct, is_pcr, cons, flash_on, fg):
-    # outline track (fg), matches dc.drawRectangle
-    d.rectangle([x, y, x + bw, y + bh], outline=fg, width=3)
+    r = max(2, bh // 3)   # rounded 'tank' corners
+    d.rounded_rectangle([x, y, x + bw, y + bh], radius=r, outline=fg, width=3)
     depleted = pct <= 3.0
     draining = cons > 0
     col = PCR_DULL if is_pcr else GLY_DULL
@@ -43,7 +43,9 @@ def draw_bar(d, x, y, bw, bh, pct, is_pcr, cons, flash_on, fg):
             col = PCR_BRIGHT if is_pcr else GLY_BRIGHT
         fillw = int((bw - 3) * pct / 100.0)
         fillw = max(0, min(bw - 3, fillw))
-    d.rectangle([x + 2, y + 2, x + 2 + fillw, y + bh - 2], fill=col)
+    if fillw > 0:
+        rr = max(1, min(r - 1, fillw // 2, (bh - 4) // 2))
+        d.rounded_rectangle([x + 2, y + 2, x + 2 + fillw, y + bh - 2], radius=rr, fill=col)
     # live consumption readout while draining (inside the bar, right-aligned)
     if draining and not depleted:
         wtxt = "-{}W".format(int(cons))
@@ -81,7 +83,8 @@ def render_field(W, H, st, bg=BLACK):
     return img
 
 def draw_bar_v(d, x, y, bw, bh, pct, is_pcr, cons, flash_on, fg):
-    d.rectangle([x, y, x + bw, y + bh], outline=fg, width=3)
+    r = max(2, bw // 3)   # rounded 'tank' corners
+    d.rounded_rectangle([x, y, x + bw, y + bh], radius=r, outline=fg, width=3)
     depleted = pct <= 3.0
     draining = cons > 0
     col = PCR_DULL if is_pcr else GLY_DULL
@@ -95,7 +98,9 @@ def draw_bar_v(d, x, y, bw, bh, pct, is_pcr, cons, flash_on, fg):
             col = PCR_BRIGHT if is_pcr else GLY_BRIGHT
         fillh = int((bh - 3) * pct / 100.0)
         fillh = max(0, min(bh - 3, fillh))
-    d.rectangle([x + 2, y + bh - 2 - fillh, x + bw - 2, y + bh - 2], fill=col)  # bottom-up
+    if fillh > 0:
+        rr = max(1, min(r - 1, fillh // 2, (bw - 4) // 2))
+        d.rounded_rectangle([x + 2, y + bh - 2 - fillh, x + bw - 2, y + bh - 2], radius=rr, fill=col)  # bottom-up
     if draining and not depleted:
         wtxt = "-{}W".format(int(cons))
         f = font(max(12, int(bw * 0.20)))
