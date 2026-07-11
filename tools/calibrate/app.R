@@ -144,8 +144,36 @@ read_power <- function(path) {
   ff <- try(readFitFile(path), silent = TRUE); if (inherits(ff, "try-error")) return(NULL)
   recs <- try(records(ff), silent = TRUE);     if (inherits(recs, "try-error")) return(NULL)
   if (is.data.frame(recs)) recs <- list(recs)
-  pw <- unlist(lapply(recs, function(df) if ("power" %in% names(df)) as.numeric(df$power) else numeric(0)))
-  pw <- pw[is.finite(pw)]; if (length(pw) < 2) NULL else pw
+  # FITfileR returns ONE table per distinct record field-signature. A power meter
+  # whose optional fields (pedal smoothness, torque effectiveness, respiration,
+  # HRV) drop in and out produces several such tables. Concatenating them blindly
+  # (unlist over the list) scrambles the time axis -- all the hard-pedaling samples
+  # from one signature end up contiguous -- and silently drops autopause gaps, so a
+  # "1200-sample" MMP window becomes 1200 s of back-to-back efforts. That inflates
+  # long-duration MMP and pushes CP far above reality. Merge every sub-table on its
+  # timestamp into a true 1 Hz timeline instead, filling pauses/gaps with 0 W.
+  parts <- lapply(recs, function(df) {
+    if (!all(c("power", "timestamp") %in% names(df))) return(NULL)
+    t <- suppressWarnings(as.numeric(as.POSIXct(df$timestamp)))
+    p <- suppressWarnings(as.numeric(df$power))
+    ok <- is.finite(t) & is.finite(p)
+    if (!any(ok)) return(NULL)
+    data.frame(t = t[ok], p = p[ok])
+  })
+  parts <- do.call(rbind, parts)
+  if (is.null(parts) || nrow(parts) < 2) {
+    # Fallback: no usable timestamps -- treat samples as contiguous 1 Hz (old path).
+    pw <- unlist(lapply(recs, function(df) if ("power" %in% names(df)) as.numeric(df$power) else numeric(0)))
+    pw <- pw[is.finite(pw)]; return(if (length(pw) < 2) NULL else pw)
+  }
+  parts <- parts[order(parts$t), ]
+  parts <- parts[!duplicated(parts$t), ]         # one power per second
+  sec <- round(parts$t - parts$t[1])             # whole seconds from start
+  span <- sec[length(sec)]
+  if (!is.finite(span) || span < 1) return(as.numeric(parts$p))
+  line <- numeric(span + 1)                       # pauses / dropouts -> 0 W
+  line[sec + 1L] <- parts$p
+  line
 }
 best_mean_power <- function(p, d) { n <- length(p); if (n < d) return(NA_real_)
   cs <- cumsum(c(0, p)); max((cs[(d + 1):(n + 1)] - cs[1:(n - d + 1)]) / d) }
@@ -155,8 +183,15 @@ mmp_curve <- function(power_list, durations = DURATIONS)
 fit_cp <- function(dur, pw, tmin, tmax) {
   keep <- which(dur >= tmin & dur <= tmax & is.finite(pw)); if (length(keep) < 2) return(NULL)
   t <- dur[keep]; W <- pw[keep] * t; f <- lm(W ~ t)
-  list(CP = unname(coef(f)[2]), Wprime = unname(coef(f)[1]), r2 = summary(f)$r.squared,
-       n = length(keep), rng = max(t)/min(t), t = t, W = W)
+  CP <- unname(coef(f)[2])
+  # Sanity: the CP asymptote must sit below every finite-duration power in the
+  # window (you can't sustain forever more than you held for 12 min). If it doesn't,
+  # the power-duration curve is corrupt (bad file parse, scrambled timeline) or the
+  # window is too narrow -- flag it rather than reporting an impossible CP.
+  minP <- min(pw[keep])
+  list(CP = CP, Wprime = unname(coef(f)[1]), r2 = summary(f)$r.squared,
+       n = length(keep), rng = max(t)/min(t), t = t, W = W,
+       impossible = is.finite(CP) && is.finite(minP) && CP >= minP)
 }
 simulate_tanks <- function(power, cp, par) {
   n <- length(power); cP <- par$fP * par$Wprime; cG <- (1 - par$fP) * par$Wprime
@@ -296,7 +331,7 @@ server <- function(input, output, session) {
   est_table <- reactive({
     f <- cpfit(); req(f); m <- mmp(); a <- agg()
     p5 <- m$power[m$duration == 5]; pPmax <- if (is.finite(p5)) max(50, round(p5 - f$CP)) else DEFAULTS$pPmax
-    cpWhy <- paste(c(if (f$r2 < 0.95) "low R2", if (f$n < 3) "few efforts", if (f$rng < 5) "narrow durations"), collapse = ", ")
+    cpWhy <- paste(c(if (isTRUE(f$impossible)) "CP above longest effort - check file/window", if (f$r2 < 0.95) "low R2", if (f$n < 3) "few efforts", if (f$rng < 5) "narrow durations"), collapse = ", ")
     recU <- is.null(a) || !a$constrained
     spread <- function(k) !is.null(a) && a$constrained && is.finite(a$cv[[k]]) && a$cv[[k]] > 0.3
     recWhy <- if (is.null(a)) "not fit (defaults)" else "rest too long / few bouts"
@@ -355,7 +390,9 @@ server <- function(input, output, session) {
   output$mmp_tbl  <- DT::renderDataTable(DT::datatable(transform(mmp(), power = round(power)), rownames = FALSE, options = list(pageLength = 8, dom = "tp")))
   output$cp_plot  <- renderPlot({ g <- cp_gg(); validate(need(!is.null(g), "Need >=2 efforts in the window.")); g }, bg = "transparent")
   output$cp_txt   <- renderText({ f <- cpfit(); req(f)
-    sprintf("CP = %.0f W   W' = %.0f J   R^2 = %.3f (n = %d efforts, %.1fx duration range)", f$CP, f$Wprime, f$r2, f$n, f$rng) })
+    paste0(
+      sprintf("CP = %.0f W   W' = %.0f J   R^2 = %.3f (n = %d efforts, %.1fx duration range)", f$CP, f$Wprime, f$r2, f$n, f$rng),
+      if (isTRUE(f$impossible)) "\n⚠ CP is at/above the power you held for the longest effort in the window -- physically impossible. Usually a corrupt power-duration curve (odd FIT parse) or too narrow a fit window; widen the CP window or check the file." else "") })
 
   # ---- anchor editor ----
   output$ride_pick <- renderUI({ pw <- powers(); selectInput("ride", "Ride", choices = setNames(seq_along(pw$p), pw$names)) })

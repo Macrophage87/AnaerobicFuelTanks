@@ -136,7 +136,11 @@ readings:
 
 ## Notes
 
-- FIT files must contain a `power` record field.
+- FIT files must contain a `power` record field. Files are rebuilt onto a true 1 Hz timeline by
+  timestamp — autopause gaps become 0 W, and power meters that add/drop optional fields mid-ride
+  (pedal smoothness, torque effectiveness, respiration, HRV) are merged in time order rather than
+  concatenated by field-signature. Without this, paused/interval files (e.g. VO2max hill reps) yield
+  wildly inflated long-duration power and an impossible CP.
 - Fonts (`Cinzel`, `EB Garamond`) load from Google at startup — needs a network connection the first
   time; swap `font_google(...)` for local fonts to run fully offline.
 - The recovery fit uses `optim` (L-BFGS-B); the feasibility/anchor weighting is a tunable constant —
