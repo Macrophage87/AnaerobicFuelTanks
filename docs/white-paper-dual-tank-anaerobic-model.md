@@ -69,6 +69,28 @@ low intensity, effectively ceasing above the first lactate threshold (LT1).
 first, then glycolytic.** This sequencing — and the very different refill rates — is exactly what
 the dual-tank model must reproduce.
 
+**What the two "tanks" represent — and what they don't.** The "tank" is a deliberate
+simplification for intuition and on-device display, not a claim that either system is a literal
+reservoir that drains. The two sides are not even the same *kind* of quantity:
+
+- The **PCr tank** does correspond to a real, depletable substrate store — intramuscular
+  phosphocreatine — so "PCr empty" is close to literal.
+- The **glycolytic "tank"** is better understood as **tolerance to accumulating fatigue-related
+  metabolites** than as a fuel gauge. On the ~1–4 min timescale it represents, muscle glycogen is
+  nowhere near exhausted; carbohydrate depletion is a separate, hours-long limiter this model does
+  not address. What forces power down at the limit of a hard effort is the buildup of inorganic
+  phosphate (Pi), H⁺ (acidosis), ADP, and extracellular K⁺ toward the limit of tolerance —
+  consistent with exhaustion at CP/W′ coinciding with a reproducible low-PCr / high-metabolite
+  state. (Lactate itself is largely a fuel and a marker, not the cause of force loss.)
+
+This is the physiological reason the two recovery laws differ: PCr resynthesizes quickly, whereas
+the glycolytic side recovers slowly and only at low intensity because it reflects *clearance and
+buffering* of accumulated byproducts, which need aerobic metabolism and time — exactly why the
+model tracks the glycolytic state as an accumulation variable (a muscle-lactate proxy; §4.1) and
+gates its recovery below LT1. Muscle fatigue is multifactorial and still debated; W′ deliberately
+lumps it into one number for usability. In short: **the PCr tank is a fuel that depletes; the
+glycolytic "tank" is a byproduct bucket that fills.**
+
 ---
 
 ## 3. Prior models (and why a reduced dual-tank sits between them)

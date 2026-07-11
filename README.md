@@ -27,6 +27,23 @@ The dual-tank model splits W′ into a fast PCr tank and a slow glycolytic tank,
 **PCr-first** from the power trace, and refills them with **system-specific, intensity-gated**
 laws — so you can see *which* reserve is spent and *how fast* each will come back.
 
+### A note on the "tanks"
+
+"Tank" is a **simplified mental model for an at-a-glance read, not a literal reservoir** — and the
+two sides aren't even the same kind of thing:
+
+- **PCr** really is a small store that depletes (intramuscular phosphocreatine) — "empty" is close
+  to literal.
+- **Glycolytic** is better read as **how much fatigue-metabolite buildup you can still tolerate**
+  (inorganic phosphate, H⁺, ADP, K⁺) — *not* running low on carbohydrate. You have plenty of
+  glycogen on this timescale, and lactate is a fuel/marker, not the cause of fatigue.
+
+That's why the glycolytic side recovers **slowly and only at low intensity** (it reflects *clearing*
+byproducts, which needs aerobic time) while PCr snaps back fast. One-liner: **PCr is a fuel that
+depletes; glycolytic is a byproduct bucket that fills.** Muscle fatigue is multifactorial; the model
+deliberately lumps it into one number for usability. (More in the
+[white paper](docs/white-paper-dual-tank-anaerobic-model.md).)
+
 ---
 
 ## Repository layout
