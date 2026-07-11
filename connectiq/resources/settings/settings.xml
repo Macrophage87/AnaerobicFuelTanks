@@ -29,4 +29,7 @@
     <setting propertyKey="@Properties.tauAer" title="@Strings.sTauAer" prompt="@Strings.sTauAerp">
         <settingConfig type="numeric" min="0" max="120"/>
     </setting>
+    <setting propertyKey="@Properties.tauOn" title="@Strings.sTauOn" prompt="@Strings.sTauOnp">
+        <settingConfig type="numeric" min="0" max="60"/>
+    </setting>
 </settings>

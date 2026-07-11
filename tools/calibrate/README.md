@@ -43,7 +43,7 @@ capacity and CP. So:
 |---|---|---|
 | `CP`, `Wprime`, `pPmax` | best across all files (combined power-duration curve) | ✅ yes |
 | `fP`, `tauP`, `tauG`, `eta` | model fit on rides with maximal **anchors** | ⚠ only with the right data |
-| `lt1Frac`, `fatK`, `tauAer` | defaults | ❌ need special tests |
+| `lt1Frac`, `fatK`, `tauAer`, `tauOn` | defaults (`tauOn` ≈ 6 s, Parolin 1999) | ❌ need special tests / not power-identifiable |
 
 The split and recovery rates only show up across **repeated efforts with recovery**, and only when
 you tell the app where you were at your limit. Everything weakly-constrained is flagged, never
@@ -121,7 +121,8 @@ JSON in the Connect IQ simulator / your own build.
   "lt1Frac": 0.8,
   "eta": 0.81,
   "fatK": 0.75,
-  "tauAer": 25
+  "tauAer": 25,
+  "tauOn": 6
 }
 ```
 

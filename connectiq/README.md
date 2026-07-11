@@ -41,13 +41,14 @@ connectiq/
 | `CP` | critical power (W) | 250 |
 | `Wprime` | total work above CP (J) | 20000 |
 | `fP` | PCr share of W′ (0–1) | 0.35 |
-| `pPmax` | max PCr power above CP (W) | 300 |
+| `pPmax` | max PCr power above CP (W), immediate rate cap (~1 s peak − CP) | 300 |
 | `tauP` | PCr recovery time constant (s) | 22 |
 | `tauG` | glycolytic recovery time constant (s) | 360 |
 | `lt1Frac` | fraction of CP below which glycolytic refills | 0.80 |
 | `eta` | PCr recovery efficiency (0–1) | 0.80 |
 | `fatK` | fatigue slowing of PCr recovery (0 disables) | 0.75 |
 | `tauAer` | aerobic ramp time constant, s (0 = hard CP edge) | 25 |
+| `tauOn` | glycolytic activation time constant, s (how fast glycolysis ramps in) | 6 |
 
 > `fP` is a modeling choice, not a measured value — personalize it (and the τ's) per athlete.
 
