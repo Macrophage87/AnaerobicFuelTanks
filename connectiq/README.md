@@ -40,17 +40,19 @@ connectiq/
 |---|---|---|
 | `CP` | critical power (W) | 250 |
 | `Wprime` | total work above CP (J) | 20000 |
-| `fP` | PCr share of W′ (0–1) | 0.35 |
-| `pPmax` | max PCr power above CP (W), immediate rate cap (~1 s peak − CP) | 300 |
+| `fP` | PCr share of W′ (0–1) — weakly identified | 0.25 |
+| `pPmax` | PCr peak power above CP (W), immediate rate cap (~1 s peak − CP) | 300 |
 | `tauP` | PCr recovery time constant (s) | 22 |
 | `tauG` | glycolytic recovery time constant (s) | 360 |
-| `lt1Frac` | fraction of CP below which glycolytic refills | 0.80 |
-| `eta` | PCr recovery efficiency (0–1) | 0.80 |
+| `lt1Frac` | LT1 as a fraction of CP — **set from a measured LT1**, not left at default | 0.80 |
+| `eta` | PCr recovery-rate efficiency (rescales τ_p; degenerate with tauP) | 0.80 |
 | `fatK` | fatigue slowing of PCr recovery (0 disables) | 0.75 |
 | `tauAer` | aerobic ramp time constant, s (0 = hard CP edge) | 25 |
 | `tauOn` | glycolytic activation time constant, s (how fast glycolysis ramps in) | 6 |
 
-> `fP` is a modeling choice, not a measured value — personalize it (and the τ's) per athlete.
+> `fP` is assumed and weakly identified (not measured) — personalize it (and the τ's, and `lt1Frac`
+> from a real LT1 test) per athlete. Above CP the two systems drain **in parallel**, PCr-weighted
+> (glycolytic peak rate is fixed at half the PCr peak, an internal modeling assumption).
 
 ### Realism terms (now built in, tunable)
 

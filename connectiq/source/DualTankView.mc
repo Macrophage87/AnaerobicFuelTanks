@@ -17,7 +17,8 @@ using Toybox.Lang;
 //   - Demand above the aerobic supply is met by BOTH tanks in parallel. Glycolysis
 //     has activation inertia (tauOn ~6 s, Parolin 1999), so PCr — the immediate
 //     buffer — covers most of the onset and both drain together as glycolysis ramps
-//     in. PCr keeps a peak-rate cap (pPmax); the split is capacity-proportional.
+//     in. PCr is the higher-power system (peak rate pPmax > glycolytic peak gPmax);
+//     demand is split in proportion to available rate, both tanks rate-capped.
 //   - Below supply: PCr recovers (tauP, efficiency eta); glycolytic recovers
 //     slowly (tauG) and only below LT1 (lt1Frac * CP).
 //
@@ -72,6 +73,9 @@ class DualTankView extends WatchUi.DataField {
     // Aerobic off-kinetics are slower than on-kinetics -> a "sticky" aerobic supply
     // so brief eases/coasts don't force a re-ramp. Off tau = tauAer * AER_FALL.
     const AER_FALL = 6.0;
+    // Glycolytic peak rate as a fraction of PCr peak rate. PCr is the higher-power
+    // system, so glycolysis is rate-capped below it (a modeling assumption; ~0.5).
+    const GLY_RATE_FRAC = 0.5;
 
     // ---- Settings ----
     hidden var mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta;
@@ -156,7 +160,7 @@ class DualTankView extends WatchUi.DataField {
     function reloadSettings() {
         mCP      = propFloat("CP", 250.0);
         mWprime  = propFloat("Wprime", 20000.0);
-        mFP      = propFloat("fP", 0.35);
+        mFP      = propFloat("fP", 0.25);
         mPPmax   = propFloat("pPmax", 300.0);
         mTauP    = propFloat("tauP", 22.0);
         mTauG    = propFloat("tauG", 360.0);
@@ -351,27 +355,33 @@ class DualTankView extends WatchUi.DataField {
             // DEPLETION — PARALLEL draw. Glycolysis has activation inertia (Parolin
             // 1999: phosphorylase ramps in over the first few seconds), so PCr — the
             // immediate buffer — covers almost everything at onset and both systems
-            // then drain together as mG -> 1. With glycolytic peak rate ~ PCr peak
-            // rate the capacity-proportional split is 1/(1+g) : g/(1+g); PCr keeps its
-            // pPmax rate cap and any shortfall spills to the partner, then to deficit.
+            // then drain together as mG -> 1. PCr is the higher-power system, so its
+            // peak rate (pPmax) exceeds the glycolytic peak rate (gPmax); demand is
+            // split in proportion to available rate (pPmax : gPmax*g). Both tanks are
+            // rate-capped AND capacity-limited; shortfall spills to the partner, then
+            // to deficit.
             var need = delta * dt;
             var kOn = (mTauOn > 0.0) ? (1.0 - Math.pow(Math.E, -dt / mTauOn)) : 1.0;
             mG += (1.0 - mG) * kOn;
 
-            var pShare = need / (1.0 + mG);
-            var gShare = need - pShare;
             var pcap = mPPmax * dt;
+            var gcap = GLY_RATE_FRAC * mPPmax * dt;
+            var totalRate = mPPmax + GLY_RATE_FRAC * mPPmax * mG;
+            var pShare = need * (mPPmax / totalRate);
+            var gShare = need - pShare;
 
             takeP = pShare;
             if (takeP > mRP) { takeP = mRP; }
             if (takeP > pcap) { takeP = pcap; }
             takeG = gShare;
             if (takeG > mRG) { takeG = mRG; }
+            if (takeG > gcap) { takeG = gcap; }
 
             var unmet = need - takeP - takeG;
-            if (unmet > 0.0) {                       // glycolytic soaks up PCr's shortfall
+            if (unmet > 0.0) {                       // glycolytic soaks up PCr's shortfall (rate-capped)
                 var addG = unmet;
                 if (addG > mRG - takeG) { addG = mRG - takeG; }
+                if (addG > gcap - takeG) { addG = gcap - takeG; }
                 takeG += addG; unmet -= addG;
             }
             if (unmet > 0.0) {                       // then PCr soaks up glycolytic's, up to its cap

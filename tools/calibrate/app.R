@@ -25,18 +25,19 @@ suppressWarnings(suppressMessages(library(FITfileR)))
 # install.packages(c("shiny","bslib","ggplot2","DT","yaml")); remotes::install_github("grimbough/FITfileR")
 
 DURATIONS <- c(1,5,10,15,20,30,45,60,90,120,180,240,300,420,600,720,900,1200,1800,2400,3600)
-DEFAULTS  <- list(fP = 0.35, pPmax = 300, tauP = 22, tauG = 360,
+DEFAULTS  <- list(fP = 0.25, pPmax = 300, tauP = 22, tauG = 360,
                   lt1Frac = 0.80, eta = 0.80, fatK = 0.75, tauAer = 25, tauOn = 6)
+GLY_RATE_FRAC <- 0.5   # glycolytic peak rate as a fraction of PCr peak rate (PCr is the higher-power system)
 PARAMS <- c("CP","Wprime","pPmax","fP","tauP","tauG","eta")   # the tracked "sprint values"
 PARAM_DESC <- c(
   CP      = "Critical power (W): highest sustainable power; linear work model over best 2-12 min efforts.",
   Wprime  = "Anaerobic work capacity above CP (J).",
   pPmax   = "Max PCr (fast) power above CP (W): the immediate rate cap, from the best 1 s power across files.",
-  fP      = "PCr share of W' (0-1): from the recovery fit across rides, else default.",
+  fP      = "PCr share of W' (0-1): weakly identified; recovery fit across rides, else default (~0.25).",
   tauP    = "PCr recovery time constant (s): fast reconstitution.",
   tauG    = "Glycolytic recovery time constant (s): slow reconstitution.",
-  eta     = "PCr recovery efficiency (0-1).",
-  lt1Frac = "Fraction of CP below which glycolytic refills: default (needs a threshold test).",
+  eta     = "PCr recovery-rate efficiency (0-1): rescales tauP (degenerate with it), not a true hysteresis.",
+  lt1Frac = "LT1 as a fraction of CP: set from a MEASURED LT1 test, not left at the 0.80 default.",
   fatK    = "Fatigue slowing of PCr recovery: default (needs repeated-bout data).",
   tauAer  = "Aerobic on-ramp time constant (s): default.",
   tauOn   = "Glycolytic activation time constant (s): how fast glycolysis ramps in at effort onset (~6 s, Parolin 1999); default.")
@@ -306,17 +307,20 @@ simulate_tanks <- function(power, cp, par) {
     delta <- p - supply
     if (delta > 0) {
       # PARALLEL draw. Glycolysis has activation inertia (Parolin 1999): its rate
-      # ramps in over ~tauOn s, so at effort onset PCr (the immediate buffer) covers
-      # almost everything and both systems then drain together as g -> 1. With
-      # glycolytic peak rate ~ PCr peak rate the capacity-proportional split is
-      # 1/(1+g) : g/(1+g). PCr keeps its pPmax rate cap; shortfall from either tank
-      # (rate cap or empty) spills to the partner, then to deficit.
+      # ramps in over ~tauOn s, so at onset PCr (the immediate buffer) covers almost
+      # everything and both drain together as g -> 1. PCr is the higher-power system,
+      # so its peak rate pPmax exceeds the glycolytic peak rate gPmax; demand is split
+      # in proportion to each system's available rate (pPmax : gPmax*g). Both tanks are
+      # rate-capped AND capacity-limited; any shortfall spills to the partner, then to
+      # deficit.
       g <- g + (1 - g) * kOn
-      pShare <- delta / (1 + g); gShare <- delta - pShare
+      gPmax <- GLY_RATE_FRAC * par$pPmax
+      totalRate <- par$pPmax + gPmax * g
+      pShare <- delta * par$pPmax / totalRate; gShare <- delta - pShare
       takeP <- min(pShare, rP, par$pPmax)
-      takeG <- min(gShare, rG)
+      takeG <- min(gShare, rG, gPmax)
       unmet <- delta - takeP - takeG
-      if (unmet > 0) { addG <- min(unmet, rG - takeG); takeG <- takeG + addG; unmet <- unmet - addG }
+      if (unmet > 0) { addG <- min(unmet, rG - takeG, gPmax - takeG); takeG <- takeG + addG; unmet <- unmet - addG }
       if (unmet > 0) { addP <- min(unmet, rP - takeP, par$pPmax - takeP); takeP <- takeP + addP; unmet <- unmet - addP }
       rP <- rP - takeP; rG <- rG - takeG
       deficit[i] <- unmet
@@ -405,7 +409,7 @@ ui <- page_sidebar(
     accordion(id = "opts", open = FALSE, class = "my-2",
       accordion_panel("CP & model", icon = NULL,
         sliderInput("cpwin", "CP fit window (min)", 1, 30, c(2, 12), 1),
-        sliderInput("fP", "PCr share of W' (fP) start", 0.1, 0.6, 0.35, 0.01)),
+        sliderInput("fP", "PCr share of W' (fP) start", 0.1, 0.6, 0.25, 0.01)),
       accordion_panel("Interval sets", icon = NULL, uiOutput("interval_pick")),
       accordion_panel("History (trends)", icon = NULL,
         fileInput("history", "History YAML", accept = c(".yaml", ".yml")))),
