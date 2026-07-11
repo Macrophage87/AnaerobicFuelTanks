@@ -140,22 +140,36 @@ the JSON in the Connect IQ simulator or your own build.</p>
 </div>
 ]"
 
+# Robustly turn a numeric-ish column into a plain numeric vector (handles the
+# integer64 / bit64 that FITfileR uses for timestamps, and POSIXct alike).
+as_num <- function(x) {
+  if (inherits(x, "POSIXct")) return(as.numeric(x))
+  v <- suppressWarnings(as.numeric(x))
+  if (all(is.na(v)) && length(x)) suppressWarnings(as.numeric(as.character(x))) else v
+}
+
+# Returns list(p = <per-second power vector | NULL>, reason = <NULL | message>).
+# reason is non-NULL only when the file could not be turned into usable power.
 read_power <- function(path) {
-  ff <- try(readFitFile(path), silent = TRUE); if (inherits(ff, "try-error")) return(NULL)
-  recs <- try(records(ff), silent = TRUE);     if (inherits(recs, "try-error")) return(NULL)
+  fail <- function(msg) list(p = NULL, reason = msg)
+  ff <- try(readFitFile(path), silent = TRUE)
+  if (inherits(ff, "try-error")) return(fail("could not parse FIT (readFitFile failed)"))
+  recs <- try(records(ff), silent = TRUE)
+  if (inherits(recs, "try-error")) return(fail("no record messages (records() failed)"))
+  if (is.null(recs)) return(fail("no record messages"))
   if (is.data.frame(recs)) recs <- list(recs)
   # FITfileR returns ONE table per distinct record field-signature. A power meter
   # whose optional fields (pedal smoothness, torque effectiveness, respiration,
-  # HRV) drop in and out produces several such tables. Concatenating them blindly
-  # (unlist over the list) scrambles the time axis -- all the hard-pedaling samples
-  # from one signature end up contiguous -- and silently drops autopause gaps, so a
-  # "1200-sample" MMP window becomes 1200 s of back-to-back efforts. That inflates
-  # long-duration MMP and pushes CP far above reality. Merge every sub-table on its
-  # timestamp into a true 1 Hz timeline instead, filling pauses/gaps with 0 W.
+  # HRV) drop in and out produces MANY such tables -- this file had 15. Concatenating
+  # them blindly (unlist over the list) scrambles the time axis -- all the hard
+  # -pedaling samples from one signature end up contiguous -- and silently drops
+  # autopause gaps, so a "1200-sample" MMP window becomes 1200 s of back-to-back
+  # efforts. That inflates long-duration MMP and pushes CP far above reality. Merge
+  # every sub-table on its timestamp into a true 1 Hz timeline instead, filling
+  # pauses/gaps with 0 W. Sub-tables lacking power or timestamp are simply skipped.
   parts <- lapply(recs, function(df) {
-    if (!all(c("power", "timestamp") %in% names(df))) return(NULL)
-    t <- suppressWarnings(as.numeric(as.POSIXct(df$timestamp)))
-    p <- suppressWarnings(as.numeric(df$power))
+    if (!is.data.frame(df) || !all(c("power", "timestamp") %in% names(df))) return(NULL)
+    t <- as_num(df$timestamp); p <- as_num(df$power)
     ok <- is.finite(t) & is.finite(p)
     if (!any(ok)) return(NULL)
     data.frame(t = t[ok], p = p[ok])
@@ -163,17 +177,22 @@ read_power <- function(path) {
   parts <- do.call(rbind, parts)
   if (is.null(parts) || nrow(parts) < 2) {
     # Fallback: no usable timestamps -- treat samples as contiguous 1 Hz (old path).
-    pw <- unlist(lapply(recs, function(df) if ("power" %in% names(df)) as.numeric(df$power) else numeric(0)))
-    pw <- pw[is.finite(pw)]; return(if (length(pw) < 2) NULL else pw)
+    pw <- unlist(lapply(recs, function(df) if ("power" %in% names(df)) as_num(df$power) else numeric(0)))
+    pw <- pw[is.finite(pw)]
+    return(if (length(pw) < 2) fail("no power field in records") else list(p = pw, reason = NULL))
   }
   parts <- parts[order(parts$t), ]
   parts <- parts[!duplicated(parts$t), ]         # one power per second
   sec <- round(parts$t - parts$t[1])             # whole seconds from start
   span <- sec[length(sec)]
-  if (!is.finite(span) || span < 1) return(as.numeric(parts$p))
+  if (!is.finite(span) || span < 1) return(list(p = as.numeric(parts$p), reason = NULL))
+  # Guard against a corrupt/rollover timestamp blowing the timeline up to millions
+  # of zero-filled seconds: if the span is wildly longer than the sample count,
+  # fall back to contiguous samples rather than allocating a huge mostly-empty vector.
+  if (span > 50 * nrow(parts) + 86400) return(list(p = as.numeric(parts$p), reason = NULL))
   line <- numeric(span + 1)                       # pauses / dropouts -> 0 W
   line[sec + 1L] <- parts$p
-  line
+  list(p = line, reason = NULL)
 }
 best_mean_power <- function(p, d) { n <- length(p); if (n < d) return(NA_real_)
   cs <- cumsum(c(0, p)); max((cs[(d + 1):(n + 1)] - cs[1:(n - d + 1)]) / d) }
@@ -274,6 +293,7 @@ ui <- page_sidebar(
   theme = tank_theme,
   sidebar = sidebar(width = 330, title = "Boiler room",
     fileInput("files", "FIT files (rides / races / interval sets)", multiple = TRUE, accept = c(".fit", ".FIT")),
+    verbatimTextOutput("read_txt"),
     sliderInput("cpwin", "CP fit window (min)", 1, 30, c(2, 12), 1),
     sliderInput("fP", "PCr share of W' (fP) start value", 0.1, 0.6, 0.35, 0.01),
     uiOutput("interval_pick"),
@@ -308,9 +328,21 @@ ui <- page_sidebar(
 server <- function(input, output, session) {
   rv <- reactiveValues(fits = NULL, anchors = list())
 
-  powers <- reactive({ req(input$files)
-    ps <- lapply(input$files$datapath, read_power); keep <- !vapply(ps, is.null, logical(1))
-    validate(need(any(keep), "No readable power data.")); list(p = ps[keep], names = input$files$name[keep]) })
+  reads <- reactive({ req(input$files)
+    res <- lapply(input$files$datapath, read_power)
+    list(name = input$files$name,
+         p    = lapply(res, `[[`, "p"),
+         ok   = vapply(res, function(r) !is.null(r$p), logical(1)),
+         n    = vapply(res, function(r) if (is.null(r$p)) 0L else length(r$p), integer(1)),
+         reason = vapply(res, function(r) if (is.null(r$reason)) "" else r$reason, character(1))) })
+  powers <- reactive({ r <- reads(); keep <- r$ok
+    validate(need(any(keep), paste0("No readable power data. ",
+      paste(sprintf("%s: %s", r$name[!keep], r$reason[!keep]), collapse = "; "))))
+    list(p = r$p[keep], names = r$name[keep]) })
+  output$read_txt <- renderText({ r <- reads()
+    lines <- sprintf("%s  %s  (%s)", ifelse(r$ok, "✓", "✗"), r$name,
+                     ifelse(r$ok, paste0(r$n, " s of power"), r$reason))
+    paste(c(sprintf("%d/%d files loaded", sum(r$ok), length(r$ok)), lines), collapse = "\n") })
   mmp   <- reactive(data.frame(duration = DURATIONS, power = mmp_curve(powers()$p)))
   cpfit <- reactive(fit_cp(mmp()$duration, mmp()$power, input$cpwin[1]*60, input$cpwin[2]*60))
   base_par <- reactive({ f <- cpfit(); req(f); modifyList(DEFAULTS, list(Wprime = f$Wprime, fP = input$fP)) })
