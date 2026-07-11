@@ -1,0 +1,70 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  :root{--pcr:#B44DFF;--gly:#37E85A;--brass:#C9A227;--parch:#EDE0C8;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Georgia,serif;color:var(--parch);
+    background:radial-gradient(1200px 800px at 30% -10%,#3a2817 0%,#20160E 60%,#150e07 100%);}
+  .head{display:flex;align-items:center;justify-content:center;height:56px;
+    background:linear-gradient(180deg,#3a2817,#20160E);border-bottom:2px solid var(--brass);
+    font-weight:bold;letter-spacing:.14em;color:var(--brass);font-size:22px;text-shadow:0 1px 0 #000}
+  .main{padding:16px 20px}
+  .tabs{display:flex;gap:4px;margin-bottom:-2px}
+  .tab{padding:8px 14px;font-size:13px;border:2px solid var(--brass);border-bottom:none;border-radius:9px 9px 0 0;
+    color:var(--parch);background:linear-gradient(180deg,#2b1e12,#1a120a)}
+  .tab.active{background:var(--brass);color:#20160E;font-weight:bold}
+  .card{border:2px solid var(--brass);border-radius:12px;background:linear-gradient(180deg,#2b1e12,#1a120a);
+    box-shadow:inset 0 0 0 1px rgba(201,162,39,.25),0 8px 22px rgba(0,0,0,.55);padding:16px 18px}
+  .card h4{color:var(--brass);letter-spacing:.06em;font-size:15px;margin-bottom:12px}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .mini{border:1px solid #4a3a24;border-radius:8px;padding:6px 8px 2px;background:rgba(0,0,0,.15)}
+  .mini .t{font-size:12px;color:var(--brass);font-family:'Courier New',monospace;margin-bottom:2px}
+  table{width:100%;border-collapse:collapse;margin-top:14px;font-family:'Courier New',monospace;font-size:12px}
+  th,td{border:1px solid #4a3a24;padding:5px 8px;text-align:right}
+  th{color:var(--brass);background:rgba(0,0,0,.25);text-align:right}
+  td:first-child,th:first-child{text-align:left;color:var(--parch)}
+</style></head><body>
+  <div class="head">⚙&nbsp;&nbsp;DUAL-TANK PARAMETER ESTIMATOR&nbsp;&nbsp;⚙</div>
+  <div class="main">
+    <div class="tabs">
+      <div class="tab">Power-duration</div><div class="tab">CP / W' fit</div>
+      <div class="tab">Anchor editor</div><div class="tab">Recovery fit</div>
+      <div class="tab">App parameters</div><div class="tab active">Trends</div>
+    </div>
+    <div class="card">
+      <h4>Estimates over time</h4>
+      <div class="grid" id="grid"></div>
+      <table>
+        <tr><th>date</th><th>CP</th><th>Wprime</th><th>pPmax</th><th>fP</th><th>tauP</th><th>tauG</th><th>eta</th></tr>
+        <tr><td>2026-03-02</td><td>271</td><td>19800</td><td>560</td><td>0.34</td><td>26</td><td>430</td><td>0.79</td></tr>
+        <tr><td>2026-04-19</td><td>279</td><td>20600</td><td>588</td><td>0.36</td><td>25</td><td>415</td><td>0.80</td></tr>
+        <tr><td>2026-06-01</td><td>284</td><td>21050</td><td>601</td><td>0.37</td><td>24</td><td>408</td><td>0.80</td></tr>
+        <tr><td>2026-07-11</td><td>288</td><td>21400</td><td>612</td><td>0.38</td><td>24</td><td>402</td><td>0.81</td></tr>
+      </table>
+    </div>
+  </div>
+<script>
+  const series = {
+    CP:[271,279,284,288], "Wprime":[19800,20600,21050,21400], pPmax:[560,588,601,612],
+    fP:[0.34,0.36,0.37,0.38], tauP:[26,25,24,24], tauG:[430,415,408,402], eta:[0.79,0.80,0.80,0.81]
+  };
+  const g=document.getElementById('grid');
+  for(const [k,v] of Object.entries(series)){
+    const w=170,h=90,pad=10;
+    const mn=Math.min(...v),mx=Math.max(...v),rng=(mx-mn)||1;
+    const pts=v.map((y,i)=>{
+      const x=pad+i*(w-2*pad)/(v.length-1);
+      const yy=h-pad-(y-mn)/rng*(h-2*pad);
+      return [x,yy];
+    });
+    const poly=pts.map(p=>p.join(',')).join(' ');
+    const dots=pts.map(p=>`<circle cx="${p[0]}" cy="${p[1]}" r="2.5" fill="#B44DFF"/>`).join('');
+    g.insertAdjacentHTML('beforeend',
+      `<div class="mini"><div class="t">${k}</div>
+       <svg width="100%" viewBox="0 0 ${w} ${h}">
+         <line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" stroke="#4a3a24"/>
+         <polyline fill="none" stroke="#B44DFF" stroke-width="2" points="${poly}"/>${dots}
+         <text x="${pad}" y="12" fill="#C9A227" font-size="9" font-family="monospace">${mx}</text>
+         <text x="${pad}" y="${h-2}" fill="#C9A227" font-size="9" font-family="monospace">${mn}</text>
+       </svg></div>`);
+  }
+</script>
+</body></html>

@@ -37,13 +37,22 @@ AnaerobicFuelTanks/
 │  ├─ literature-review-anaerobic-models.md    survey of the modeling literature (+ .pdf)
 │  ├─ white-paper-dual-tank-anaerobic-model.md the proposed dual-tank model (+ .pdf)
 │  └─ connectiq-app-spec-and-prompt.md         app spec + ready-to-use build prompt (+ .pdf)
-└─ connectiq/                              the Garmin Connect IQ app
-   ├─ source/            Monkey C: model + rendering + FIT recording
-   ├─ resources/         strings, settings, launcher icon
-   ├─ store/             hero/cover/device icons + in-app screenshots + generators
-   ├─ manifest.xml, monkey.jungle, build.sh
-   └─ README.md          app-specific docs (build, settings, layouts)
+├─ connectiq/                              the Garmin Connect IQ app
+│  ├─ source/            Monkey C: model + rendering + FIT recording
+│  ├─ resources/         strings, settings, launcher icon
+│  ├─ store/             hero/cover/device icons + in-app screenshots + generators
+│  ├─ manifest.xml, monkey.jungle, build.sh
+│  └─ README.md          app-specific docs (build, settings, layouts)
+└─ tools/
+   └─ calibrate/         R Shiny app: FIT files -> estimate the field's parameters
 ```
+
+## Calibration tool
+
+`tools/calibrate/` is an R Shiny app that reads your `.FIT` files and estimates the parameters the
+data field needs (`CP`, `W′`, `pPmax`, and — where the data allows — `fP`, `tauP`, `tauG`, `eta`),
+flagging anything weakly constrained. It exports a dated YAML reading and a PDF report, and tracks
+your values over time. See [`tools/calibrate/README.md`](tools/calibrate/README.md).
 
 ---
 

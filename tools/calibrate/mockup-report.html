@@ -1,0 +1,60 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(1200px 800px at 30% -10%,#3a2817 0%,#20160E 60%,#150e07 100%);
+    padding:34px 0;font-family:Georgia,'Times New Roman',serif}
+  .sheet{width:820px;margin:0 auto;background:#EDE0C8;color:#241a10;
+    border:3px solid #8a6a2a;border-radius:4px;padding:40px 46px;
+    box-shadow:0 18px 50px rgba(0,0,0,.6);background-image:
+      radial-gradient(600px 400px at 80% 10%,rgba(160,120,60,.10),transparent),
+      radial-gradient(500px 500px at 5% 90%,rgba(120,80,30,.10),transparent)}
+  h1{font-size:30px;color:#6b4f2a;letter-spacing:.02em;margin-bottom:4px}
+  .date{color:#3a2817;font-size:14px;margin-bottom:8px}
+  .rule{border-top:1px solid #8a6a2a;margin:6px 0 18px}
+  .row{margin-bottom:14px}
+  .line{font-family:'Courier New',monospace;font-size:14px;color:#241a10;font-weight:bold}
+  .line.unc{color:#8a2a12}
+  .desc{font-size:13px;color:#5a4a30;margin-left:14px;margin-top:2px;line-height:1.4}
+  .plots{display:flex;gap:16px;margin-top:22px}
+  .plots .p{flex:1;border:1px solid #c9b992;border-radius:6px;padding:8px;background:#f2e8d2}
+  .plots .cap{font-size:12px;color:#6b4f2a;font-weight:bold;margin-bottom:4px;font-family:'Courier New',monospace}
+</style></head><body>
+  <div class="sheet">
+    <h1>Dual-Tank Parameter Report</h1>
+    <div class="date">Date: 2026-07-11</div>
+    <div class="rule"></div>
+
+    <div class="row"><div class="line">CP       = 288      [best across files]      well constrained</div>
+      <div class="desc">Critical power (W): highest sustainable power; linear work model over best 2-12 min efforts.</div></div>
+    <div class="row"><div class="line">Wprime   = 21400    [best across files]      well constrained</div>
+      <div class="desc">Anaerobic work capacity above CP (J).</div></div>
+    <div class="row"><div class="line">pPmax    = 612      [best 5s - CP]           well constrained</div>
+      <div class="desc">Max PCr (fast) power above CP (W): from the best 5 s sprint across files.</div></div>
+    <div class="row"><div class="line">fP       = 0.38     [median of 4 rides]      well constrained</div>
+      <div class="desc">PCr share of W' (0-1): from the recovery fit across rides, else default.</div></div>
+    <div class="row"><div class="line">tauP     = 24       [median of 4 rides]      well constrained</div>
+      <div class="desc">PCr recovery time constant (s): fast reconstitution.</div></div>
+    <div class="row"><div class="line">tauG     = 402      [median of 4 rides]      well constrained</div>
+      <div class="desc">Glycolytic recovery time constant (s): slow reconstitution.</div></div>
+    <div class="row"><div class="line unc">fatK     = 0.75     [default]                UNCERTAIN - needs repeated-bout data</div>
+      <div class="desc">Fatigue slowing of PCr recovery: default (needs repeated-bout data).</div></div>
+    <div class="row"><div class="line unc">lt1Frac  = 0.80     [default]                UNCERTAIN - needs a threshold test</div>
+      <div class="desc">Fraction of CP below which glycolytic refills.</div></div>
+
+    <div class="plots">
+      <div class="p"><div class="cap">Mean-maximal power</div>
+        <svg width="100%" viewBox="0 0 340 150">
+          <line x1="28" y1="10" x2="28" y2="130" stroke="#c9b992"/><line x1="28" y1="130" x2="330" y2="130" stroke="#c9b992"/>
+          <polyline fill="none" stroke="#6C26A8" stroke-width="2.5" points="34,24 70,40 110,58 150,74 200,92 260,108 320,118"/>
+          <g fill="#3a2817"><circle cx="34" cy="26" r="2.5"/><circle cx="90" cy="50" r="2.5"/><circle cx="150" cy="76" r="2.5"/><circle cx="230" cy="100" r="2.5"/><circle cx="320" cy="120" r="2.5"/></g>
+          <line x1="28" y1="122" x2="330" y2="122" stroke="#1A8C3A" stroke-dasharray="4 4"/>
+        </svg></div>
+      <div class="p"><div class="cap">Estimates over time</div>
+        <svg width="100%" viewBox="0 0 340 150">
+          <g stroke="#c9b992"><line x1="28" y1="130" x2="330" y2="130"/></g>
+          <polyline fill="none" stroke="#6C26A8" stroke-width="2.5" points="34,110 130,78 220,52 320,34"/>
+          <g fill="#3a2817"><circle cx="34" cy="110" r="2.5"/><circle cx="130" cy="78" r="2.5"/><circle cx="220" cy="52" r="2.5"/><circle cx="320" cy="34" r="2.5"/></g>
+          <text x="300" y="146" fill="#6b4f2a" font-size="10" font-family="monospace">date</text>
+        </svg></div>
+    </div>
+  </div>
+</body></html>

@@ -1,70 +1,119 @@
-# Dual-Tank Parameter Estimator (R Shiny)
+# Dual-Tank Parameter Estimator
 
-A steampunk-styled calibration tool: upload **several** `.FIT` files and get one parameter set for
-the AnaerobicFuelTanks Connect IQ data field, picking the best value for each parameter across all
-of them — with uncertainty flags, dated YAML export, trends over time, and a PDF report.
+A small **R Shiny** app that turns your ride files into the settings for the AnaerobicFuelTanks
+Connect IQ data field. Upload some `.FIT` files, and it figures out your **CP**, **W′**, and — where
+your data allows — the PCr/glycolytic split and recovery rates, flagging anything it can't pin down.
+
+Styled in a steampunk look: **purple = PCr**, **green = glycolytic**, brass on walnut.
+
+![App — parameters tab](ui-mockup.png)
+
+---
+
+## TL;DR — how to use it
 
 ```r
 install.packages(c("shiny", "bslib", "ggplot2", "DT", "yaml"))
-remotes::install_github("grimbough/FITfileR")     # FIT parsing
-
-shiny::runApp("tools/calibrate")                   # from the repo root
+remotes::install_github("grimbough/FITfileR")
+shiny::runApp("tools/calibrate")            # from the repo root
 ```
 
-Purple = **PCr** metabolism, green = **glycolytic** — carried through the whole UI (brass-on-walnut
-`bslib` theme) and the plots.
+1. **Upload FIT files** (best-effort tests, races, hard group rides, interval sets).
+2. Read **CP / W′** off the *Power-duration* and *CP / W′ fit* tabs — these come from the best
+   efforts across all your files and are the most reliable numbers.
+3. On the *Anchor editor* tab, **click each ride's reserve trace** where you were maximal /
+   cracked (final sprint, the attack you couldn't follow, the moment you got dropped). Mark
+   repeated-bout workouts as **interval sets** in the sidebar.
+4. Hit **Fit fP / tauP / tauG / eta on every ride** → the *Recovery fit* tab shows a per-ride
+   table; the *App parameters* tab shows the final set with **uncertainty flags**.
+5. **Export** a dated YAML reading and/or a PDF report. Re-upload the YAML later to see **trends**.
 
-## What it estimates
+---
 
-| Parameter | Source | Identifiable from best efforts? |
+## What it can and can't know (the important bit)
+
+A single all-out effort obeys `t_lim = W′/(P − CP)` — it depends only on your total anaerobic
+capacity and CP. So:
+
+| Parameter | Where it comes from | Reliable? |
 |---|---|---|
-| `CP`, `Wprime`, `pPmax` | best across all files (combined mean-maximal power curve) | **yes** |
-| `fP`, `tauP`, `tauG`, `eta` | dual-tank model fit per ride, anchored at maximal moments, aggregated | only with repeated efforts + anchors |
-| `lt1Frac`, `fatK`, `tauAer` | defaults | no (need threshold / repeated-bout / onset data) |
+| `CP`, `Wprime`, `pPmax` | best across all files (combined power-duration curve) | ✅ yes |
+| `fP`, `tauP`, `tauG`, `eta` | model fit on rides with maximal **anchors** | ⚠ only with the right data |
+| `lt1Frac`, `fatK`, `tauAer` | defaults | ❌ need special tests |
 
-A single maximal effort obeys `t_lim = W′/(P−CP)`, so best efforts give only `CP`/`W′`. The split
-and recovery rates need repeated efforts **with** "reserve = 0" anchors.
+The split and recovery rates only show up across **repeated efforts with recovery**, and only when
+you tell the app where you were at your limit. Everything weakly-constrained is flagged, never
+silently guessed.
 
-## Estimation paths
+---
 
-- **Power-duration / CP–W′** — combined MMP curve across files; linear work model `W = CP·t + W′`.
-- **Recovery fit** — simulate the dual-tank model (same 1 Hz update as the data field) over each ride
-  and fit `fP, tauP, tauG, eta` by anchoring reserve ≈ 0 at maximal/cracked moments while keeping
-  reserve ≥ 0 for the completed ride. Fits every ride; combines by **median** or **best-fit**.
-- **Anchor editor** — click a ride's reserve trace to add/remove anchors (click near one to delete);
-  auto-suggest / clear per ride.
-- **Interval sets** — mark repeated-bout files. They constrain recovery **only when the between-bout
-  refill is low** (short rest); sets with **>70% refill** are flagged as non-informative for
-  `tauP`/`tauG`. The editor shows bouts / mean recovery / refill % per ride.
+## The tabs
 
-## Uncertainty flags
+- **Power-duration / CP / W′ fit** — the mean-maximal power curve across your files and the
+  `W = CP·t + W′` fit (with R² and duration range).
+- **Anchor editor** — click a ride's reserve trace to add/remove "reserve = 0" anchors; per-ride
+  diagnostics show bouts above CP, mean recovery, and **between-bout refill %**.
+- **Recovery fit** — per-ride fitted `fP/tauP/tauG/eta` with flags (`few-bouts`, `rest-too-long`,
+  `no-converge`, `poor-fit`); combined by median or best-fit.
+- **App parameters** — the final block to paste into the field settings, each line flagged if
+  uncertain.
+- **Trends** — each value over time when you supply a history YAML.
 
-Every parameter is flagged when weakly constrained:
-- `CP`/`W′` — low R², few efforts, or a narrow duration range.
-- `pPmax` — no clear maximal sprint (best 5 s not well above CP).
-- `fP`/`tau…` — no ride constrained recovery (all rests too long / too few bouts), or a wide spread
-  across rides. Per-ride flags (`few-bouts`, `rest-too-long`, `no-converge`, `poor-fit`) highlight
-  rows in the fit table.
+### Interval sets & repeated bouts
 
-## Races and hard group rides
+Mark repeated-bout workouts as interval sets. They only help pin down recovery **if the rest is
+short enough** that the tanks don't refill between bouts — the app measures the between-bout refill
+and **flags sets with >70% refill** as uninformative for `tauP`/`tauG`.
 
-They work — rich in repeated near-maximal surges. The one requirement is **anchors**: mark where you
-were at the limit. The best natural anchor is **getting dropped** (a real reserve-0 event).
+### Races and hard group rides
 
-## Export, history & trends
+They work well — lots of repeated near-maximal surges. Just anchor where you were at the limit;
+**getting dropped** is a perfect natural "reserve = 0" anchor.
 
-- **Export dated YAML reading** — appends the current estimate (with a datestamp and the list of
-  flagged params) to any supplied history, producing a multi-reading YAML.
-- **History YAML** — supply a previous export to unlock the **Trends** tab: each tracked value plotted
-  over time (small multiples) plus a table.
-- **Export PDF report** — a page explaining where each parameter stands (value, source, and whether
-  it's well-constrained or uncertain and why), followed by the MMP, CP-fit, and trend plots.
+---
+
+## Trends over time
+
+Supply a previously-exported history YAML and the **Trends** tab plots each tracked value over time:
+
+![Trends tab](mockup-trends.png)
+
+---
+
+## PDF report
+
+**Export PDF report** produces an aged-parchment sheet explaining where each parameter stands —
+value, source, and whether it's well-constrained or uncertain (and why) — with the key plots:
+
+![PDF report](mockup-report.png)
+
+---
+
+## YAML format
+
+The dated export appends to any supplied history, giving a multi-reading file:
+
+```yaml
+readings:
+  - date: 2026-07-11
+    CP: 288
+    Wprime: 21400
+    pPmax: 612
+    fP: 0.38
+    tauP: 24
+    tauG: 402
+    eta: 0.81
+    flags: [fatK, lt1Frac, tauAer]   # params that were uncertain
+```
+
+---
 
 ## Notes
 
 - FIT files must contain a `power` record field.
-- Fonts load from Google (`Cinzel`, `EB Garamond`) at startup — needs a network connection the first
+- Fonts (`Cinzel`, `EB Garamond`) load from Google at startup — needs a network connection the first
   time; swap `font_google(...)` for local fonts to run fully offline.
 - The recovery fit uses `optim` (L-BFGS-B); the feasibility/anchor weighting is a tunable constant —
   inspect per-ride objectives and reserve traces before trusting values.
 - This is a **sketch**: it runs, but validate the fits on your own data before racing on the numbers.
+- The `mockup-*.html`/`ui-mockup.html` files are static previews only; the live app is `app.R`.

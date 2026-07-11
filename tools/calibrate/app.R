@@ -71,13 +71,20 @@ tank_theme <- bs_theme(version = 5, bg = WALNUT, fg = PARCH, primary = PCR, seco
   code_font = font_google("IM Fell English SC"))
 tank_theme <- bs_add_rules(tank_theme, steampunk_css)
 
-# ggplot theme that blends into the brass-on-walnut cards
+# ggplot theme that blends into the brass-on-walnut cards (screen)
 gg_tank <- function() theme_minimal(base_size = 12) + theme(
   plot.background  = element_rect(fill = "transparent", colour = NA),
   panel.background = element_rect(fill = "transparent", colour = NA),
   panel.grid.major = element_line(colour = "#4a3a24"), panel.grid.minor = element_line(colour = "#33281a"),
   text = element_text(colour = PARCH), axis.text = element_text(colour = BRASS),
   strip.text = element_text(colour = BRASS, face = "bold"), plot.title = element_text(colour = BRASS))
+# light "aged parchment" theme for the PDF report (dark ink on parchment)
+gg_report <- function() theme_minimal(base_size = 11) + theme(
+  plot.background  = element_rect(fill = "#EDE0C8", colour = NA),
+  panel.background = element_rect(fill = "#EDE0C8", colour = NA),
+  panel.grid.major = element_line(colour = "#d8c8a8"), panel.grid.minor = element_line(colour = "#e6dcc4"),
+  text = element_text(colour = "#3a2817"), axis.text = element_text(colour = "#6b4f2a"),
+  strip.text = element_text(colour = "#6b4f2a", face = "bold"), plot.title = element_text(colour = "#6b4f2a", face = "bold"))
 
 read_power <- function(path) {
   ff <- try(readFitFile(path), silent = TRUE); if (inherits(ff, "try-error")) return(NULL)
@@ -349,24 +356,26 @@ server <- function(input, output, session) {
     filename = function() paste0("dualtank_report_", Sys.Date(), ".pdf"),
     content = function(file) {
       et <- est_table()
-      pdf(file, width = 8.5, height = 11); on.exit(if (dev.cur() > 1) dev.off())
-      # page 1 — explanations
+      pdf(file, width = 8.5, height = 11, bg = "#EDE0C8"); on.exit(if (dev.cur() > 1) dev.off())
+      # page 1 — explanations (dark ink on parchment)
       op <- par(mar = c(0,0,0,0)); plot(NA, xlim = c(0,1), ylim = c(0,1), axes = FALSE, xlab = "", ylab = "")
-      text(0, 0.99, "Dual-Tank Parameter Report", adj = c(0,1), cex = 1.6, font = 2)
-      text(0, 0.955, paste("Date:", Sys.Date()), adj = c(0,1), cex = 0.9)
+      rect(-0.03, -0.03, 1.03, 1.03, border = "#8a6a2a", lwd = 3, xpd = NA)
+      text(0, 0.985, "Dual-Tank Parameter Report", adj = c(0,1), cex = 1.7, font = 2, col = "#6b4f2a", family = "serif")
+      text(0, 0.95, paste("Date:", Sys.Date()), adj = c(0,1), cex = 0.9, col = "#3a2817", family = "serif")
+      segments(0, 0.935, 1, 0.935, col = "#8a6a2a", lwd = 1)
       y <- 0.90
       for (i in seq_len(nrow(et))) {
-        p <- et$param[i]
-        status <- if (et$uncertain[i]) paste0("UNCERTAIN — ", et$note[i]) else "well constrained"
+        p <- et$param[i]; unc <- et$uncertain[i]
+        status <- if (unc) paste0("UNCERTAIN - ", et$note[i]) else "well constrained"
         text(0, y, sprintf("%-8s = %s    [%s]    %s", p, format(et$value[i]), et$source[i], status),
-             adj = c(0,1), cex = 0.8, family = "mono"); y <- y - 0.026
-        for (d in strwrap(PARAM_DESC[[p]], width = 96)) { text(0.03, y, d, adj = c(0,1), cex = 0.72, col = "grey35"); y <- y - 0.021 }
+             adj = c(0,1), cex = 0.82, family = "mono", col = if (unc) "#8a2a12" else "#241a10"); y <- y - 0.027
+        for (d in strwrap(PARAM_DESC[[p]], width = 96)) { text(0.03, y, d, adj = c(0,1), cex = 0.72, col = "#5a4a30", family = "serif"); y <- y - 0.021 }
         y <- y - 0.007
       }
       par(op)
-      # page 2+ — plots
-      print(mmp_gg()); g <- cp_gg(); if (!is.null(g)) print(g)
-      tg <- trend_gg(); if (!is.null(tg)) print(tg)
+      # page 2+ — plots on parchment
+      print(mmp_gg() + gg_report()); g <- cp_gg(); if (!is.null(g)) print(g + gg_report())
+      tg <- trend_gg(); if (!is.null(tg)) print(tg + gg_report())
     })
 }
 
