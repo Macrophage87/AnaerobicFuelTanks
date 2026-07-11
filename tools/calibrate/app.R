@@ -26,19 +26,20 @@ suppressWarnings(suppressMessages(library(FITfileR)))
 
 DURATIONS <- c(1,5,10,15,20,30,45,60,90,120,180,240,300,420,600,720,900,1200,1800,2400,3600)
 DEFAULTS  <- list(fP = 0.35, pPmax = 300, tauP = 22, tauG = 360,
-                  lt1Frac = 0.80, eta = 0.80, fatK = 0.75, tauAer = 25)
+                  lt1Frac = 0.80, eta = 0.80, fatK = 0.75, tauAer = 25, tauOn = 6)
 PARAMS <- c("CP","Wprime","pPmax","fP","tauP","tauG","eta")   # the tracked "sprint values"
 PARAM_DESC <- c(
   CP      = "Critical power (W): highest sustainable power; linear work model over best 2-12 min efforts.",
   Wprime  = "Anaerobic work capacity above CP (J).",
-  pPmax   = "Max PCr (fast) power above CP (W): from the best 5 s sprint across files.",
+  pPmax   = "Max PCr (fast) power above CP (W): the immediate rate cap, from the best 1 s power across files.",
   fP      = "PCr share of W' (0-1): from the recovery fit across rides, else default.",
   tauP    = "PCr recovery time constant (s): fast reconstitution.",
   tauG    = "Glycolytic recovery time constant (s): slow reconstitution.",
   eta     = "PCr recovery efficiency (0-1).",
   lt1Frac = "Fraction of CP below which glycolytic refills: default (needs a threshold test).",
   fatK    = "Fatigue slowing of PCr recovery: default (needs repeated-bout data).",
-  tauAer  = "Aerobic on-ramp time constant (s): default.")
+  tauAer  = "Aerobic on-ramp time constant (s): default.",
+  tauOn   = "Glycolytic activation time constant (s): how fast glycolysis ramps in at effort onset (~6 s, Parolin 1999); default.")
 cv <- function(x) { x <- x[is.finite(x)]; if (length(x) > 1 && mean(x) != 0) sd(x)/abs(mean(x)) else NA_real_ }
 
 # ---- dual-tank theme (purple = PCr, green = glycolytic) --------------------
@@ -108,7 +109,7 @@ the final set with uncertainty flags is on <i>App parameters</i>.</li>
 <tr><th>Parameter</th><th>Source</th><th>Reliable?</th></tr>
 <tr><td>CP, Wprime, pPmax</td><td>best across all files (power-duration curve)</td><td>yes</td></tr>
 <tr><td>fP, tauP, tauG, eta</td><td>model fit on rides with maximal anchors</td><td>only with the right data</td></tr>
-<tr><td>lt1Frac, fatK, tauAer</td><td>defaults</td><td>need special tests</td></tr>
+<tr><td>lt1Frac, fatK, tauAer, tauOn</td><td>defaults (tauOn ~6 s, Parolin 1999)</td><td>need special tests / not power-identifiable</td></tr>
 </table>
 <p>A single all-out effort obeys t_lim = W'/(P-CP), so it gives only CP and W'. The tank split and
 recovery rates appear only across <b>repeated efforts with recovery</b>, and only where you anchor
@@ -289,11 +290,13 @@ fit_cp <- function(dur, pw, tmin, tmax) {
 }
 simulate_tanks <- function(power, cp, par) {
   n <- length(power); cP <- par$fP * par$Wprime; cG <- (1 - par$fP) * par$Wprime
-  rP <- cP; rG <- cG; aer <- cp; resTot <- numeric(n); deficit <- numeric(n)
+  rP <- cP; rG <- cG; aer <- cp; g <- 0; resTot <- numeric(n); deficit <- numeric(n)
   AER_FALL <- 6
   kUp <- if (par$tauAer > 0) 1 - exp(-1 / par$tauAer) else 1
   kDn <- if (par$tauAer > 0) 1 - exp(-1 / (par$tauAer * AER_FALL)) else 1
   bG <- 1 - exp(-1 / par$tauG)
+  tauOn <- if (is.null(par$tauOn)) 6 else par$tauOn        # glycolytic activation time constant (s)
+  kOn <- if (tauOn > 0) 1 - exp(-1 / tauOn) else 1
   for (i in seq_len(n)) {
     p <- power[i]
     if (par$tauAer > 0) {                     # sticky aerobic, floored; below CP aerobic covers demand
@@ -302,11 +305,23 @@ simulate_tanks <- function(power, cp, par) {
     } else supply <- cp
     delta <- p - supply
     if (delta > 0) {
-      need <- delta
-      takeP <- min(need, rP, par$pPmax); rP <- rP - takeP; need <- need - takeP
-      takeG <- min(need, rG);            rG <- rG - takeG; need <- need - takeG
-      deficit[i] <- need
+      # PARALLEL draw. Glycolysis has activation inertia (Parolin 1999): its rate
+      # ramps in over ~tauOn s, so at effort onset PCr (the immediate buffer) covers
+      # almost everything and both systems then drain together as g -> 1. With
+      # glycolytic peak rate ~ PCr peak rate the capacity-proportional split is
+      # 1/(1+g) : g/(1+g). PCr keeps its pPmax rate cap; shortfall from either tank
+      # (rate cap or empty) spills to the partner, then to deficit.
+      g <- g + (1 - g) * kOn
+      pShare <- delta / (1 + g); gShare <- delta - pShare
+      takeP <- min(pShare, rP, par$pPmax)
+      takeG <- min(gShare, rG)
+      unmet <- delta - takeP - takeG
+      if (unmet > 0) { addG <- min(unmet, rG - takeG); takeG <- takeG + addG; unmet <- unmet - addG }
+      if (unmet > 0) { addP <- min(unmet, rP - takeP, par$pPmax - takeP); takeP <- takeP + addP; unmet <- unmet - addP }
+      rP <- rP - takeP; rG <- rG - takeG
+      deficit[i] <- unmet
     } else {
+      g <- g * (1 - kOn)                       # glycolytic deactivation during recovery
       tauPeff <- par$tauP * (1 + par$fatK * (1 - rG / cG)); rP <- rP + par$eta * (cP - rP) * (1 - exp(-1 / tauPeff))
       lt1 <- par$lt1Frac * cp; if (p < lt1) rG <- rG + ((lt1 - p) / lt1) * (cG - rG) * bG
     }
@@ -460,7 +475,9 @@ server <- function(input, output, session) {
   # ---- unified estimate table (value / source / uncertainty) ----
   est_table <- reactive({
     f <- cpfit(); req(f); m <- mmp(); a <- agg()
-    p5 <- m$power[m$duration == 5]; pPmax <- if (is.finite(p5)) max(50, round(p5 - f$CP)) else DEFAULTS$pPmax
+    # pPmax is the PCr immediate rate cap: at the very first instant glycolysis is
+    # inactive (g=0), so the instantaneous ceiling is CP + pPmax -> use best 1 s power.
+    p1 <- m$power[m$duration == 1]; pPmax <- if (is.finite(p1)) max(50, round(p1 - f$CP)) else DEFAULTS$pPmax
     cpWhy <- paste(c(if (isTRUE(f$impossible)) "CP above longest effort - check file/window", if (f$r2 < 0.95) "low R2", if (f$n < 3) "few efforts", if (f$rng < 5) "narrow durations"), collapse = ", ")
     recU <- is.null(a) || !a$constrained
     spread <- function(k) !is.null(a) && a$constrained && is.finite(a$cv[[k]]) && a$cv[[k]] > 0.3
@@ -471,17 +488,18 @@ server <- function(input, output, session) {
              tauP = round(if (is.null(a)) DEFAULTS$tauP else a$tauP),
              tauG = round(if (is.null(a)) DEFAULTS$tauG else a$tauG),
              eta = round(if (is.null(a)) DEFAULTS$eta else a$eta, 2),
-             lt1Frac = DEFAULTS$lt1Frac, fatK = DEFAULTS$fatK, tauAer = DEFAULTS$tauAer)
-    src <- c(CP = "best across files", Wprime = "best across files", pPmax = "best 5s - CP",
+             lt1Frac = DEFAULTS$lt1Frac, fatK = DEFAULTS$fatK, tauAer = DEFAULTS$tauAer, tauOn = DEFAULTS$tauOn)
+    src <- c(CP = "best across files", Wprime = "best across files", pPmax = "best 1s - CP",
              fP = src_rec, tauP = src_rec, tauG = src_rec, eta = src_rec,
-             lt1Frac = "default", fatK = "default", tauAer = "default")
-    unc <- c(CP = nzchar(cpWhy), Wprime = nzchar(cpWhy), pPmax = (!is.finite(p5) || p5 < 1.4 * f$CP),
+             lt1Frac = "default", fatK = "default", tauAer = "default", tauOn = "default (Parolin 1999)")
+    unc <- c(CP = nzchar(cpWhy), Wprime = nzchar(cpWhy), pPmax = (!is.finite(p1) || p1 < 1.6 * f$CP),
              fP = recU || spread("fP"), tauP = recU || spread("tauP"), tauG = recU || spread("tauG"),
-             eta = recU || spread("eta"), lt1Frac = TRUE, fatK = TRUE, tauAer = TRUE)
+             eta = recU || spread("eta"), lt1Frac = TRUE, fatK = TRUE, tauAer = TRUE, tauOn = TRUE)
     note <- c(CP = cpWhy, Wprime = cpWhy, pPmax = "no clear maximal sprint",
               fP = if (recU) recWhy else "wide spread across rides", tauP = if (recU) recWhy else "wide spread across rides",
               tauG = if (recU) recWhy else "wide spread across rides", eta = if (recU) recWhy else "wide spread across rides",
-              lt1Frac = "needs a threshold test", fatK = "needs repeated-bout data", tauAer = "needs onset-kinetics data")
+              lt1Frac = "needs a threshold test", fatK = "needs repeated-bout data", tauAer = "needs onset-kinetics data",
+              tauOn = "literature default ~6 s; not power-identifiable")
     ord <- names(PARAM_DESC)
     data.frame(param = ord, value = as.numeric(val[ord]), source = src[ord],
                uncertain = as.logical(unc[ord]), note = note[ord], stringsAsFactors = FALSE)
@@ -577,7 +595,7 @@ server <- function(input, output, session) {
     filename = function() paste0("dualtank_ciq_settings_", Sys.Date(), ".json"),
     content = function(file) {
       et <- est_table(); v <- setNames(et$value, et$param)
-      keys <- c("CP","Wprime","fP","pPmax","tauP","tauG","lt1Frac","eta","fatK","tauAer")   # match properties.xml
+      keys <- c("CP","Wprime","fP","pPmax","tauP","tauG","lt1Frac","eta","fatK","tauAer","tauOn")   # match properties.xml
       body <- paste(vapply(keys, function(k) sprintf('  "%s": %s', k, format(v[[k]], trim = TRUE)), character(1)), collapse = ",\n")
       writeLines(c("{", body, "}"), file)
     })

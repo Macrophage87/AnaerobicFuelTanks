@@ -26,9 +26,11 @@ dynamics:
 > The glycolytic side is the more complex of the two — it isn't really a fuel gauge but a stand-in
 > for how much fatigue-metabolite buildup you can still tolerate ([note below](#a-note-on-the-tanks)).
 
-The dual-tank model splits W′ into a fast PCr tank and a slow glycolytic tank, drains them
-**PCr-first** from the power trace, and refills them with **system-specific, intensity-gated**
-laws — so you can see *which* reserve is spent and *how fast* each will come back.
+The dual-tank model splits W′ into a fast PCr tank and a slow glycolytic tank, drains them **in
+parallel** from the power trace — PCr is the immediate buffer and glycolysis ramps in over the first
+few seconds (its real activation delay), so both are spent together on a hard effort — and refills
+them with **system-specific, intensity-gated** laws, so you can see *which* reserve is spent and
+*how fast* each will come back.
 
 ### A note on the "tanks"
 

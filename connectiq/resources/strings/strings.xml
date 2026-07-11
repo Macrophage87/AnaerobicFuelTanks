@@ -22,4 +22,6 @@
     <string id="sFatKp">How much low glycolytic reserve slows PCr recovery; 0 disables (~0.75).</string>
     <string id="sTauAer">Aerobic ramp tau (s)</string>
     <string id="sTauAerp">Aerobic supply response time toward min(P,CP); 0 = hard CP edge (~25).</string>
+    <string id="sTauOn">Glycolytic activation tau (s)</string>
+    <string id="sTauOnp">How fast glycolysis ramps in at effort onset; PCr covers the first seconds (~6, Parolin 1999).</string>
 </strings>

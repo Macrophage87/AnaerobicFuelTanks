@@ -146,19 +146,40 @@ Derived: `C_p = f_p·W′`, `C_g = (1 − f_p)·W′`. Initial state `R_p = C_p`
 Let `P` be instantaneous power (W) and `Δt = 1 s`. Define the demand relative to aerobic supply
 as `Δ = P − CP`.
 
-**Case 1 — depletion (`Δ > 0`, above CP).** Demand `need = Δ·Δt` (J) is met PCr-first, glycolytic-second:
+**Case 1 — depletion (`Δ > 0`, above CP).** Demand `need = Δ·Δt` (J) is met by **both systems in
+parallel**. This matters: glycolytic ATP supply is not instantaneous. Glycogen phosphorylase (the
+rate-limiting glycolytic enzyme) transforms to its active form over the first several seconds of
+maximal effort — Parolin *et al.* (1999) measured it rising from 12% at rest to 47% by 6 s — while
+phosphocreatine is the immediate buffer, near-fully drawn within the first ~10 s (Bogdanis *et al.*
+1996); both contribute from the onset, not in sequence (González‑Alonso *et al.* 2000). We model this
+with a **glycolytic activation** term `g ∈ [0,1]` that ramps first-order with a time constant
+`τ_on ≈ 6 s` while above CP and relaxes back during recovery:
 
 ```
-take_p = min(need, R_p, P_p_max·Δt)     # PCr covers as much as it can, rate-limited
-R_p   -= take_p
-need  -= take_p
+g ← g + (1 − g)·(1 − exp(−Δt/τ_on))      # activation ("glycolytic inertia"); decays below CP
 
-take_g = min(need, R_g)                  # glycolytic covers the remainder
-R_g   -= take_g
-need  -= take_g
+# Capacity-proportional split (glycolytic peak rate ≈ PCr peak rate):
+share_p = need / (1 + g)                  # at g=0 PCr covers all; at g=1 a 50/50 split
+share_g = need − share_p
 
-if need > 0:  exhaustion = true          # both tanks empty → rider at/over the limit
+take_p = min(share_p, R_p, P_p_max·Δt)    # PCr keeps its immediate rate cap
+take_g = min(share_g, R_g)
+unmet  = need − take_p − take_g
+# any shortfall (a tank empty or rate-capped) spills to the partner, then to deficit:
+take_g += min(unmet, R_g − take_g);       unmet −= …
+take_p += min(unmet, R_p − take_p, P_p_max·Δt − take_p); unmet −= …
+R_p −= take_p;  R_g −= take_g
+
+if unmet > 0:  exhaustion = true          # both tanks empty/capped → rider at/over the limit
 ```
+
+At effort onset `g ≈ 0`, so PCr supplies essentially everything (the fast transient); as `g → 1`
+over a few seconds the two tanks drain together, and once the small PCr tank empties glycolysis
+carries the rest. `P_p_max` is therefore the **immediate** rate ceiling, read against 1-second peak
+power (`P_p_max ≈ P₁ₛ − CP`). Note the split *ordering* is not identifiable from power alone — the
+two compartments are pinned down by the bi-exponential **recovery** of W′ (§below), not by depletion;
+the parallel draw is the physiologically faithful choice for the live display, `τ_on` a
+literature-set constant rather than a fitted one.
 
 **Case 2 — restoration (`Δ ≤ 0`, at/below CP).** Recovery "headroom" is `CP − P`. Each tank
 refills exponentially toward full; glycolytic refill is gated by intensity.
@@ -282,6 +303,10 @@ and PMIDs. Primary sources for this paper:
 - di Prampero PE, Ferretti G 1999, *Respir Physiol* — anaerobic energetics reappraisal. PMID 10647856, DOI 10.1016/S0034-5687(99)00083-3.
 - Harris RC et al. 1976 — biphasic PCr resynthesis. *Pflügers Arch*.
 - Yoshida et al. 2013, *Scand J Med Sci Sports* — τ_PCr by muscle. PMID 23662804, DOI 10.1111/sms.12081.
+- Parolin ML et al. 1999, *Am J Physiol Endocrinol Metab* — glycogen phosphorylase / PDH activation kinetics during maximal intermittent exercise (glycolytic activation over the first ~6 s). PMID 10567017, DOI 10.1152/ajpendo.1999.277.5.E890.
+- Bogdanis GC et al. 1996, *J Appl Physiol* — PCr and aerobic contribution during repeated sprints (PCr near-fully used in first 10 s). PMID 8964751, DOI 10.1152/jappl.1996.80.3.876.
+- González‑Alonso J et al. 2000, *J Physiol* — heat production at exercise onset; PCr + glycogenolysis initially provide most energy. PMID 10766936, DOI 10.1111/j.1469-7793.2000.00603.x.
+- Bangsbo J et al. 1990, *J Physiol* — anaerobic energy production and O₂ deficit during exhaustive exercise. PMID 2352192, DOI 10.1113/jphysiol.1990.sp018000.
 
 *Sourcing note:* equations for the incumbent models were cross-checked against PubMed Central
 full text (PMC7552657, PMC10638188); typeset equations there were image-embedded, so published
