@@ -41,41 +41,33 @@ PARAM_DESC <- c(
   tauAer  = "Aerobic on-ramp time constant (s): default.")
 cv <- function(x) { x <- x[is.finite(x)]; if (length(x) > 1 && mean(x) != 0) sd(x)/abs(mean(x)) else NA_real_ }
 
-# ---- steampunk dual-tank theme (purple = PCr, green = glycolytic) ----------
+# ---- dual-tank theme (purple = PCr, green = glycolytic) --------------------
 PCR <- "#B44DFF"; PCR_DEEP <- "#6C26A8"; GLY <- "#37E85A"; GLY_DEEP <- "#1A8C3A"
 BRASS <- "#C9A227"; PARCH <- "#EDE0C8"; WALNUT <- "#20160E"
-steampunk_css <- "
-:root{--pcr:#B44DFF;--gly:#37E85A;--brass:#C9A227;--parch:#EDE0C8;}
-body{background:radial-gradient(1200px 800px at 30% -10%,#3a2817 0%,#20160E 60%,#150e07 100%);color:var(--parch);}
-h1,h2,h3,h4,.navbar-brand,.card-header{font-family:'Cinzel',serif;color:var(--brass);letter-spacing:.04em;text-shadow:0 1px 0 #000;}
-.card{border:2px solid var(--brass);border-radius:12px;background:linear-gradient(180deg,#2b1e12,#1a120a);
-  box-shadow:inset 0 0 0 1px rgba(201,162,39,.25),0 8px 22px rgba(0,0,0,.55);}
-.card-header{background:linear-gradient(180deg,#3a2817,#241a10);border-bottom:1px solid var(--brass);}
-.nav-tabs .nav-link{color:var(--parch);}
-.nav-tabs .nav-link.active{color:#20160E;background:var(--brass);border-color:var(--brass);}
-.bslib-sidebar-layout>.sidebar{background:linear-gradient(180deg,#241a10,#150e07);border-right:2px solid var(--brass);}
-.btn-primary{background:linear-gradient(180deg,#8a3ecf,#4e1c78);border:1px solid var(--brass);color:#fff;}
-.btn-primary:hover{background:linear-gradient(180deg,#9d55e0,#5c2490);}
-.btn{border:1px solid var(--brass);color:var(--parch);background:linear-gradient(180deg,#2b1e12,#1a120a);}
-.form-control,.selectize-input,.form-select,.selectize-dropdown{background:#160f08!important;color:var(--parch)!important;border:1px solid var(--brass)!important;}
-.irs-bar,.irs-single,.irs-from,.irs-to{background:var(--pcr)!important;border-color:var(--pcr)!important;}
-.irs-handle{border:2px solid var(--brass)!important;background:#2b1e12!important;}
-pre{background:#160f08;color:var(--parch);border:1px solid var(--brass);border-radius:8px;}
-a{color:var(--gly);} hr{border-top:1px solid var(--brass);opacity:.5;}
-.form-check-input:checked{background-color:var(--gly);border-color:var(--gly);}
-table.dataTable{color:var(--parch);} .dataTables_wrapper{color:var(--parch);}
-.guide{max-width:920px;line-height:1.5;}
-.guide h4{color:var(--brass);margin:16px 0 6px;letter-spacing:.05em;}
-.guide li{margin:5px 0;} .guide code{background:#160f08;border:1px solid var(--brass);border-radius:4px;padding:1px 6px;color:var(--parch);}
-.guide table{border-collapse:collapse;margin:8px 0;} .guide th,.guide td{border:1px solid var(--brass);padding:5px 11px;text-align:left;}
-.guide th{color:var(--brass);background:rgba(0,0,0,.25);}
-.guide .pcr{color:var(--pcr);font-weight:bold;} .guide .gly{color:var(--gly);font-weight:bold;}
+# Standard, offline-safe dark bslib theme (no web-font fetch, no heavy custom sass
+# that can silently fail to compile on deploy). Purple = PCr, green = glycolytic
+# are carried by primary/secondary plus a few accent rules. The sidebar rules keep
+# it compact enough to fit on one screen.
+app_css <- "
+.pcr{color:#B44DFF;font-weight:700;} .gly{color:#37E85A;font-weight:700;}
+.guide{max-width:920px;line-height:1.5;} .guide h4{color:#C9A227;margin:16px 0 6px;}
+.guide li{margin:5px 0;} .guide code{background:rgba(255,255,255,.08);border-radius:4px;padding:1px 6px;}
+.guide table{border-collapse:collapse;margin:8px 0;} .guide th,.guide td{border:1px solid #4a4a4a;padding:5px 11px;text-align:left;}
+.guide th{color:#C9A227;background:rgba(255,255,255,.05);}
+/* compact sidebar so everything fits without scrolling */
+.bslib-sidebar-layout>.sidebar{font-size:13px;}
+.sidebar .form-group,.sidebar .shiny-input-container{margin-bottom:.45rem;}
+.sidebar .control-label,.sidebar label{margin-bottom:.15rem;font-weight:600;}
+.sidebar .btn{padding:.28rem .5rem;}
+.sidebar .form-text,.sidebar .help-block{font-size:11px;margin-top:.1rem;}
+.sidebar hr{margin:.4rem 0;}
+#read_txt{max-height:110px;overflow:auto;font-size:11px;margin:0;padding:.35rem .5rem;}
+.sidebar .accordion-button{padding:.35rem .6rem;font-size:13px;}
+.sidebar .accordion-body{padding:.4rem .6rem;}
 "
-tank_theme <- bs_theme(version = 5, bg = WALNUT, fg = PARCH, primary = PCR, secondary = GLY,
-  success = GLY, info = BRASS, warning = BRASS,
-  base_font = font_google("EB Garamond"), heading_font = font_google("Cinzel"),
-  code_font = font_google("IM Fell English SC"))
-tank_theme <- bs_add_rules(tank_theme, steampunk_css)
+tank_theme <- bs_theme(version = 5, bg = "#16191c", fg = "#e6e6e6",
+  primary = PCR, secondary = GLY, success = GLY, info = GLY, warning = BRASS)
+tank_theme <- bs_add_rules(tank_theme, app_css)
 
 # ggplot theme that blends into the brass-on-walnut cards (screen)
 gg_tank <- function() theme_minimal(base_size = 12) + theme(
@@ -388,22 +380,25 @@ fit_all_rides <- function(power_list, names, cp, base, anchors, interval_idx, su
 
 # ===========================================================================
 ui <- page_sidebar(
-  title = "⚙ Dual-Tank Parameter Estimator ⚙",
+  title = "Dual-Tank Parameter Estimator",
   theme = tank_theme,
-  sidebar = sidebar(width = 330, title = "Boiler room",
+  sidebar = sidebar(width = 330, title = "Controls",
     fileInput("files", "FIT files (rides / races / interval sets)", multiple = TRUE, accept = c(".fit", ".FIT")),
     verbatimTextOutput("read_txt"),
-    sliderInput("cpwin", "CP fit window (min)", 1, 30, c(2, 12), 1),
-    sliderInput("fP", "PCr share of W' (fP) start value", 0.1, 0.6, 0.35, 0.01),
-    uiOutput("interval_pick"),
-    fileInput("history", "History YAML (optional, for trends)", accept = c(".yaml", ".yml")),
-    hr(),
-    actionButton("fitall", "Fit fP/tauP/tauG/eta on every ride", class = "btn-primary"),
+    actionButton("fitall", "Fit fP / tauP / tauG / eta", class = "btn-primary w-100"),
+    # Secondary controls tucked into collapsed panels so the sidebar fits one screen.
+    accordion(id = "opts", open = FALSE, class = "my-2",
+      accordion_panel("CP & model", icon = NULL,
+        sliderInput("cpwin", "CP fit window (min)", 1, 30, c(2, 12), 1),
+        sliderInput("fP", "PCr share of W' (fP) start", 0.1, 0.6, 0.35, 0.01)),
+      accordion_panel("Interval sets", icon = NULL, uiOutput("interval_pick")),
+      accordion_panel("History (trends)", icon = NULL,
+        fileInput("history", "History YAML", accept = c(".yaml", ".yml")))),
     radioButtons("agg", "Combine rides by", c("median", "best-fit"), inline = TRUE),
     hr(),
-    downloadButton("dl_ciq", "Export Connect IQ settings (JSON)"),
-    downloadButton("dl_yaml", "Export dated YAML reading"),
-    downloadButton("dl_pdf", "Export PDF report")
+    downloadButton("dl_ciq", "Connect IQ settings (JSON)", class = "w-100"),
+    downloadButton("dl_yaml", "Dated YAML reading", class = "w-100"),
+    downloadButton("dl_pdf", "PDF report", class = "w-100")
   ),
   navset_card_tab(
     nav_panel("★ Guide", HTML(guide_html)),
