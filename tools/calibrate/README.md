@@ -143,3 +143,22 @@ readings:
   inspect per-ride objectives and reserve traces before trusting values.
 - This is a **sketch**: it runs, but validate the fits on your own data before racing on the numbers.
 - The `mockup-*.html`/`ui-mockup.html` files are static previews only; the live app is `app.R`.
+
+## Deploy
+
+`manifest.json` (Posit Connect / rsconnect descriptor) is included so the app can be deployed —
+e.g. to **shinyapps.io** or a **git-backed Posit Connect** content item.
+
+The committed `manifest.json` lists the **direct** dependencies as a starting point. For a
+reproducible deploy, regenerate it against your own R library (it then pins exact versions and the
+full dependency closure) and deploy — see `deploy.R`:
+
+```r
+install.packages("rsconnect")
+setwd("tools/calibrate")
+rsconnect::writeManifest(appDir = ".")                 # refresh manifest.json exactly
+rsconnect::deployApp(appDir = ".", appName = "dual-tank-calibrate")  # or push to git-backed Connect
+```
+
+Update `platform` in `manifest.json` to your R version. `FITfileR` is a GitHub package
+(`grimbough/FITfileR`); `writeManifest()` records it automatically once installed from GitHub.

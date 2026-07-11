@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "locale": "en_US",
+  "platform": "4.4.1",
+  "metadata": {
+    "appmode": "shiny",
+    "primary_rmd": null,
+    "primary_html": null,
+    "content_category": null,
+    "has_parameters": false
+  },
+  "packages": {
+    "shiny": {
+      "Source": "CRAN",
+      "Repository": "https://cloud.r-project.org",
+      "description": { "Package": "shiny", "Version": "1.9.1" }
+    },
+    "bslib": {
+      "Source": "CRAN",
+      "Repository": "https://cloud.r-project.org",
+      "description": { "Package": "bslib", "Version": "0.8.0" }
+    },
+    "ggplot2": {
+      "Source": "CRAN",
+      "Repository": "https://cloud.r-project.org",
+      "description": { "Package": "ggplot2", "Version": "3.5.1" }
+    },
+    "DT": {
+      "Source": "CRAN",
+      "Repository": "https://cloud.r-project.org",
+      "description": { "Package": "DT", "Version": "0.33" }
+    },
+    "yaml": {
+      "Source": "CRAN",
+      "Repository": "https://cloud.r-project.org",
+      "description": { "Package": "yaml", "Version": "2.3.10" }
+    },
+    "FITfileR": {
+      "Source": "github",
+      "Repository": "https://github.com/grimbough/FITfileR",
+      "description": {
+        "Package": "FITfileR",
+        "Version": "0.1.6",
+        "GithubUsername": "grimbough",
+        "GithubRepo": "FITfileR",
+        "GithubRef": "main"
+      }
+    }
+  },
+  "files": {
+    "app.R": {
+      "checksum": "cac92ae33a6685507626d0eb5224abf8"
+    }
+  },
+  "users": null
+}

@@ -3,7 +3,7 @@ Dual-Tank Anaerobic — see your two anaerobic energy systems, live.
 Most power models treat your anaerobic capacity ("W-prime") as a single tank. Your body has two, and they behave very differently:
 
 - PCr (phosphocreatine / alactic) — your "punch." Highest power, small capacity, refills fast (seconds) once you ease off.
-- GLY (glycolytic / lactic) — your "sustained dig." Larger capacity, lower power, refills slowly (minutes) and only when you drop below threshold.
+- GLY (glycolytic / lactic) — your "sustained dig." Larger capacity, lower power, refills slowly (minutes) and only when you drop below threshold. (The glycolytic side is the more complex of the two — less a fuel gauge than a measure of how much metabolite buildup you can still tolerate; see A NOTE ON THE TANKS below.)
 
 Dual-Tank Anaerobic splits your anaerobic reserve into these two tanks and drives them entirely from your power meter, so at a glance you can see WHICH system you're spending and HOW FAST each will come back.
 
