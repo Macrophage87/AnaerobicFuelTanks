@@ -27,12 +27,13 @@ Every second it writes PCr% and GLY% reserve (plus live consumption) to the FIT 
 THE MODEL
 Demand above your aerobic supply is met PCr-first (rate-limited), then glycolytic. Recovery is system-specific: PCr recovers fast but is efficiency-limited and slows as you fatigue; glycolytic recovers slowly and only below your first lactate threshold. Optional realism: an aerobic on-ramp for the oxygen deficit at the start of efforts, and fatigue-slowed PCr recovery across repeated bouts. Pauses are handled correctly — the tanks keep refilling for the whole break.
 
+A NOTE ON THE TANKS
+"Tank" is a simplified picture for a quick glance, not a literal reservoir. PCr really is a small store that depletes. The glycolytic "tank" is better read as how much metabolic-byproduct buildup (phosphate, H+, etc.) you can still tolerate - NOT running low on carbohydrate (you have plenty on this timescale; lactate is a fuel and a marker, not the cause). That is why glycolytic recovers slowly and only when you ease off, while PCr snaps back fast. Fatigue is multifactorial; the model lumps it into one number for usability.
+
 SET IT UP
-Enter your numbers in the field settings:
-- CP (critical power) and W-prime from a power-duration test
-- PCr share of W-prime and its max power
-- Recovery time constants, LT1 fraction, recovery efficiency
-- Fatigue and aerobic-ramp strength (set to 0 to disable)
+Ten settings drive the model (CP, W-prime, PCr share and max power, recovery time constants, LT1 fraction, efficiency, fatigue, aerobic onset). Two ways to get your numbers:
+- Work with an LLM like Claude: share your ride FIT files and it estimates all ten, tells you which your data actually constrains, and refines them as you log more workouts. The project README has a ready-to-paste context block.
+- Or use the free companion R Shiny calibration app for initial values (or if you prefer not to use an LLM) - it reads your FIT files, flags weakly-constrained parameters, and exports the settings.
 Defaults are sensible; personalize for best accuracy.
 
 WHO IT'S FOR

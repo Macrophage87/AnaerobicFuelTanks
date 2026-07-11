@@ -19,9 +19,10 @@ using Toybox.Lang;
 //     slowly (tauG) and only below LT1 (lt1Frac * CP).
 //
 // REALISM TERMS (from white paper, tunable via settings):
-//   - Aerobic ramp: aerobic supply is a first-order response toward min(P,CP) with
-//     time constant tauAer (default 25 s), so the tanks cover the onset O2 deficit.
-//     Set tauAer = 0 to fall back to a hard CP boundary.
+//   - Aerobic ramp: BELOW CP the aerobic system covers demand (no anaerobic draw, so
+//     PCr does not deplete below CP); ABOVE CP a sticky, floored aerobic tracker ramps
+//     toward CP with tauAer, so the onset of a hard effort incurs an O2 deficit the
+//     tanks cover. Set tauAer = 0 for a hard CP boundary.
 //   - Fatigue-slowed PCr recovery: tauPeff = tauP * (1 + fatK * (1 - rG/cG)), so PCr
 //     resynthesis slows as the glycolytic tank empties. Set fatK = 0 to disable.
 //
@@ -65,6 +66,9 @@ class DualTankView extends WatchUi.DataField {
 
     // Guard: cap a single pause's recovery to 24 h of rest (clock-change safety).
     const MAX_PAUSE_SEC = 86400;
+    // Aerobic off-kinetics are slower than on-kinetics -> a "sticky" aerobic supply
+    // so brief eases/coasts don't force a re-ramp. Off tau = tauAer * AER_FALL.
+    const AER_FALL = 6.0;
 
     // ---- Settings ----
     hidden var mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta;
@@ -306,16 +310,25 @@ class DualTankView extends WatchUi.DataField {
 
         var dt = 1.0;
 
-        // Aerobic supply: first-order ramp toward min(P, CP) with tauAer, so the
-        // anaerobic tanks cover the onset "oxygen deficit". tauAer <= 0 disables
-        // the ramp and falls back to a hard CP boundary.
+        // Aerobic supply.
+        //   Below CP: the aerobic system covers demand (supply = P) -> no anaerobic
+        //     draw, so PCr does NOT deplete while you ride below CP.
+        //   Above CP: a sticky, floored aerobic tracker ramps toward CP with tauAer,
+        //     so the ONSET of a hard effort incurs an oxygen deficit the tanks cover,
+        //     tapering to (P - CP) as aerobic catches up. Off-kinetics are slower
+        //     (AER_FALL) so brief eases don't reset the ramp and churn PCr.
+        //   tauAer <= 0 disables the ramp (hard CP boundary).
         var supply = mCP;
         if (mTauAer > 0.0) {
             var tgt = (p < mCP) ? p : mCP;
-            mAer += (tgt - mAer) * (1.0 - Math.pow(Math.E, -dt / mTauAer));
-            if (mAer < 0.0) { mAer = 0.0; }
+            var kA = (tgt > mAer)
+                ? (1.0 - Math.pow(Math.E, -dt / mTauAer))
+                : (1.0 - Math.pow(Math.E, -dt / (mTauAer * AER_FALL)));
+            mAer += (tgt - mAer) * kA;
+            var floorA = 0.5 * mCP;
+            if (mAer < floorA) { mAer = floorA; }
             if (mAer > mCP) { mAer = mCP; }
-            supply = mAer;
+            supply = (p > mCP) ? mAer : p;
         } else {
             mAer = mCP;
         }
