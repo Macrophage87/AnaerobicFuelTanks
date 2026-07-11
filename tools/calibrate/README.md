@@ -65,9 +65,19 @@ silently guessed.
 
 ### Interval sets & repeated bouts
 
-Mark repeated-bout workouts as interval sets. They only help pin down recovery **if the rest is
-short enough** that the tanks don't refill between bouts — the app measures the between-bout refill
-and **flags sets with >70% refill** as uninformative for `tauP`/`tauG`.
+Mark repeated-bout workouts as interval sets. There are two kinds:
+
+- **To failure** — the last bout drove you to (or near) empty. Gets a `reserve = 0` anchor and
+  constrains recovery well, **if the rest is short enough** that the tanks don't refill between bouts
+  (the app measures between-bout refill and **flags sets with >70% refill** as uninformative for
+  `tauP`/`tauG`).
+- **Submaximal** — repeated bouts you completed **with margin** (you could have done more). Tick these
+  in the separate "submaximal" list. The fit then uses **only feasibility + the recovery between
+  bouts** — no `reserve = 0` anchor is forced, since you never emptied the tank. The recovery table
+  reports the **reserve margin** you kept and flags the result `submax-weak` (low-confidence, and
+  excluded from the combined estimate unless nothing better is available). Submaximal repeated bouts
+  genuinely carry little information about recovery kinetics — this keeps the app honest rather than
+  inventing precise `tauP`/`tauG` from data that can't support them.
 
 ### Races and hard group rides
 
@@ -141,6 +151,10 @@ readings:
   (pedal smoothness, torque effectiveness, respiration, HRV) are merged in time order rather than
   concatenated by field-signature. Without this, paused/interval files (e.g. VO2max hill reps) yield
   wildly inflated long-duration power and an impossible CP.
+- If `FITfileR` can't read a file — most often because it carries **developer data fields** (HRV apps
+  writing `Alpha1`/`RespirationRate`, W′bal fields, radar, carbs/fat) — the app falls back to a small
+  built-in base-R FIT decoder that pulls power + timestamp straight from the record messages. The
+  sidebar's per-file load report shows which reader succeeded (or why a file failed).
 - Fonts (`Cinzel`, `EB Garamond`) load from Google at startup — needs a network connection the first
   time; swap `font_google(...)` for local fonts to run fully offline.
 - The recovery fit uses `optim` (L-BFGS-B); the feasibility/anchor weighting is a tunable constant —
