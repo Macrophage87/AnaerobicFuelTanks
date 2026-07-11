@@ -31,8 +31,9 @@ moments where the rider was genuinely **maximal / cracked** (reserve ≈ 0).
 The app simulates the dual-tank model (the same 1 Hz update as the data field) over each ride and
 fits `fP, tauP, tauG, eta` by:
 
-- **anchoring** reserve ≈ 0 at maximal/cracked moments (auto-suggested at each ride's
-  lowest-reserve points), and
+- **anchoring** reserve ≈ 0 at maximal/cracked moments — set with a **click-to-anchor editor**
+  on each ride's reserve trace (click to add, click near one to remove), or auto-suggested at the
+  ride's lowest-reserve points, and
 - keeping reserve ≥ 0 for the whole (completed) ride — an infeasibility penalty.
 
 It fits **every uploaded ride**, shows a per-ride table, and combines them by **median** (robust)
@@ -57,8 +58,8 @@ identify them.
 
 ## Notes / extensions
 
-- Auto-anchoring (lowest-reserve points) is a rough first pass; a manual anchor editor per ride
-  (click the reserve trace) would improve fit quality — a natural next addition.
+- The **Anchor editor** tab lets you click each ride's reserve trace to place/remove anchors;
+  rides with no manual anchors fall back to auto-suggested lowest-reserve points.
 - `lt1Frac` needs a lactate/threshold test; `fatK`/`tauAer` need repeated-bout data to identify.
 - The fit uses `optim` (L-BFGS-B, bounded). Weighting between the feasibility and anchor terms is a
   tunable constant — inspect the per-ride objective and reserve traces before trusting values.
