@@ -4,7 +4,7 @@ A small **R Shiny** app that turns your ride files into the settings for the Ana
 Connect IQ data field. Upload some `.FIT` files, and it figures out your **CP**, **W′**, and — where
 your data allows — the PCr/glycolytic split and recovery rates, flagging anything it can't pin down.
 
-Styled in a steampunk look: **purple = PCr**, **green = glycolytic**, brass on walnut.
+Clean dark theme (standard bslib, no web-font dependency): **purple = PCr**, **green = glycolytic**.
 
 ![App — parameters tab](ui-mockup.png)
 
