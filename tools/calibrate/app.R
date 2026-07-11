@@ -125,8 +125,14 @@ maximal moments.</p>
 <h4>Anchors &amp; interval sets</h4>
 <ul>
 <li>An <b>anchor</b> marks a second where your reserve hit zero. Getting dropped is a perfect anchor.</li>
-<li><b>Interval sets</b> only constrain recovery when the rest is short &mdash; sets with more than 70%
-between-bout refill are flagged as uninformative for tauP / tauG.</li>
+<li><b>Interval sets &mdash; to failure</b>: the last bout drove you to (or near) empty. These get a
+reserve&nbsp;=&nbsp;0 anchor and constrain recovery well &mdash; as long as the rest is short (sets with
+more than 70% between-bout refill are flagged as uninformative for tauP / tauG).</li>
+<li><b>Interval sets &mdash; submaximal</b>: repeated bouts you completed with margin (you could have done
+more). Tick these separately. The fit then uses <i>only</i> feasibility and the recovery between bouts &mdash;
+no reserve&nbsp;=&nbsp;0 anchor is forced, since you never emptied the tank. The recovery table reports the
+<b>reserve margin</b> you kept and flags the numbers <code>submax-weak</code> (low-confidence, excluded from
+the combined estimate unless nothing better exists).</li>
 </ul>
 
 <h4>Applying the settings</h4>
@@ -148,50 +154,127 @@ as_num <- function(x) {
   if (all(is.na(v)) && length(x)) suppressWarnings(as.numeric(as.character(x))) else v
 }
 
+# Collapse (timestamp, power) samples onto a true 1 Hz timeline. Pauses/gaps
+# become 0 W; a corrupt/rollover timestamp that would blow the timeline up to
+# millions of zero-filled seconds falls back to the raw contiguous samples.
+timeline_from <- function(t, p) {
+  ok <- is.finite(t) & is.finite(p); t <- t[ok]; p <- p[ok]
+  if (length(t) < 2) return(NULL)
+  o <- order(t); t <- t[o]; p <- p[o]
+  keep <- !duplicated(t); t <- t[keep]; p <- p[keep]   # one power per second
+  sec <- round(t - t[1]); span <- sec[length(sec)]
+  if (!is.finite(span) || span < 1) return(p)
+  if (span > 50 * length(p) + 86400) return(p)          # rollover guard
+  line <- numeric(span + 1); line[sec + 1L] <- p; line
+}
+
+# Minimal FIT decoder in base R: pulls (timestamp, power) straight from the record
+# messages. Used as a fallback when FITfileR can't read a file -- notably files
+# carrying developer data fields (HRV apps: Alpha1/RespirationRate; W'bal fields;
+# radar; carbs/fat), which routinely break records(). Developer fields are skipped
+# by size; only native power (field 7) and timestamp (field 253) on record messages
+# (global message 20) are decoded. Returns a per-second power vector or NULL.
+read_power_raw <- function(path) {
+  sz <- file.info(path)$size
+  if (!is.finite(sz) || sz < 14) return(NULL)
+  ib <- as.integer(readBin(path, "raw", n = sz))          # bytes 0..255, 1-based
+  hdr <- ib[1]
+  data_size <- ib[5] + ib[6] * 256 + ib[7] * 65536 + ib[8] * 16777216
+  endp <- min(hdr + data_size, length(ib))
+  rdint <- function(off, size, le) {                       # off = 1-based byte index
+    b <- ib[off:(off + size - 1L)]; if (!le) b <- rev(b)
+    sum(b * 256^(seq_along(b) - 1L))
+  }
+  defs <- vector("list", 16L)                              # local message types 0..15
+  last_ts <- NA_real_
+  tsv <- numeric(4096L); pwv <- numeric(4096L); k <- 0L
+  add <- function(t, p) {
+    k <<- k + 1L
+    if (k > length(tsv)) { length(tsv) <<- 2L * length(tsv); length(pwv) <<- length(tsv) }
+    tsv[k] <<- t; pwv[k] <<- p
+  }
+  pos <- hdr + 1L
+  while (pos <= endp) {
+    rh <- ib[pos]; pos <- pos + 1L
+    if (bitwAnd(rh, 0x80L) != 0L) {                        # compressed-timestamp data msg
+      lt <- bitwAnd(bitwShiftR(rh, 5L), 0x3L); toff <- bitwAnd(rh, 0x1fL)
+      d <- defs[[lt + 1L]]; if (is.null(d)) return(NULL)
+      ts <- if (is.finite(last_ts)) last_ts + ((toff - (last_ts %% 32)) %% 32) else NA_real_
+      if (!is.na(d$off253)) { v <- rdint(pos + d$off253, d$sz253, d$le); if (v != d$inv253) ts <- v }
+      if (d$gnum == 20 && !is.na(d$off7)) {
+        pw <- rdint(pos + d$off7, d$sz7, d$le)
+        if (pw != d$inv7 && is.finite(ts)) add(ts, pw)
+      }
+      if (is.finite(ts)) last_ts <- ts
+      pos <- pos + d$size
+    } else if (bitwAnd(rh, 0x40L) != 0L) {                 # definition msg
+      arch <- ib[pos + 1L]; le <- (arch == 0L)
+      gnum <- rdint(pos + 2L, 2L, le); nf <- ib[pos + 4L]
+      p <- pos + 5L; off <- 0L
+      off7 <- NA_integer_; sz7 <- 0L; off253 <- NA_integer_; sz253 <- 0L
+      if (nf > 0L) for (j in seq_len(nf)) {
+        fnum <- ib[p]; fsz <- ib[p + 1L]
+        if (fnum == 7L)   { off7 <- off;   sz7 <- fsz }
+        if (fnum == 253L) { off253 <- off; sz253 <- fsz }
+        off <- off + fsz; p <- p + 3L
+      }
+      devsz <- 0L
+      if (bitwAnd(rh, 0x20L) != 0L) {                      # developer field section
+        ndev <- ib[p]; p <- p + 1L
+        if (ndev > 0L) for (j in seq_len(ndev)) { devsz <- devsz + ib[p + 1L]; p <- p + 3L }
+      }
+      inv <- function(s) if (s == 1L) 255 else if (s == 2L) 65535 else if (s == 4L) 4294967295 else -1
+      defs[[bitwAnd(rh, 0xfL) + 1L]] <- list(le = le, gnum = gnum, size = off + devsz,
+        off7 = off7, sz7 = sz7, inv7 = inv(sz7), off253 = off253, sz253 = sz253, inv253 = inv(sz253))
+      pos <- p
+    } else {                                               # normal data msg
+      lt <- bitwAnd(rh, 0xfL); d <- defs[[lt + 1L]]; if (is.null(d)) return(NULL)
+      ts <- NA_real_
+      if (!is.na(d$off253)) { v <- rdint(pos + d$off253, d$sz253, d$le); if (v != d$inv253) ts <- v }
+      if (d$gnum == 20 && !is.na(d$off7)) {
+        pw <- rdint(pos + d$off7, d$sz7, d$le)
+        if (pw != d$inv7 && is.finite(ts)) add(ts, pw)
+      }
+      if (is.finite(ts)) last_ts <- ts
+      pos <- pos + d$size
+    }
+  }
+  if (k < 2L) return(NULL)
+  timeline_from(tsv[seq_len(k)], pwv[seq_len(k)])
+}
+
 # Returns list(p = <per-second power vector | NULL>, reason = <NULL | message>).
 # reason is non-NULL only when the file could not be turned into usable power.
 read_power <- function(path) {
   fail <- function(msg) list(p = NULL, reason = msg)
+  raw_fallback <- function(why) {
+    # base-R decoder; survives developer-field files that break FITfileR
+    r <- try(read_power_raw(path), silent = TRUE)
+    if (!inherits(r, "try-error") && !is.null(r) && length(r) >= 2) return(list(p = r, reason = NULL))
+    fail(why)
+  }
   ff <- try(readFitFile(path), silent = TRUE)
-  if (inherits(ff, "try-error")) return(fail("could not parse FIT (readFitFile failed)"))
+  if (inherits(ff, "try-error")) return(raw_fallback("could not parse FIT (readFitFile failed)"))
   recs <- try(records(ff), silent = TRUE)
-  if (inherits(recs, "try-error")) return(fail("no record messages (records() failed)"))
-  if (is.null(recs)) return(fail("no record messages"))
+  if (inherits(recs, "try-error") || is.null(recs)) return(raw_fallback("records() failed"))
   if (is.data.frame(recs)) recs <- list(recs)
   # FITfileR returns ONE table per distinct record field-signature. A power meter
   # whose optional fields (pedal smoothness, torque effectiveness, respiration,
-  # HRV) drop in and out produces MANY such tables -- this file had 15. Concatenating
-  # them blindly (unlist over the list) scrambles the time axis -- all the hard
-  # -pedaling samples from one signature end up contiguous -- and silently drops
-  # autopause gaps, so a "1200-sample" MMP window becomes 1200 s of back-to-back
-  # efforts. That inflates long-duration MMP and pushes CP far above reality. Merge
-  # every sub-table on its timestamp into a true 1 Hz timeline instead, filling
-  # pauses/gaps with 0 W. Sub-tables lacking power or timestamp are simply skipped.
+  # HRV) drop in and out produces MANY such tables. Concatenating them blindly
+  # (unlist over the list) scrambles the time axis -- all the hard-pedaling samples
+  # from one signature end up contiguous -- and silently drops autopause gaps, so a
+  # "1200-sample" MMP window becomes 1200 s of back-to-back efforts. That inflates
+  # long-duration MMP and pushes CP far above reality. Merge every sub-table on its
+  # timestamp into a true 1 Hz timeline instead. Sub-tables lacking power/timestamp
+  # are skipped.
   parts <- lapply(recs, function(df) {
     if (!is.data.frame(df) || !all(c("power", "timestamp") %in% names(df))) return(NULL)
-    t <- as_num(df$timestamp); p <- as_num(df$power)
-    ok <- is.finite(t) & is.finite(p)
-    if (!any(ok)) return(NULL)
-    data.frame(t = t[ok], p = p[ok])
+    data.frame(t = as_num(df$timestamp), p = as_num(df$power))
   })
   parts <- do.call(rbind, parts)
-  if (is.null(parts) || nrow(parts) < 2) {
-    # Fallback: no usable timestamps -- treat samples as contiguous 1 Hz (old path).
-    pw <- unlist(lapply(recs, function(df) if ("power" %in% names(df)) as_num(df$power) else numeric(0)))
-    pw <- pw[is.finite(pw)]
-    return(if (length(pw) < 2) fail("no power field in records") else list(p = pw, reason = NULL))
-  }
-  parts <- parts[order(parts$t), ]
-  parts <- parts[!duplicated(parts$t), ]         # one power per second
-  sec <- round(parts$t - parts$t[1])             # whole seconds from start
-  span <- sec[length(sec)]
-  if (!is.finite(span) || span < 1) return(list(p = as.numeric(parts$p), reason = NULL))
-  # Guard against a corrupt/rollover timestamp blowing the timeline up to millions
-  # of zero-filled seconds: if the span is wildly longer than the sample count,
-  # fall back to contiguous samples rather than allocating a huge mostly-empty vector.
-  if (span > 50 * nrow(parts) + 86400) return(list(p = as.numeric(parts$p), reason = NULL))
-  line <- numeric(span + 1)                       # pauses / dropouts -> 0 W
-  line[sec + 1L] <- parts$p
+  if (is.null(parts) || nrow(parts) < 2) return(raw_fallback("no power field in records"))
+  line <- timeline_from(parts$t, parts$p)
+  if (is.null(line)) return(raw_fallback("no usable power samples"))
   list(p = line, reason = NULL)
 }
 best_mean_power <- function(p, d) { n <- length(p); if (n < d) return(NA_real_)
@@ -247,40 +330,56 @@ suggest_marks <- function(power, cp, base) {
 ride_diag <- function(power, cp, base) {
   r <- rle(power > cp); ends <- cumsum(r$lengths); starts <- ends - r$lengths + 1L
   bouts <- which(r$values & r$lengths >= 5); nb <- length(bouts); mean_rec <- NA_real_; refill <- NA_real_
+  tot <- simulate_tanks(power, cp, base)$total; Wp <- base$Wprime
+  margin <- min(tot) / Wp                        # lowest reserve reached, as share of W'
   if (nb >= 2) {
-    tot <- simulate_tanks(power, cp, base)$total; Wp <- base$Wprime; gaps <- numeric(nb-1); rf <- numeric(nb-1)
+    gaps <- numeric(nb-1); rf <- numeric(nb-1)
     for (k in seq_len(nb-1)) { b1 <- bouts[k]; b2 <- bouts[k+1]; gaps[k] <- starts[b2]-ends[b1]
       after <- tot[ends[b1]]; before <- tot[starts[b2]]; rf[k] <- (before-after)/max(1e-6, Wp-after) }
     mean_rec <- mean(gaps); refill <- median(pmax(0, pmin(1, rf)))
   }
-  list(n_bouts = nb, mean_rec_s = mean_rec, refill = refill)
+  list(n_bouts = nb, mean_rec_s = mean_rec, refill = refill, margin = margin)
 }
 ride_flag <- function(dg, fit) {
   fl <- character(0)
+  if (!is.null(fit) && isTRUE(fit$submax)) fl <- c(fl, "submax-weak")
   if (!is.null(fit) && fit$conv != 0) fl <- c(fl, "no-converge")
   if (is.na(dg$n_bouts) || dg$n_bouts < 3) fl <- c(fl, "few-bouts")
-  if (!is.na(dg$refill) && dg$refill > 0.7) fl <- c(fl, "rest-too-long")
-  if (!is.null(fit) && fit$obj > 0.05) fl <- c(fl, "poor-fit")
+  # A submaximal set is *meant* to leave margin, so "rest-too-long" doesn't apply.
+  if (!is.na(dg$refill) && dg$refill > 0.7 && !(!is.null(fit) && isTRUE(fit$submax))) fl <- c(fl, "rest-too-long")
+  if (!is.null(fit) && !isTRUE(fit$submax) && fit$obj > 0.05) fl <- c(fl, "poor-fit")
   if (length(fl)) paste(fl, collapse = ";") else "ok"
 }
-fit_recovery <- function(power, cp, base, marks) {
-  Wp <- base$Wprime
+fit_recovery <- function(power, cp, base, marks, submax = FALSE) {
+  Wp <- base$Wprime; th0 <- c(base$fP, base$tauP, base$tauG, base$eta)
   obj <- function(th) { par <- base; par$fP <- th[1]; par$tauP <- th[2]; par$tauG <- th[3]; par$eta <- th[4]
-    s <- simulate_tanks(power, cp, par); 5 * mean((s$deficit/Wp)^2) + (if (length(marks)) mean((s$total[marks]/Wp)^2) else 0) }
-  st <- optim(c(base$fP, base$tauP, base$tauG, base$eta), obj, method = "L-BFGS-B",
+    s <- simulate_tanks(power, cp, par); feas <- 5 * mean((s$deficit/Wp)^2)
+    if (submax) {
+      # Efforts were NOT to failure -> no reserve=0 anchor. Submaximal repeated bouts
+      # only constrain recovery through feasibility (tanks never go negative) plus the
+      # quasi-steady reserve the bouts settle into, which is weak; a small ridge prior
+      # toward the starting values keeps the optimiser identifiable. Params from these
+      # rides are flagged low-confidence rather than trusted like maximal anchors.
+      feas + 0.02 * mean(((th - th0) / pmax(1e-6, th0))^2)
+    } else feas + (if (length(marks)) mean((s$total[marks]/Wp)^2) else 0) }
+  st <- optim(th0, obj, method = "L-BFGS-B",
               lower = c(0.10,5,60,0.30), upper = c(0.60,120,1800,1.00), control = list(maxit = 200))
-  list(fP = st$par[1], tauP = st$par[2], tauG = st$par[3], eta = st$par[4], obj = st$value, conv = st$convergence)
+  list(fP = st$par[1], tauP = st$par[2], tauG = st$par[3], eta = st$par[4],
+       obj = st$value, conv = st$convergence, submax = submax)
 }
-fit_all_rides <- function(power_list, names, cp, base, anchors, interval_idx) {
+fit_all_rides <- function(power_list, names, cp, base, anchors, interval_idx, submax_idx = integer(0)) {
   rows <- lapply(seq_along(power_list), function(i) {
-    p <- power_list[[i]]; man <- anchors[[as.character(i)]]; is_int <- i %in% interval_idx
-    if (!is.null(man) && length(man)) { m <- man; src <- "manual" }
+    p <- power_list[[i]]; man <- anchors[[as.character(i)]]
+    is_sub <- i %in% submax_idx; is_int <- (i %in% interval_idx) || is_sub
+    if (is_sub) { m <- integer(0); src <- "submax (no reserve=0)" }        # not to failure -> no anchor
+    else if (!is.null(man) && length(man)) { m <- man; src <- "manual" }
     else if (is_int) { m <- c(which.min(simulate_tanks(p, cp, base)$total), length(p)); src <- "interval-end" }
     else { m <- suggest_marks(p, cp, base); src <- "auto" }
-    r <- try(fit_recovery(p, cp, base, m), silent = TRUE); if (inherits(r, "try-error")) return(NULL)
+    r <- try(fit_recovery(p, cp, base, m, submax = is_sub), silent = TRUE); if (inherits(r, "try-error")) return(NULL)
     dg <- ride_diag(p, cp, base)
-    data.frame(file = names[i], type = if (is_int) "interval" else "variable", anchors = src,
-               bouts = dg$n_bouts, rec_s = round(dg$mean_rec_s), refill = round(dg$refill, 2),
+    data.frame(file = names[i], type = if (is_sub) "submax" else if (is_int) "interval" else "variable",
+               anchors = src, bouts = dg$n_bouts, rec_s = round(dg$mean_rec_s),
+               refill = round(dg$refill, 2), margin = round(dg$margin, 2),
                fP = r$fP, tauP = r$tauP, tauG = r$tauG, eta = r$eta, obj = r$obj, conv = r$conv,
                flag = ride_flag(dg, r), stringsAsFactors = FALSE)
   })
@@ -347,11 +446,15 @@ server <- function(input, output, session) {
   cpfit <- reactive(fit_cp(mmp()$duration, mmp()$power, input$cpwin[1]*60, input$cpwin[2]*60))
   base_par <- reactive({ f <- cpfit(); req(f); modifyList(DEFAULTS, list(Wprime = f$Wprime, fP = input$fP)) })
   interval_idx <- reactive(as.integer(input$intervalrides))
-  output$interval_pick <- renderUI({ pw <- powers()
-    checkboxGroupInput("intervalrides", "Interval-set rides (repeated bouts)", choices = setNames(seq_along(pw$p), pw$names)) })
+  submax_idx   <- reactive(as.integer(input$submaxrides))
+  output$interval_pick <- renderUI({ pw <- powers(); ch <- setNames(seq_along(pw$p), pw$names)
+    tagList(
+      checkboxGroupInput("intervalrides", "Interval sets — efforts to failure (reserve → 0)", choices = ch),
+      checkboxGroupInput("submaxrides", "Interval sets — submaximal (completed with margin)", choices = ch),
+      helpText("Tick a submaximal set when the bouts were repeated but NOT all-out. The fit then uses only feasibility + recovery between bouts (no reserve = 0 anchor) and flags the result as low-confidence.")) })
 
   agg <- reactive({ df <- rv$fits; if (is.null(df)) return(NULL)
-    good <- df[!grepl("no-converge|few-bouts|rest-too-long", df$flag), , drop = FALSE]
+    good <- df[!grepl("no-converge|few-bouts|rest-too-long|submax-weak", df$flag), , drop = FALSE]
     constrained <- nrow(good) > 0; use <- if (constrained) good else df
     pick <- function(col) if (input$agg == "best-fit") use[[col]][which.min(use$obj)] else median(use[[col]])
     list(fP = pick("fP"), tauP = pick("tauP"), tauG = pick("tauG"), eta = pick("eta"),
@@ -451,7 +554,7 @@ server <- function(input, output, session) {
     if (!is.null(anch) && length(anch)) g <- g + geom_vline(xintercept = anch, colour = "#FF0000", linetype = 2); g }, bg = "transparent")
 
   # ---- fit + results ----
-  observeEvent(input$fitall, { f <- cpfit(); pw <- powers(); req(f); rv$fits <- fit_all_rides(pw$p, pw$names, f$CP, base_par(), rv$anchors, interval_idx()) })
+  observeEvent(input$fitall, { f <- cpfit(); pw <- powers(); req(f); rv$fits <- fit_all_rides(pw$p, pw$names, f$CP, base_par(), rv$anchors, interval_idx(), submax_idx()) })
   output$fit_tbl <- DT::renderDataTable({ validate(need(!is.null(rv$fits), "Set anchors / mark interval sets, then 'Fit ... on every ride'."))
     d <- rv$fits; num <- c("fP","tauP","tauG","eta","obj"); d[num] <- lapply(d[num], round, 3)
     dt <- DT::datatable(d, rownames = FALSE, options = list(pageLength = 10, dom = "tp"))
