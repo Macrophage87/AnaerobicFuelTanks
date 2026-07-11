@@ -1,0 +1,137 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  :root{--pcr:#B44DFF;--pcrdeep:#6C26A8;--gly:#37E85A;--glydeep:#1A8C3A;--brass:#C9A227;--parch:#EDE0C8;--walnut:#20160E;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Georgia,'Times New Roman',serif;color:var(--parch);
+    background:radial-gradient(1200px 800px at 30% -10%,#3a2817 0%,#20160E 60%,#150e07 100%);}
+  .head{display:flex;align-items:center;justify-content:center;height:56px;
+    background:linear-gradient(180deg,#3a2817,#20160E);border-bottom:2px solid var(--brass);
+    font-family:Georgia,serif;font-weight:bold;letter-spacing:.14em;color:var(--brass);
+    font-size:22px;text-shadow:0 1px 0 #000}
+  .wrap{display:flex;gap:0}
+  .side{width:330px;min-height:900px;padding:18px 16px;
+    background:linear-gradient(180deg,#241a10,#150e07);border-right:2px solid var(--brass)}
+  .side h3{font-weight:bold;letter-spacing:.12em;color:var(--brass);font-size:15px;margin-bottom:14px;text-transform:uppercase}
+  label{display:block;font-size:13px;color:var(--parch);margin:12px 0 5px}
+  .field{background:#160f08;border:1px solid var(--brass);border-radius:6px;height:34px;
+    display:flex;align-items:center;padding:0 10px;font-size:12px;color:#b9ad92}
+  .slider{margin:6px 0 2px}
+  .track{position:relative;height:8px;background:#160f08;border:1px solid var(--brass);border-radius:6px}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:var(--pcr);border-radius:6px}
+  .handle{position:absolute;top:50%;width:16px;height:16px;border-radius:50%;
+    background:#2b1e12;border:2px solid var(--brass);transform:translate(-50%,-50%)}
+  .rng{font-size:11px;color:var(--pcr);margin-top:4px}
+  .chk{display:flex;align-items:center;gap:8px;font-size:12px;margin:6px 0}
+  .box{width:15px;height:15px;border:1px solid var(--brass);border-radius:3px;background:#160f08;display:inline-block}
+  .box.on{background:var(--gly);border-color:var(--gly)}
+  hr{border:none;border-top:1px solid var(--brass);opacity:.5;margin:16px 0}
+  .btn{display:block;width:100%;text-align:center;padding:9px;border-radius:7px;border:1px solid var(--brass);
+    font-family:Georgia,serif;font-size:13px;margin-top:10px;color:var(--parch);
+    background:linear-gradient(180deg,#2b1e12,#1a120a)}
+  .btn.primary{background:linear-gradient(180deg,#8a3ecf,#4e1c78);color:#fff;font-weight:bold}
+  .radio{display:flex;gap:16px;font-size:12px;margin-top:8px}
+  .dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--brass);display:inline-block;margin-right:5px;vertical-align:middle}
+  .dot.on{background:var(--pcr)}
+  .main{flex:1;padding:16px 20px}
+  .tabs{display:flex;gap:4px;margin-bottom:-2px}
+  .tab{padding:8px 14px;font-size:13px;border:2px solid var(--brass);border-bottom:none;border-radius:9px 9px 0 0;
+    color:var(--parch);background:linear-gradient(180deg,#2b1e12,#1a120a)}
+  .tab.active{background:var(--brass);color:#20160E;font-weight:bold}
+  .card{border:2px solid var(--brass);border-radius:12px;background:linear-gradient(180deg,#2b1e12,#1a120a);
+    box-shadow:inset 0 0 0 1px rgba(201,162,39,.25),0 8px 22px rgba(0,0,0,.55);padding:16px 18px}
+  .card h4{color:var(--brass);letter-spacing:.06em;font-size:15px;margin-bottom:10px}
+  .cols{display:flex;gap:18px}
+  pre{background:#160f08;border:1px solid var(--brass);border-radius:8px;padding:12px 14px;
+    font-family:'Courier New',monospace;font-size:12.5px;line-height:1.55;color:var(--parch);white-space:pre;overflow:auto}
+  .flag{color:#e8b84b}
+  .cap{font-size:12px;color:#b9ad92;margin-top:8px;line-height:1.5}
+  .tanks{display:flex;gap:16px;justify-content:center;align-items:flex-end;margin-top:6px}
+  .tank{width:70px}
+  .tname{text-align:center;font-size:12px;margin-top:4px;letter-spacing:.08em}
+</style></head><body>
+  <div class="head">⚙&nbsp;&nbsp;DUAL-TANK PARAMETER ESTIMATOR&nbsp;&nbsp;⚙</div>
+  <div class="wrap">
+    <div class="side">
+      <h3>Boiler Room</h3>
+      <label>FIT files (rides / races / interval sets)</label>
+      <div class="field">▣ 6 files loaded — Browse…</div>
+      <label>CP fit window (min)</label>
+      <div class="slider"><div class="track"><div class="fill" style="left:6%;width:34%"></div>
+        <div class="handle" style="left:6%"></div><div class="handle" style="left:40%"></div></div>
+        <div class="rng">2 – 12 min</div></div>
+      <label>PCr share of W' (fP) start value</label>
+      <div class="slider"><div class="track"><div class="fill" style="width:50%"></div>
+        <div class="handle" style="left:50%"></div></div><div class="rng">0.35</div></div>
+      <label>Interval-set rides (repeated bouts)</label>
+      <div class="chk"><span class="box on"></span> 30-30s_VO2.fit</div>
+      <div class="chk"><span class="box"></span> crit_race.fit</div>
+      <div class="chk"><span class="box on"></span> sprint_ladder.fit</div>
+      <label>History YAML (optional, for trends)</label>
+      <div class="field">▣ readings.yaml — Browse…</div>
+      <hr>
+      <div class="btn primary">Fit fP / tauP / tauG / eta on every ride</div>
+      <div class="radio"><span><span class="dot on"></span>median</span><span><span class="dot"></span>best-fit</span></div>
+      <hr>
+      <div class="btn">⬇ Export dated YAML reading</div>
+      <div class="btn">⬇ Export PDF report</div>
+    </div>
+    <div class="main">
+      <div class="tabs">
+        <div class="tab">Power-duration</div>
+        <div class="tab">CP / W' fit</div>
+        <div class="tab">Anchor editor</div>
+        <div class="tab">Recovery fit</div>
+        <div class="tab active">App parameters</div>
+        <div class="tab">Trends</div>
+      </div>
+      <div class="card">
+        <div class="cols">
+          <div style="flex:1.15">
+            <h4>Estimated parameters</h4>
+<pre>CP      = 288        # best across all files
+Wprime  = 21400      # best across all files
+pPmax   = 612        # best 5 s across files - CP
+fP      = 0.38       # median of 4 rides
+tauP    = 24         # median of 4 rides
+tauG    = 402        # median of 4 rides
+eta     = 0.81       # median of 4 rides
+lt1Frac = 0.80       # default (needs a threshold test)
+fatK    = 0.75       # default
+tauAer  = 25         # default
+<span class="flag">fatK    ⚠ uncertain: needs repeated-bout data</span></pre>
+            <div class="cap">Purple = PCr metabolism · Green = glycolytic. Lines marked ⚠ are weakly
+            constrained. Interval sets with &gt;70% between-bout refill are flagged as
+            non-informative for tauP / tauG.</div>
+          </div>
+          <div style="flex:.85">
+            <h4>Reserve trace (fitted)</h4>
+            <svg width="100%" viewBox="0 0 360 210">
+              <rect x="0" y="0" width="360" height="210" fill="none"/>
+              <line x1="30" y1="10" x2="30" y2="180" stroke="#4a3a24"/>
+              <line x1="30" y1="180" x2="350" y2="180" stroke="#4a3a24"/>
+              <g stroke="#33281a">
+                <line x1="30" y1="60" x2="350" y2="60"/><line x1="30" y1="120" x2="350" y2="120"/></g>
+              <polyline fill="none" stroke="#B44DFF" stroke-width="2.5"
+                points="30,20 70,26 95,120 120,50 150,150 175,70 205,168 235,95 270,175 300,110 330,60"/>
+              <g stroke="#FF0000" stroke-dasharray="4 4" stroke-width="1.5">
+                <line x1="150" y1="10" x2="150" y2="180"/><line x1="205" y1="10" x2="205" y2="180"/>
+                <line x1="270" y1="10" x2="270" y2="180"/></g>
+              <text x="34" y="20" fill="#C9A227" font-size="9" font-family="monospace">100%</text>
+              <text x="300" y="196" fill="#C9A227" font-size="9" font-family="monospace">time (s)</text>
+            </svg>
+            <div class="cap">Red anchors = maximal / cracked moments (reserve → 0). Click to add/remove.</div>
+            <div class="tanks">
+              <div><div class="tank">
+                <svg width="70" height="120"><rect x="4" y="6" width="62" height="108" rx="16" fill="none" stroke="#C9A227" stroke-width="3"/>
+                  <rect x="8" y="34" width="54" height="76" rx="10" fill="#B44DFF"/></svg>
+                <div class="tname" style="color:#B44DFF">PCr 78%</div></div></div>
+              <div><div class="tank">
+                <svg width="70" height="120"><rect x="4" y="6" width="62" height="108" rx="16" fill="none" stroke="#C9A227" stroke-width="3"/>
+                  <rect x="8" y="72" width="54" height="38" rx="10" fill="#37E85A"/></svg>
+                <div class="tname" style="color:#37E85A">GLY 41%</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body></html>
