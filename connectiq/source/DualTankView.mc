@@ -90,6 +90,7 @@ class DualTankView extends WatchUi.DataField {
     hidden var mConsP, mConsG;  // live draw (W)
     hidden var mAer;            // aerobic supply (W), when ramp enabled
     hidden var mG;              // glycolytic activation (0..1): ramps in over tauOn
+    hidden var mDeficit;        // energy debt (J): supra-CP work the rate caps couldn't place
     hidden var mExhausted;
     hidden var mFlashOn;
     hidden var mStarted;
@@ -112,6 +113,7 @@ class DualTankView extends WatchUi.DataField {
         mConsG = 0.0;
         mAer = 0.0;
         mG = 0.0;
+        mDeficit = 0.0;
         mExhausted = false;
         mFlashOn = false;
         mStarted = false;
@@ -203,6 +205,7 @@ class DualTankView extends WatchUi.DataField {
         mConsG = 0.0;
         mAer = 0.0;
         mG = 0.0;
+        mDeficit = 0.0;
         mExhausted = false;
     }
 
@@ -228,6 +231,7 @@ class DualTankView extends WatchUi.DataField {
             applyRestRecovery(el);
             mAer = 0.0;         // aerobic supply has decayed to rest during the pause
             mG = 0.0;           // glycolytic activation has relaxed during the pause
+            mDeficit = 0.0;     // debt repaid over the pause
             mPaused = false;
         }
     }
@@ -355,19 +359,22 @@ class DualTankView extends WatchUi.DataField {
             // DEPLETION — PARALLEL draw. Glycolysis has activation inertia (Parolin
             // 1999: phosphorylase ramps in over the first few seconds), so PCr — the
             // immediate buffer — covers almost everything at onset and both systems
-            // then drain together as mG -> 1. PCr is the higher-power system, so its
-            // peak rate (pPmax) exceeds the glycolytic peak rate (gPmax); demand is
-            // split in proportion to available rate (pPmax : gPmax*g). Both tanks are
-            // rate-capped AND capacity-limited; shortfall spills to the partner, then
-            // to deficit.
+            // then drain together as mG -> 1. PCr's available rate TAPERS with tank
+            // fullness (creatine-kinase equilibrium: flux falls as the store depletes),
+            // so R_p reaches its nadir AT exhaustion instead of emptying early. Demand
+            // is split in proportion to available rate (rateP : rateG), both tanks rate-
+            // AND capacity-limited. Residual demand the tanks cannot place is banked as
+            // a DEFICIT (debt) so combined W'bal stays energy-conserving.
             var need = delta * dt;
             var kOn = (mTauOn > 0.0) ? (1.0 - Math.pow(Math.E, -dt / mTauOn)) : 1.0;
             mG += (1.0 - mG) * kOn;
 
-            var pcap = mPPmax * dt;
-            var gcap = GLY_RATE_FRAC * mPPmax * dt;
-            var totalRate = mPPmax + GLY_RATE_FRAC * mPPmax * mG;
-            var pShare = need * (mPPmax / totalRate);
+            var rateP = mPPmax * (mRP / mCapP);
+            var rateG = GLY_RATE_FRAC * mPPmax * mG;
+            var pcap = rateP * dt;
+            var gcap = rateG * dt;
+            var totalRate = rateP + rateG;
+            var pShare = (totalRate > 0.0) ? need * (rateP / totalRate) : 0.0;
             var gShare = need - pShare;
 
             takeP = pShare;
@@ -384,7 +391,7 @@ class DualTankView extends WatchUi.DataField {
                 if (addG > gcap - takeG) { addG = gcap - takeG; }
                 takeG += addG; unmet -= addG;
             }
-            if (unmet > 0.0) {                       // then PCr soaks up glycolytic's, up to its cap
+            if (unmet > 0.0) {                       // then PCr soaks up glycolytic's, up to its (tapered) cap
                 var addP = unmet;
                 if (addP > mRP - takeP) { addP = mRP - takeP; }
                 if (addP > pcap - takeP) { addP = pcap - takeP; }
@@ -393,6 +400,7 @@ class DualTankView extends WatchUi.DataField {
 
             mRP -= takeP;
             mRG -= takeG;
+            mDeficit += unmet;                       // bank the debt (energy conservation)
             mDepP += takeP;
             mDepG += takeG;
             mExhausted = (unmet > 0.0);
@@ -402,6 +410,7 @@ class DualTankView extends WatchUi.DataField {
             // RESTORATION — PCr with fatigue-slowed tau; glycolytic gated below LT1.
             var kOff = (mTauOn > 0.0) ? (1.0 - Math.pow(Math.E, -dt / mTauOn)) : 1.0;
             mG -= mG * kOff;                          // glycolytic deactivation during recovery
+            mDeficit -= mDeficit * (1.0 - Math.pow(Math.E, -dt / mTauG));   // debt repaid (glycolytic kinetics)
             var tauPeff = pcrTau();
             mRP += mEta * (mCapP - mRP) * (1.0 - Math.pow(Math.E, -dt / tauPeff));
             var lt1 = mLt1Frac * mCP;

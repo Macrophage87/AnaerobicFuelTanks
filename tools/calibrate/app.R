@@ -25,7 +25,7 @@ suppressWarnings(suppressMessages(library(FITfileR)))
 # install.packages(c("shiny","bslib","ggplot2","DT","yaml")); remotes::install_github("grimbough/FITfileR")
 
 DURATIONS <- c(1,5,10,15,20,30,45,60,90,120,180,240,300,420,600,720,900,1200,1800,2400,3600)
-DEFAULTS  <- list(fP = 0.25, pPmax = 300, tauP = 22, tauG = 360,
+DEFAULTS  <- list(fP = 0.25, pPmax = 300, tauP = 22, tauG = 520,
                   lt1Frac = 0.80, eta = 0.80, fatK = 0.75, tauAer = 25, tauOn = 6)
 GLY_RATE_FRAC <- 0.5   # glycolytic peak rate as a fraction of PCr peak rate (PCr is the higher-power system)
 PARAMS <- c("CP","Wprime","pPmax","fP","tauP","tauG","eta")   # the tracked "sprint values"
@@ -291,7 +291,7 @@ fit_cp <- function(dur, pw, tmin, tmax) {
 }
 simulate_tanks <- function(power, cp, par) {
   n <- length(power); cP <- par$fP * par$Wprime; cG <- (1 - par$fP) * par$Wprime
-  rP <- cP; rG <- cG; aer <- cp; g <- 0; resTot <- numeric(n); deficit <- numeric(n)
+  rP <- cP; rG <- cG; aer <- cp; g <- 0; D <- 0; resTot <- numeric(n); deficit <- numeric(n)
   AER_FALL <- 6
   kUp <- if (par$tauAer > 0) 1 - exp(-1 / par$tauAer) else 1
   kDn <- if (par$tauAer > 0) 1 - exp(-1 / (par$tauAer * AER_FALL)) else 1
@@ -306,30 +306,35 @@ simulate_tanks <- function(power, cp, par) {
     } else supply <- cp
     delta <- p - supply
     if (delta > 0) {
-      # PARALLEL draw. Glycolysis has activation inertia (Parolin 1999): its rate
-      # ramps in over ~tauOn s, so at onset PCr (the immediate buffer) covers almost
-      # everything and both drain together as g -> 1. PCr is the higher-power system,
-      # so its peak rate pPmax exceeds the glycolytic peak rate gPmax; demand is split
-      # in proportion to each system's available rate (pPmax : gPmax*g). Both tanks are
-      # rate-capped AND capacity-limited; any shortfall spills to the partner, then to
-      # deficit.
+      # PARALLEL draw. Glycolysis has activation inertia (Parolin 1999): its rate ramps
+      # in over ~tauOn s, so at onset PCr (the immediate buffer) covers almost everything
+      # and both drain together as g -> 1. PCr's available rate TAPERS with tank fullness
+      # (creatine-kinase equilibrium: flux falls as the store depletes), so R_p reaches
+      # its nadir AT exhaustion rather than emptying early and flat-lining. Glycolytic
+      # peak rate is lower (gPmax). Demand is split in proportion to available rate; both
+      # tanks are rate- AND capacity-limited, and any residual demand the tanks cannot
+      # meet is banked as a DEFICIT (debt) so combined W'bal stays energy-conserving.
       g <- g + (1 - g) * kOn
-      gPmax <- GLY_RATE_FRAC * par$pPmax
-      totalRate <- par$pPmax + gPmax * g
-      pShare <- delta * par$pPmax / totalRate; gShare <- delta - pShare
-      takeP <- min(pShare, rP, par$pPmax)
-      takeG <- min(gShare, rG, gPmax)
+      rateP <- par$pPmax * (rP / cP)
+      rateG <- GLY_RATE_FRAC * par$pPmax * g
+      totalRate <- rateP + rateG
+      pShare <- if (totalRate > 0) delta * rateP / totalRate else 0
+      gShare <- delta - pShare
+      takeP <- min(pShare, rP, rateP)
+      takeG <- min(gShare, rG, rateG)
       unmet <- delta - takeP - takeG
-      if (unmet > 0) { addG <- min(unmet, rG - takeG, gPmax - takeG); takeG <- takeG + addG; unmet <- unmet - addG }
-      if (unmet > 0) { addP <- min(unmet, rP - takeP, par$pPmax - takeP); takeP <- takeP + addP; unmet <- unmet - addP }
+      if (unmet > 0) { addG <- min(unmet, rG - takeG, rateG - takeG); takeG <- takeG + addG; unmet <- unmet - addG }
+      if (unmet > 0) { addP <- min(unmet, rP - takeP, rateP - takeP); takeP <- takeP + addP; unmet <- unmet - addP }
       rP <- rP - takeP; rG <- rG - takeG
+      D <- D + unmet
       deficit[i] <- unmet
     } else {
       g <- g * (1 - kOn)                       # glycolytic deactivation during recovery
+      D <- D * (1 - bG)                        # debt repaid with glycolytic kinetics
       tauPeff <- par$tauP * (1 + par$fatK * (1 - rG / cG)); rP <- rP + par$eta * (cP - rP) * (1 - exp(-1 / tauPeff))
       lt1 <- par$lt1Frac * cp; if (p < lt1) rG <- rG + ((lt1 - p) / lt1) * (cG - rG) * bG
     }
-    rP <- max(0, min(cP, rP)); rG <- max(0, min(cG, rG)); resTot[i] <- rP + rG
+    rP <- max(0, min(cP, rP)); rG <- max(0, min(cG, rG)); resTot[i] <- rP + rG - D
   }
   list(total = resTot, deficit = deficit)
 }

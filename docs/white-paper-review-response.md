@@ -129,3 +129,55 @@ Pi/H⁺/K⁺ accumulation; lactate as marker/fuel; glycogen excluded on this tim
 grounded activation ramp, the exact-ODE recovery discretization, the parallel (not sequential) draw
 with the explicit non-identifiability note, and the realistic on-device framing were all endorsed and
 left intact.
+
+---
+
+# Round 2 — response to the second review
+
+*The round-2 review found that fixes #3 (lower `f_p`) and #9 (PCr-weighted split), each locally
+correct, were **jointly wrong**: applied together they broke the depletion dynamics. All four findings
+were re-derived by simulation and confirmed; all are fixed, and the full synthetic battery was re-run.*
+
+| # | Finding | Verdict | Fix |
+|---|---|---|---|
+| A | PCr emptied at a fixed ~37.5% of TTE and flat-lined — contradicts §2 (nadir *at* exhaustion) | **Confirmed** | Rate taper `rate_p = P_p_max·R_p/C_p` |
+| B | Glycolytic rate cap discarded measured work → W′bal reads optimistically high; §6.2 breaks | **Confirmed** | Deficit accumulator `D` |
+| C | Reconstitution fix was tuned to 1 of 3 points and indicts `τ_g`, not `f_p` | **Confirmed** | `τ_g` 360→520; `f_p` re-anchored on physiology |
+| D | `g` decay in prose but absent from the paper's Case 2 pseudocode | **Confirmed (paper)** | Added decay law + `τ_off` |
+
+### A — PCr flat-lining (structural)
+Verified: with the flat rate cap, `R_p` empties at **0.35·TTE** (constant 450 W) and reads 0 for the
+rest. The reviewer's fix — taper the *available* PCr rate with tank fullness (creatine-kinase
+equilibrium) — was implemented in both codebases. Re-verified: `R_p` now declines smoothly (37.6% →
+8.4% → 1.3% → **0.1% at exhaustion**), reaching its nadir *at* exhaustion. `take_p+take_g` and
+`TTE = W′/Δ` are preserved.
+
+### B — energy leak (structural)
+Verified: on 1200 W, the cap discarded 600 J/s (combined W′bal read 13357 vs true 7297 after 15 s).
+Added a deficit accumulator `D`; combined `(R_p+R_g−D)` now drops by exactly `Δ` per second — **leak =
+0 J** — restoring §6.2 conservation even when caps bind. `D` is repaid during recovery.
+
+### C — the curve indicts `τ_g` (calibration)
+Verified: solving each Chorley–Lamb point for `τ_g` (passive, `f_p=0.25`) gives 688/472/537 s; the
+234 s half-time implies ~578 s. Least-squares → **`τ_g ≈ 520 s`** (40/62/87% vs 37/65/86%; max err ~4
+pts vs 8–9 at 360). Default raised 360→520. **`f_p` was *not* re-derived from the curve** — the review
+was right that it's confounded with the reference protocol's recovery power. `f_p=0.25` now rests
+solely on physiological alactic-fraction grounds, and §6.3 says so. (Open: state Chorley–Lamb's
+recovery power.)
+
+### D — `g` decay (spec gap)
+The code already had the decay (`τ_off = τ_on`); the *paper* omitted it. Added to the Case 2
+pseudocode with a note that it is what makes the activation ramp re-fire each bout, plus a `τ_off` row
+in §4.1. Verified in the battery: over a 6×[10 s/30 s] set the ramp re-fires and PCr partially recovers
+each bout (41→24→19→17→16→15.6%).
+
+### E — smaller items (all fixed)
+Parameter count corrected to ~11 (added `g_pmax` ratio and `τ_off`) and the `0.5` flux ratio now cited
+(di Prampero & Ferretti 1999); §7's honesty propagated into the **Abstract and §1**; §4.3 combined
+W′bal now carries the `−D` and depletion-only caveat; §5 footprint corrected (four scalars, `LT1` added
+to settings); version bumped to **0.3**; §4.4 face-validity rewritten for the new dynamics and backed
+by the synthetic battery; the emergent "~10 s sprint empties `C_p`, matching Bogdanis" property stated.
+
+**Process note taken to heart:** the two round-1 fixes were validated individually but never jointly.
+Every structural/parameter change in this round was checked against the full synthetic battery
+(constant hold, interval set, supra-cap effort) end-to-end, per the reviewer's closing point.

@@ -1,7 +1,7 @@
 # A Dual-Tank Model for Real-Time Tracking of Phosphocreatine and Glycolytic Energy Reserves in Cycling
 
 **White paper — AnaerobicFuelTanks project**
-*Version 0.1 · 2026-07-10*
+*Version 0.3 · 2026-07-11 (second revision — parallel draw with fullness-tapered PCr flux, deficit accounting, and recalibrated recovery)*
 
 ---
 
@@ -16,10 +16,15 @@ information a rider most wants during hard, variable-intensity efforts: *which* 
 spent, and *how fast* each will come back. This paper proposes a **dual-tank model** that splits
 W′ into a fast PCr reserve and a slow glycolytic reserve, drives both from the instantaneous
 power trace, and applies system-specific depletion and restoration laws drawn from the
-bioenergetic and 31P-MRS literature. The model is deliberately reduced to be computable at 1 Hz
-on a wrist- or bar-mounted device, and we specify a Garmin Connect IQ implementation that
-displays live reserve, consumption, and depletion for both systems. We close with a validation
-strategy and an explicit statement of the model's assumptions and limits.
+bioenergetic and 31P-MRS literature. We are explicit up front about what this is: a
+**physiologically-motivated decomposition of one measured quantity (W′bal) whose split is assumed,
+not measured**, and whose extra resolution over single-tank W′bal is real but concentrated in the
+transients after hard efforts. It generalizes W′bal in depletion and diverges from it — by design —
+in recovery. The model is deliberately reduced to be computable at 1 Hz on a wrist- or bar-mounted
+device, and we specify a Garmin Connect IQ implementation that displays live reserve, consumption,
+and depletion for both systems. We close with a validation strategy — including the one out-of-sample
+test that would actually earn the second tank — and an explicit statement of the model's assumptions
+and limits.
 
 ---
 
@@ -45,6 +50,15 @@ A rider deciding whether to cover the next surge cares which tank is empty. If t
 full but glycolytic is depleted, a 5-second jump is fine but a 40-second dig is not — a distinction
 the single-tank W′bal cannot express. The goal of this paper is a model that keeps the
 power-native, on-device virtues of W′bal while restoring the two-system resolution.
+
+Two honest qualifications, stated here rather than buried in §7. First, the split is a **modeling
+assumption**, not a measurement — power alone cannot identify how W′ divides between the two systems
+(§4.2). Second, the extra resolution is **concentrated in transients**: whenever the fast PCr tank is
+full — which, given its ~20 s recovery, is most of the time — the glycolytic reserve is just an
+affine rescaling of the existing single W′bal, so the second bar adds decision-relevant information
+mainly in the ~30–60 s after a hard effort (which is, however, exactly when covering-the-next-attack
+decisions are made). The model earns its keep as a *heuristic decomposition*, not as two independently
+measured reserves.
 
 ---
 
@@ -118,8 +132,9 @@ systems but are too heavy to run and calibrate on a head unit. The dual-tank mod
 two-tank resolution of B/C with the on-device simplicity of A.
 
 To be precise about what "lighter" means here, because it is easy to oversell: the model's core
-parameter count (`CP, W′, f_p, P_p_max, τ_p, τ_g, LT1, η, τ_on`, ~9, plus two optional realism
-terms) is essentially the **same** as the hydraulic model's eight — it is **not** a smaller model.
+parameter count (`CP, W′, f_p, P_p_max, g_pmax-ratio, τ_p, τ_g, τ_on, τ_off, LT1, η` — **~11**, plus
+two optional realism terms) is *larger* than the hydraulic model's eight — it is **not** a smaller
+model.
 The difference is *where the parameters come from*. Only `CP` and `W′` are fitted per athlete (from
 a standard CP test); the rest are **hard-coded to literature defaults** rather than fit by
 evolutionary computation. That buys on-device simplicity and a trivial calibration, at a real cost:
@@ -140,30 +155,41 @@ Two energy reserves (Joules), each with a fixed capacity:
 - `R_g` — **glycolytic reserve**, capacity `C_g`
 - Total anaerobic capacity `W′ = C_p + C_g`
 
-Rider-supplied parameters (all obtainable from a maximal power–duration / CP test):
+The model has **~11 parameters** (plus two optional realism terms). Only `CP` and `W′` come from a
+CP test; the rest are literature-fixed defaults (see §3 — this is a real count, not a small one):
 
 | Symbol | Meaning | Typical default |
 |---|---|---|
 | `CP` | critical power (W) | from 3-/12-min CP test (≈ FTP + a few %) |
 | `W′` | total work above CP (J) | from same test (~15–25 kJ) |
-| `f_p` | fraction of W′ assigned to the PCr tank | **0.25** (weakly identified — see §7) |
-| `P_p_max` | PCr peak (immediate) power above CP (W) | ≈ P₁ₛ − CP (best 1 s power − CP) |
-| `g_pmax` | glycolytic peak power, as a fraction of `P_p_max` | 0.5·`P_p_max` (PCr is the higher-power system) |
+| `f_p` | fraction of W′ assigned to the PCr tank | **0.25** (assumed; physiological, not from data — see §7) |
+| `P_p_max` | PCr peak power above CP (W), at a **full** tank | ≈ P₁ₛ − CP (best 1 s power − CP) |
+| `g_pmax` | glycolytic peak power, as a fraction of `P_p_max` | 0.5·`P_p_max` (see flux-ratio note) |
 | `τ_p` | PCr recovery time constant (s) | 22 (fast, pH-modulated) |
-| `τ_g` | glycolytic recovery time constant (s) | 360 (slow) |
-| `LT1` | first lactate threshold power (W); recovery of the glycolytic tank proceeds below it | **measured** (a threshold test), *not* a fixed %CP |
+| `τ_g` | glycolytic recovery time constant (s) | **520** (recalibrated to the reconstitution curve — §6.3) |
+| `τ_on` | glycolytic activation time constant (s) | 6 (Parolin 1999) |
+| `τ_off` | glycolytic **de**-activation time constant (s) | = `τ_on` (phosphorylase reverts by bout end, Parolin 1999) |
+| `LT1` | first lactate threshold power (W); glycolytic tank recovers below it | **measured** (a threshold test), *not* a fixed %CP |
 | `η` | PCr recovery-rate efficiency (see note) | 0.80 |
 
 Derived: `C_p = f_p·W′`, `C_g = (1 − f_p)·W′`. Initial state `R_p = C_p`, `R_g = C_g` (full).
 
-Three of these deserve flags up front, because the defaults are doing real work:
+The `g_pmax = 0.5·P_p_max` ratio is not arbitrary: peak glycolytic ATP flux is roughly half peak
+PCr/creatine-kinase flux in human muscle (di Prampero & Ferretti 1999; the biopsy time-courses of
+Parolin 1999 / Bogdanis 1996), so PCr is the higher-power system by about 2:1.
 
-- **`f_p` is weakly identified, not measured.** It is *not* determined by a CP test. It is nudged by
-  the reconstitution curve (§6.3) and by physiological alactic-fraction estimates, both of which put
-  it **below** the 0.35 we used previously — hence the revised 0.25 default. It should be personalized.
-- **`P_p_max ≈ P₁ₛ − CP`** (not a 5 s figure): at the very first second glycolysis is barely active
-  (`g ≈ 1 − e^(−1/6) ≈ 15%`), so the instantaneous ceiling is close to, but slightly above, CP +
-  `P_p_max` — i.e. `P₁ₛ − CP` mildly over-attributes to PCr and should be read as an upper bound.
+Several of these deserve flags up front, because the defaults are doing real work:
+
+- **`f_p` is assumed, on physiological grounds — not fit to data.** It is *not* determined by a CP
+  test, and (correcting the previous revision) it is *not* pinned by the reconstitution curve either:
+  that curve mainly constrains `τ_g` (§6.3), and the `f_p` it implies is confounded with the assumed
+  recovery power of the reference protocol. We set **0.25** from **physiological alactic-fraction
+  estimates** (the PCr system supplies ~20–30% of anaerobic ATP capacity; di Prampero & Ferretti 1999,
+  Bangsbo 1990), and treat it as a per-athlete calibration target, not a measurement.
+- **`P_p_max ≈ P₁ₛ − CP` is the rate at a FULL tank.** PCr flux is not constant: it **tapers with tank
+  fullness** (creatine-kinase equilibrium — flux falls as PCr depletes), so the available PCr rate is
+  `P_p_max·(R_p/C_p)`, equal to `P_p_max` only when the tank is full (§4.2). Read `P₁ₛ − CP` as an
+  upper bound: at 1 s glycolysis is already ~15% active, so it mildly over-attributes to PCr.
 - **`η` is a recovery-*rate* efficiency, not hysteresis.** In the recovery law below it is
   mathematically equivalent to scaling `τ_p` to `τ_p/η` (the asymptote is still full recovery, so
   there is no path dependence). It is retained only as an interpretable knob mapping to the
@@ -186,30 +212,43 @@ with a **glycolytic activation** term `g ∈ [0,1]` that ramps first-order with 
 `τ_on ≈ 6 s` while above CP and relaxes back during recovery:
 
 ```
-g ← g + (1 − g)·(1 − exp(−Δt/τ_on))      # activation ("glycolytic inertia"); decays below CP
-g_pmax = 0.5·P_p_max                      # glycolytic peak rate < PCr peak rate
+g ← g + (1 − g)·(1 − exp(−Δt/τ_on))      # glycolytic activation ("inertia")
+
+rate_p = P_p_max · (R_p / C_p)            # PCr flux TAPERS with tank fullness (creatine-kinase eq.)
+rate_g = 0.5·P_p_max · g                  # glycolytic peak rate < PCr peak, gated by activation
 
 # Rate-proportional split: demand shared in proportion to each system's available rate.
-total_rate = P_p_max + g_pmax·g
-share_p = need · P_p_max / total_rate      # at g=0 PCr covers all; at g=1 a ~2:1 PCr:glycolytic split
+total_rate = rate_p + rate_g
+share_p = need · rate_p / total_rate       # at g=0, full tank → PCr covers all; both drain as g→1
 share_g = need − share_p
 
-take_p = min(share_p, R_p, P_p_max·Δt)     # both systems are rate-capped AND capacity-limited
-take_g = min(share_g, R_g, g_pmax·Δt)
+take_p = min(share_p, R_p, rate_p·Δt)      # both systems rate- AND capacity-limited
+take_g = min(share_g, R_g, rate_g·Δt)
 unmet  = need − take_p − take_g
-# any shortfall (a tank empty or rate-capped) spills to the partner, then to deficit:
-take_g += min(unmet, R_g − take_g, g_pmax·Δt − take_g);   unmet −= …
-take_p += min(unmet, R_p − take_p, P_p_max·Δt − take_p);  unmet −= …
+# shortfall (a tank empty or rate-capped) spills to the partner, then to a deficit:
+take_g += min(unmet, R_g − take_g, rate_g·Δt − take_g);   unmet −= …
+take_p += min(unmet, R_p − take_p, rate_p·Δt − take_p);   unmet −= …
 R_p −= take_p;  R_g −= take_g
+D  += unmet                               # DEFICIT (debt): supra-CP work the caps couldn't place
 
-if unmet > 0:  exhaustion = true          # both tanks empty/capped → rider at/over the limit
+if unmet > 0:  exhaustion = true          # producing power beyond the tanks' rate → at/over the limit
 ```
 
-At effort onset `g ≈ 0`, so PCr supplies essentially everything (the fast transient); as `g → 1`
-over a few seconds the two tanks drain together — but *not* equally: because PCr is the higher-power
-system (`g_pmax = 0.5·P_p_max`), the steady-state split is roughly **2:1 in PCr's favour**, and the
-glycolytic tank is rate-limited to `g_pmax` so it cannot absorb an arbitrarily large one-second
-demand. Once the small PCr tank empties, glycolysis carries the rest up to its own cap.
+Two structural properties matter, and both were fixed in this revision after they misbehaved when
+the split and `f_p` were changed independently:
+
+- **PCr bottoms out *at* exhaustion, not before.** With a constant PCr rate cap the tank emptied at a
+  fixed fraction (`f_p·1.5 ≈ 37%`) of time-to-exhaustion and then read zero for the rest of the effort
+  — contradicting §2's anchor (PCr nadir *coincides* with exhaustion). Tapering the available rate with
+  `R_p/C_p` makes `R_p` decay asymptotically and reach its minimum at exhaustion, with the split
+  becoming intensity- and history-dependent instead of a flat 2:1. (One extra multiply; `take_p+take_g`
+  and `TTE = W′/Δ` are preserved.)
+- **Energy is conserved even when a rate cap binds.** If both tanks are rate-limited, the residual
+  `unmet` is measured supra-CP work the rider demonstrably did; discarding it would make combined
+  W′bal read optimistically high (the dangerous direction). Banking it in a **deficit `D`** (which
+  standard W′bal permits as a negative balance) keeps `(R_p + R_g − D)` dropping by exactly `Δ` per
+  second, so combined W′bal stays energy-conserving and §6.2 holds. `D` is repaid during recovery with
+  glycolytic kinetics.
 
 **On identifiability (and consistency with §7).** The parallel draw is the physiologically faithful
 choice for the *live display*, and `τ_on` is a literature-set constant (Parolin 1999), not a fitted
@@ -225,6 +264,9 @@ the one to trust — the reserves are a plausible decomposition, not measured la
 refills exponentially toward full; glycolytic refill is gated by intensity.
 
 ```
+g ← g · exp(−Δt/τ_off)                            # glycolytic DE-activation (τ_off = τ_on default)
+D ← D · exp(−Δt/τ_g)                              # deficit repaid with glycolytic kinetics
+
 # PCr: fast, oxidative (η rescales the effective rate to τ_p/η — see §4.1 note)
 R_p += η · (C_p − R_p) · (1 − exp(−Δt/τ_p))
 
@@ -233,6 +275,12 @@ if P < LT1:
     gate = (LT1 − P) / LT1                        # 0 at LT1, → 1 toward zero power
     R_g += gate · (C_g − R_g) · (1 − exp(−Δt/τ_g))
 ```
+
+The `g` de-activation is what makes the activation ramp re-fire on each interval of a repeated-bout
+set (without it, `g` would ratchet to 1 on the first surge and every later bout would start at a flat
+split — the ramp inert for the rest of the ride). `τ_off = τ_on` by default: phosphorylase reverts
+toward basal by the end of a 30 s bout (Parolin 1999), so activation and de-activation share a
+timescale until data says otherwise.
 
 `LT1` is the rider's **first lactate threshold in watts**, from a threshold test — *not* a fixed
 fraction of CP. LT1 and CP vary independently (LT1 is roughly 65–85% of CP depending on training
@@ -252,18 +300,29 @@ fallback, but it is the weakest default in the model and should be replaced by a
 - **PCr reserve** `= R_p / C_p` (0–100%) — how much "punch" is left.
 - **Glycolytic reserve** `= R_g / C_g` (0–100%) — how much "sustained dig" is left.
 - **Consumption rate** (per system, W) — `take_p/Δt`, `take_g/Δt`, the live draw on each tank.
-- **Combined W′bal** `= (R_p + R_g)/W′` — backward-compatible with existing single-tank displays.
-- **Depletion / exhaustion flag** — both reserves at/near zero.
+- **Combined W′bal** `= (R_p + R_g − D)/W′` — the deficit term keeps this **energy-conserving in
+  depletion** (it drops by exactly `Δ`·Δt per second) so it matches a single-tank W′bal reference on
+  above-CP segments. It intentionally **diverges in recovery** (bi-exponential + LT1 gate; §4.4/§6.2),
+  so it is *depletion-compatible*, not identical everywhere.
+- **Depletion / exhaustion flag** — the rider is producing power beyond the tanks' rate/capacity
+  (`D` growing), or both reserves are at/near zero.
 
 ### 4.4 Why this behaves correctly
 
 - A short, very hard surge draws mostly from `R_p` (glycolysis has not yet ramped in),
-  and `R_p` visibly refills within ~30–60 s of easy pedaling — matching PCr physiology.
-- A sustained supra-CP effort empties `R_p` quickly, then leans on `R_g`, which only comes back over
-  minutes and only when the rider drops below LT1 — matching glycolytic physiology.
+  and `R_p` visibly refills within ~30–60 s of easy pedaling — matching PCr physiology. A maximal
+  ~10 s sprint empties `C_p`, which *falls out* of the rate rule (it isn't tuned in) and matches
+  Bogdanis 1996.
+- A sustained supra-CP effort draws from **both** tanks throughout, with `R_p` declining smoothly to
+  its nadir at exhaustion (the fullness-taper; §4.2) rather than emptying early and flat-lining, and
+  `R_g` carrying the growing share as `g → 1`. `R_g` comes back only over minutes and only below LT1.
+- Verified end-to-end on a synthetic battery (constant supra-CP hold; a 6×[10 s hard / 30 s easy]
+  interval set; a supra-rate-cap effort): PCr reaches its minimum at exhaustion, the activation ramp
+  re-fires on every bout, and combined W′bal is conserved to the Joule when the caps bind.
 - **On "generalizing W′bal" — a careful claim.** In *depletion* the model is a faithful
-  generalization: as long as no tank is empty or rate-capped, `take_p + take_g = need`, so the summed
-  draw above CP matches standard W′bal exactly. In *recovery* it is deliberately **different**:
+  generalization: the combined balance `(R_p + R_g − D)` falls by exactly `Δ`·Δt per second (whether
+  or not a cap binds, thanks to the deficit term), so the summed draw above CP matches standard W′bal.
+  In *recovery* it is deliberately **different**:
   bi-exponential, with an LT1 gate and the `η`/`τ_p` rate — it does **not** reduce to Skiba's single
   `τ_W′ = 546·e^(−0.01·D_CP) + 316`. Nor does `f_p → 0` recover standard W′bal: it collapses to a
   *single glycolytic tank* with `τ_g` and an LT1 gate, which is still not the incumbent's recovery
@@ -282,13 +341,16 @@ specification and a ready-to-use build prompt. Summary of the target design:
 - **App type:** a custom full-screen **Data Field** (`Toybox.WatchUi.DataField`), which the head
   unit calls once per second — a natural fit for the `Δt = 1 s` update.
 - **Input:** `Activity.Info.currentPower` inside `compute(info)`.
-- **Configuration:** `CP`, `W′`, `f_p`, and the recovery constants exposed via Connect IQ app
-  settings (`Application.Properties`), so a rider enters them from Garmin Connect.
+- **Configuration:** `CP`, `W′`, `f_p`, **`LT1`** (a measured threshold, not a %CP default — §4.2),
+  and the recovery constants exposed via Connect IQ app settings (`Application.Properties`), so a rider
+  enters them from Garmin Connect.
 - **Display:** two vertical bar gauges (PCr and glycolytic reserve) with numeric % and color
   bands (green → amber → red), plus optional live consumption in W.
 - **Recording:** write both reserves and consumption to the FIT file via `FitContributor` fields
   so they sync to Garmin Connect / intervals.icu / Strava for post-ride analysis.
-- **Footprint:** two `Float` state variables, no arrays, well within Connect IQ memory budgets.
+- **Footprint:** a handful of scalar state variables (`R_p`, `R_g`, the activation `g`, the deficit
+  `D`), no arrays — well within Connect IQ memory budgets. Per-second cost is still a few multiplies
+  and one `exp()` per tank.
 
 ---
 
@@ -301,23 +363,30 @@ the one test that would actually earn the second tank.
 
 1. **Face validity / unit tests** — synthetic power traces (single sprint, repeated sprints,
    supra-CP hold, sub-CP recovery) should produce the qualitative behaviours in §4.4.
-2. **Backward compatibility — *depletion only*.** Summing the tanks reproduces a reference W′bal
-   implementation (Froncioni–Clarke) on the same trace **in depletion** (`take_p + take_g = need`).
-   It will **not** match in recovery, by construction (§4.4), so this test must be scoped to
-   above-CP segments — a test that expected agreement everywhere is one the model is designed to fail.
-3. **Reconstitution targets — with two caveats.** After a full W′ depletion, combined recovery can
-   be compared to the published curve (≈37% / 65% / 86% at 2 / 6 / 15 min; Chorley & Lamb 2020). But:
-   (a) **this curve is blind to the fast tank.** A `τ_p ≈ 22 s` process is `1 − e^(−120/22) ≈ 99.6%`
-   complete by the first (2 min) sample, so passing this test validates the *glycolytic* recovery and
-   the *size* of the PCr offset — **not** the PCr recovery kinetics, i.e. not the feature that
-   distinguishes this model from W′bal. To constrain `τ_p` you need recovery samples at ~10/20/30/45/60
-   s (test 5). (b) **our defaults do not hit it, and that is informative.** At the old `f_p = 0.35` the
-   model recovers ~53% by 2 min against the 37% target — a 16-point overshoot — because putting 35% of
-   W′ in a tank that is ~fully back by 2 min forces combined 2-min recovery above 35%. Matching the
-   curve pulls `f_p` **down** (~0.13 at passive rest, ~0.25 at a realistic soft-pedal recovery power);
-   this is the main reason the default was revised to 0.25. Note also that a single slow exponential
-   cannot fit all three points exactly (the empirical curve is itself multi-exponential), so this is a
-   *soft constraint on `f_p`*, not a pass/fail on the decomposition.
+2. **Backward compatibility — *depletion only*.** The combined balance `(R_p + R_g − D)` reproduces a
+   reference W′bal implementation (Froncioni–Clarke) on the same trace **in depletion** — it drops by
+   exactly `Δ`·Δt per second, and the deficit term `D` preserves that even when a rate cap binds (which
+   is why the accumulator was added; without it the caps leaked energy and this test failed). It will
+   **not** match in recovery, by construction (§4.4), so this test must be scoped to above-CP
+   segments — a test that expected agreement everywhere is one the model is designed to fail.
+3. **Reconstitution targets — what the curve actually constrains.** After a full W′ depletion,
+   combined recovery can be compared to the published curve (≈37% / 65% / 86% at 2 / 6 / 15 min;
+   Chorley & Lamb 2020). Two things follow, and the second corrects the previous revision:
+   (a) **the curve is blind to the fast tank.** A `τ_p ≈ 22 s` process is `1 − e^(−120/22) ≈ 99.6%`
+   complete by the first (2 min) sample, so this test validates *glycolytic* recovery and the *size* of
+   the PCr offset — **not** PCr recovery kinetics, i.e. not the feature that distinguishes this model
+   from W′bal. To constrain `τ_p` you need samples at ~10/20/30/45/60 s (test 4).
+   (b) **the curve indicts `τ_g`, not `f_p`.** Solving each target point for `τ_g` (passive rest,
+   `f_p = 0.25`) gives 688 / 472 / 537 s — all far above the old 360 s default; the ~234 s half-time
+   cited for the incumbent implies `τ_g ≈ 578 s` independently. A least-squares fit lands at **`τ_g ≈
+   520 s`**, giving 40 / 62 / 87% vs the 37 / 65 / 86% targets (max error ~4 pts, versus 8–9 pts at
+   360 s). So the default `τ_g` was raised 360 → 520; **`f_p` was *not* re-derived from this curve.**
+   The earlier "matching pulls `f_p` down" reasoning was confounded: the implied `f_p` swings from ~0.13
+   (passive rest) to ~0.25 (soft-pedal recovery) depending entirely on the assumed recovery power of
+   the reference protocol, so the curve cannot pin it. `f_p = 0.25` stands on **physiological**
+   grounds (§4.1), not reconstitution. *(Caveat to verify: state the exact recovery power the
+   Chorley–Lamb source protocol used — if it is near-passive, the `f_p` it implies is ~0.13, and the
+   physiological anchor is doing all the work of justifying 0.25.)*
 4. **Fast-recovery kinetics (the missing piece).** The load-bearing test for `τ_p` is a repeated-bout
    protocol with **early** recovery sampling — e.g. all-out efforts separated by 10/20/30/45/60 s — and
    the between-bout power recovery correlated with modelled PCr recovery (as Bogdanis 1996 did for
@@ -343,12 +412,14 @@ the one test that would actually earn the second tank.
 
 ## 7. Assumptions and limitations
 
-- **The PCr/glycolytic split `f_p` is assumed and weakly constrained, not measured.** Power alone
+- **The PCr/glycolytic split `f_p` is assumed on physiological grounds, not fit to data.** Power alone
   cannot identify the depletion split (§4.2); recovery can in principle, but the fast component is
-  invisible at standard sampling (§6.3), so `f_p` is effectively an assumption. Independent lines
-  (reconstitution offset ~0.13–0.25; physiological alactic-fraction estimates ~0.20–0.30; some
-  multi-ride calibrations higher) put it in a broad ~0.15–0.35 band. We default to 0.25 and treat it
-  as a per-athlete calibration target — the model's outputs are sensitive to it.
+  invisible at standard sampling *and* the reconstitution curve constrains `τ_g` rather than `f_p`
+  (§6.3), so `f_p` is effectively an assumption. We default to **0.25** from physiological
+  alactic-fraction estimates (~0.20–0.30 of anaerobic ATP capacity; di Prampero & Ferretti 1999,
+  Bangsbo 1990) — *not* from the reconstitution curve, whose implied `f_p` is confounded with the
+  reference protocol's recovery power. Treat it as a per-athlete calibration target; outputs are
+  sensitive to it.
 - **The reserves are a decomposition, not latent state.** The two bars are a physiologically-motivated
   split of one measured quantity (W′bal), not two independently measured reserves. When the PCr tank is
   full — which, given `τ_p ≈ 22 s`, is most of the time except the ~30–60 s after a hard effort — the
