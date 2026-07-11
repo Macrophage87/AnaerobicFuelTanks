@@ -64,6 +64,12 @@ pre{background:#160f08;color:var(--parch);border:1px solid var(--brass);border-r
 a{color:var(--gly);} hr{border-top:1px solid var(--brass);opacity:.5;}
 .form-check-input:checked{background-color:var(--gly);border-color:var(--gly);}
 table.dataTable{color:var(--parch);} .dataTables_wrapper{color:var(--parch);}
+.guide{max-width:920px;line-height:1.5;}
+.guide h4{color:var(--brass);margin:16px 0 6px;letter-spacing:.05em;}
+.guide li{margin:5px 0;} .guide code{background:#160f08;border:1px solid var(--brass);border-radius:4px;padding:1px 6px;color:var(--parch);}
+.guide table{border-collapse:collapse;margin:8px 0;} .guide th,.guide td{border:1px solid var(--brass);padding:5px 11px;text-align:left;}
+.guide th{color:var(--brass);background:rgba(0,0,0,.25);}
+.guide .pcr{color:var(--pcr);font-weight:bold;} .guide .gly{color:var(--gly);font-weight:bold;}
 "
 tank_theme <- bs_theme(version = 5, bg = WALNUT, fg = PARCH, primary = PCR, secondary = GLY,
   success = GLY, info = BRASS, warning = BRASS,
@@ -85,6 +91,54 @@ gg_report <- function() theme_minimal(base_size = 11) + theme(
   panel.grid.major = element_line(colour = "#d8c8a8"), panel.grid.minor = element_line(colour = "#e6dcc4"),
   text = element_text(colour = "#3a2817"), axis.text = element_text(colour = "#6b4f2a"),
   strip.text = element_text(colour = "#6b4f2a", face = "bold"), plot.title = element_text(colour = "#6b4f2a", face = "bold"))
+
+# in-app user guide (rendered in the first tab)
+guide_html <- r"[
+<div class="guide">
+<h4>What this tool does</h4>
+<p>Upload your ride files and it estimates the parameters for the <span class="pcr">PCr</span> /
+<span class="gly">glycolytic</span> dual-tank Connect IQ data field, flagging anything it cannot pin down.</p>
+
+<h4>Step by step</h4>
+<ol>
+<li><b>Upload FIT files</b> in the Boiler Room (left): best-effort tests, races, hard group rides, interval sets.</li>
+<li>Read <b>CP</b> and <b>W'</b> on the <i>Power-duration</i> and <i>CP / W' fit</i> tabs &mdash; the most reliable numbers.</li>
+<li>On <i>Anchor editor</i>, <b>click each ride's reserve trace</b> where you were maximal or cracked
+(final sprint, an attack you could not follow, the moment you got dropped). Tick repeated-bout
+workouts as <b>interval sets</b> in the sidebar.</li>
+<li>Press <b>Fit fP / tauP / tauG / eta on every ride</b>. Per-ride results appear on <i>Recovery fit</i>;
+the final set with uncertainty flags is on <i>App parameters</i>.</li>
+<li><b>Export</b> (sidebar): a Connect IQ settings file, a dated YAML reading, or a PDF report.</li>
+</ol>
+
+<h4>What it can and cannot know</h4>
+<table>
+<tr><th>Parameter</th><th>Source</th><th>Reliable?</th></tr>
+<tr><td>CP, Wprime, pPmax</td><td>best across all files (power-duration curve)</td><td>yes</td></tr>
+<tr><td>fP, tauP, tauG, eta</td><td>model fit on rides with maximal anchors</td><td>only with the right data</td></tr>
+<tr><td>lt1Frac, fatK, tauAer</td><td>defaults</td><td>need special tests</td></tr>
+</table>
+<p>A single all-out effort obeys t_lim = W'/(P-CP), so it gives only CP and W'. The tank split and
+recovery rates appear only across <b>repeated efforts with recovery</b>, and only where you anchor
+maximal moments.</p>
+
+<h4>Anchors &amp; interval sets</h4>
+<ul>
+<li>An <b>anchor</b> marks a second where your reserve hit zero. Getting dropped is a perfect anchor.</li>
+<li><b>Interval sets</b> only constrain recovery when the rest is short &mdash; sets with more than 70%
+between-bout refill are flagged as uninformative for tauP / tauG.</li>
+</ul>
+
+<h4>Applying the settings</h4>
+<p><b>Export Connect IQ settings (JSON)</b> writes a file keyed exactly like the data field's settings.
+Type those values into Garmin Connect &rarr; the field's settings (Garmin does not import files), or load
+the JSON in the Connect IQ simulator or your own build.</p>
+
+<h4>Colour key</h4>
+<p><span class="pcr">Purple = PCr</span> (fast, small tank) &middot;
+<span class="gly">Green = glycolytic</span> (slow, large tank). Lines marked <b>uncertain</b> are weakly constrained.</p>
+</div>
+]"
 
 read_power <- function(path) {
   ff <- try(readFitFile(path), silent = TRUE); if (inherits(ff, "try-error")) return(NULL)
@@ -187,10 +241,12 @@ ui <- page_sidebar(
     actionButton("fitall", "Fit fP/tauP/tauG/eta on every ride", class = "btn-primary"),
     radioButtons("agg", "Combine rides by", c("median", "best-fit"), inline = TRUE),
     hr(),
+    downloadButton("dl_ciq", "Export Connect IQ settings (JSON)"),
     downloadButton("dl_yaml", "Export dated YAML reading"),
     downloadButton("dl_pdf", "Export PDF report")
   ),
   navset_card_tab(
+    nav_panel("★ Guide", HTML(guide_html)),
     nav_panel("Power-duration", plotOutput("mmp_plot", height = 300), DT::dataTableOutput("mmp_tbl")),
     nav_panel("CP / W' fit", plotOutput("cp_plot", height = 300), verbatimTextOutput("cp_txt")),
     nav_panel("Anchor editor",
@@ -344,6 +400,15 @@ server <- function(input, output, session) {
   output$trend_tbl  <- DT::renderDataTable(DT::datatable(readings_df(), rownames = FALSE, options = list(pageLength = 10, dom = "tp")))
 
   # ---- exports ----
+  output$dl_ciq <- downloadHandler(
+    filename = function() paste0("dualtank_ciq_settings_", Sys.Date(), ".json"),
+    content = function(file) {
+      et <- est_table(); v <- setNames(et$value, et$param)
+      keys <- c("CP","Wprime","fP","pPmax","tauP","tauG","lt1Frac","eta","fatK","tauAer")   # match properties.xml
+      body <- paste(vapply(keys, function(k) sprintf('  "%s": %s', k, format(v[[k]], trim = TRUE)), character(1)), collapse = ",\n")
+      writeLines(c("{", body, "}"), file)
+    })
+
   output$dl_yaml <- downloadHandler(
     filename = function() paste0("dualtank_readings_", Sys.Date(), ".yaml"),
     content = function(file) {

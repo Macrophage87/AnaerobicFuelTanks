@@ -8,6 +8,10 @@ Styled in a steampunk look: **purple = PCr**, **green = glycolytic**, brass on w
 
 ![App — parameters tab](ui-mockup.png)
 
+The app opens on a built-in **★ Guide** tab with these instructions, so you don't need this page while using it:
+
+![In-app Guide tab](mockup-guide.png)
+
 ---
 
 ## TL;DR — how to use it
@@ -26,7 +30,7 @@ shiny::runApp("tools/calibrate")            # from the repo root
    repeated-bout workouts as **interval sets** in the sidebar.
 4. Hit **Fit fP / tauP / tauG / eta on every ride** → the *Recovery fit* tab shows a per-ride
    table; the *App parameters* tab shows the final set with **uncertainty flags**.
-5. **Export** a dated YAML reading and/or a PDF report. Re-upload the YAML later to see **trends**.
+5. **Export**: a **Connect IQ settings JSON** (keyed exactly like the field's settings), a dated YAML reading, and/or a PDF report. Re-upload the YAML later to see **trends**.
 
 ---
 
@@ -88,6 +92,28 @@ value, source, and whether it's well-constrained or uncertain (and why) — with
 ![PDF report](mockup-report.png)
 
 ---
+
+## Connect IQ settings export
+
+**Export Connect IQ settings (JSON)** writes the estimated values keyed exactly like the data
+field's `properties.xml` (`CP`, `Wprime`, `fP`, `pPmax`, `tauP`, `tauG`, `lt1Frac`, `eta`, `fatK`,
+`tauAer`). Garmin Connect doesn't import files, so type them into the field's settings — or load the
+JSON in the Connect IQ simulator / your own build.
+
+```json
+{
+  "CP": 288,
+  "Wprime": 21400,
+  "fP": 0.38,
+  "pPmax": 612,
+  "tauP": 24,
+  "tauG": 402,
+  "lt1Frac": 0.8,
+  "eta": 0.81,
+  "fatK": 0.75,
+  "tauAer": 25
+}
+```
 
 ## YAML format
 

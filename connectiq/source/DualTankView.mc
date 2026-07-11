@@ -575,10 +575,22 @@ class DualTankView extends WatchUi.DataField {
         return isPcr ? COL_PCR_DULL : COL_GLY_DULL;
     }
 
-    // horizontal bar: fills left -> right
+    // rounded-rectangle "tank" fill helper (radius clamped to fit)
+    hidden function fillTank(dc, col, x, y, w, h, r) {
+        if (w <= 0 || h <= 0) { return; }
+        var rr = r - 1;
+        if (rr > w / 2) { rr = w / 2; }
+        if (rr > h / 2) { rr = h / 2; }
+        if (rr < 1) { rr = 1; }
+        dc.setColor(col, Graphics.COLOR_TRANSPARENT);
+        dc.fillRoundedRectangle(x, y, w, h, rr);
+    }
+
+    // horizontal bar: rounded "tank" filling left -> right
     hidden function drawBarH(dc, x, y, bw, bh, pct, isPcr, fg) {
+        var r = bh / 3; if (r < 2) { r = 2; }
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-        dc.drawRectangle(x, y, bw, bh);
+        dc.drawRoundedRectangle(x, y, bw, bh, r);
 
         var depleted = (pct <= 3.0);
         var draining = isPcr ? (mConsP > 0.0) : (mConsG > 0.0);
@@ -593,8 +605,7 @@ class DualTankView extends WatchUi.DataField {
             if (fillW < 0) { fillW = 0; }
             if (fillW > bw - 2) { fillW = bw - 2; }
         }
-        dc.setColor(col, Graphics.COLOR_TRANSPARENT);
-        dc.fillRectangle(x + 1, y + 1, fillW, bh - 2);
+        fillTank(dc, col, x + 1, y + 1, fillW, bh - 2, r);
 
         if (draining && !depleted) {
             var wtxt = "-" + (isPcr ? mConsP : mConsG).toNumber().toString() + "W";
@@ -604,10 +615,11 @@ class DualTankView extends WatchUi.DataField {
         }
     }
 
-    // vertical bar: fills bottom -> top
+    // vertical bar: rounded "tank" filling bottom -> top
     hidden function drawBarV(dc, x, y, bw, bh, pct, isPcr, fg) {
+        var r = bw / 3; if (r < 2) { r = 2; }
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-        dc.drawRectangle(x, y, bw, bh);
+        dc.drawRoundedRectangle(x, y, bw, bh, r);
 
         var depleted = (pct <= 3.0);
         var draining = isPcr ? (mConsP > 0.0) : (mConsG > 0.0);
@@ -622,8 +634,7 @@ class DualTankView extends WatchUi.DataField {
             if (fillH < 0) { fillH = 0; }
             if (fillH > bh - 2) { fillH = bh - 2; }
         }
-        dc.setColor(col, Graphics.COLOR_TRANSPARENT);
-        dc.fillRectangle(x + 1, y + bh - 1 - fillH, bw - 2, fillH);
+        fillTank(dc, col, x + 1, y + bh - 1 - fillH, bw - 2, fillH, r);
 
         if (draining && !depleted) {
             var wtxt = "-" + (isPcr ? mConsP : mConsG).toNumber().toString() + "W";
