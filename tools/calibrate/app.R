@@ -160,11 +160,17 @@ fit_cp <- function(dur, pw, tmin, tmax) {
 }
 simulate_tanks <- function(power, cp, par) {
   n <- length(power); cP <- par$fP * par$Wprime; cG <- (1 - par$fP) * par$Wprime
-  rP <- cP; rG <- cG; aer <- 0; resTot <- numeric(n); deficit <- numeric(n)
-  aP1 <- if (par$tauAer > 0) 1 - exp(-1 / par$tauAer) else 1; bG <- 1 - exp(-1 / par$tauG)
+  rP <- cP; rG <- cG; aer <- cp; resTot <- numeric(n); deficit <- numeric(n)
+  AER_FALL <- 6
+  kUp <- if (par$tauAer > 0) 1 - exp(-1 / par$tauAer) else 1
+  kDn <- if (par$tauAer > 0) 1 - exp(-1 / (par$tauAer * AER_FALL)) else 1
+  bG <- 1 - exp(-1 / par$tauG)
   for (i in seq_len(n)) {
     p <- power[i]
-    if (par$tauAer > 0) { tgt <- min(p, cp); aer <- max(0, min(cp, aer + (tgt - aer) * aP1)); supply <- aer } else supply <- cp
+    if (par$tauAer > 0) {                     # sticky aerobic, floored; below CP aerobic covers demand
+      tgt <- min(p, cp); aer <- aer + (tgt - aer) * (if (tgt > aer) kUp else kDn)
+      aer <- max(0.5 * cp, min(cp, aer)); supply <- if (p > cp) aer else p
+    } else supply <- cp
     delta <- p - supply
     if (delta > 0) {
       need <- delta

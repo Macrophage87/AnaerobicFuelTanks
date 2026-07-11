@@ -53,9 +53,10 @@ connectiq/
 
 ### Realism terms (now built in, tunable)
 
-- **Aerobic ramp (`tauAer`)** — aerobic supply follows a first-order response toward `min(P, CP)`
-  instead of switching at a hard CP edge, so the tanks absorb the onset oxygen deficit. Set
-  `tauAer = 0` for the original hard-CP behaviour.
+- **Aerobic ramp (`tauAer`)** — below CP the aerobic system covers demand, so PCr does **not**
+  deplete while you ride below CP; above CP a sticky, floored aerobic tracker ramps toward CP, so
+  the onset of a hard effort draws the tanks down and tapers as aerobic catches up. Set
+  `tauAer = 0` for a hard CP edge.
 - **Fatigue-slowed PCr recovery (`fatK`)** — `τ_p,eff = τ_p · (1 + fatK·(1 − rG/cG))`, so PCr
   resynthesis slows as the glycolytic tank empties (the observed bout-to-bout slowing). Set
   `fatK = 0` to disable.
