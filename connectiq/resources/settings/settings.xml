@@ -26,6 +26,9 @@
     <setting propertyKey="@Properties.fatK" title="@Strings.sFatK" prompt="@Strings.sFatKp">
         <settingConfig type="numeric" min="0.0" max="3.0"/>
     </setting>
+    <setting propertyKey="@Properties.gFat" title="@Strings.sGFat" prompt="@Strings.sGFatp">
+        <settingConfig type="numeric" min="0.0" max="3.0"/>
+    </setting>
     <setting propertyKey="@Properties.tauAer" title="@Strings.sTauAer" prompt="@Strings.sTauAerp">
         <settingConfig type="numeric" min="0" max="120"/>
     </setting>
