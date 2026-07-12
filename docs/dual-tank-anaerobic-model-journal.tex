@@ -548,14 +548,17 @@ wall; recovery proceeds for any $P < \CP$, fastest at low intensity and slowing 
 band. It is a measured threshold in watts; where only \CP{} is known, $\LTone \approx 0.80\,\CP$ is a
 fallback and the weakest default in the model.
 
-\paragraph{Optional realism (off by default).}
+\paragraph{Optional realism terms.} Two of the three ship on by default and are included in every headline
+number here---the pH-slowed PCr recovery ($\mathrm{fatK} = 0.75$) and the aerobic ramp
+($\tauaer = 25~\mathrm{s}$); the glycolytic flux-fatigue term ($g_{\mathrm{fat}} = 0$) ships off. Each can
+be disabled by zeroing its coefficient.
 \begin{itemize}[leftmargin=1.4em,itemsep=1pt]
-\item \emph{pH-slowed PCr recovery:} $\tau_{\mathrm{p,eff}} = \taup\,(1 + k(1 - \Rg/\Cg))$. It cannot be
+\item \emph{pH-slowed PCr recovery} (on): $\tau_{\mathrm{p,eff}} = \taup\,(1 + k(1 - \Rg/\Cg))$. It cannot be
 pushed to reproduce muscle-PCr recovery ($\sim$78.7\% at 3.8~min\citep{Bogdanis1996}) without breaking the
 reconstitution curve and the $4\times4$ (the $k \approx 16$ that hits the biopsy value drops the curve to
 30/68/94 and the $4\times4$ to $-30$\%)---the same point as \cref{subsec:recon}: \Wp{} and muscle PCr do
 not share a time constant.
-\item \emph{Aerobic ramp} ($\tauaer \approx 25~\mathrm{s}$): a first-order aerobic supply $A(t)$ rising
+\item \emph{Aerobic ramp} ($\tauaer \approx 25~\mathrm{s}$, on): a first-order aerobic supply $A(t)$ rising
 toward $\min(P,\CP)$, with $\mathrm{need} = (P - A)\,\Delta t$, reproducing the onset O\textsubscript{2}
 deficit; it also absorbs the shortfall across repeated sprints (\cref{subsec:repeatedsprint}).
 \item \emph{Glycolytic flux fatigue} ($g_{\mathrm{fat}}$): scale the glycolytic ceiling down as the slow
@@ -595,7 +598,8 @@ restatement of \Wbal{} in depletion), not a validation.
 
 \Cref{tab:battery} reports a synthetic battery at $\CP = 255~\mathrm{W}$, $\Wp = 20~\mathrm{kJ}$,
 $\fp = 0.25$, $\Ppmax = 690~\mathrm{W}$ ($\grate = 0.5$), $\taup = 27$, $\taug = 470$,
-$\tauon = \tauoff = 6$, $\LTone = 204~\mathrm{W}$. \Cref{tab:recovery} shows the recovery law's behaviour
+$\tauon = \tauoff = 6$, $\LTone = 204~\mathrm{W}$, with the shipped optional terms $\mathrm{fatK} = 0.75$
+and $\tauaer = 25~\mathrm{s}$ on and $g_{\mathrm{fat}} = 0$ off. \Cref{tab:recovery} shows the recovery law's behaviour
 across recovery powers: the intensity-dependent shape is bounded and tracks the reference \Wp-recovery law
 within $\sim$15\%, and the $4\times[\SI{4}{\minute}@330 / \SI{4}{\minute}@150]$ session completes
 (\Wbal{} at rep starts $100/49/7/-24$\%).

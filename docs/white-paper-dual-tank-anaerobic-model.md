@@ -488,16 +488,19 @@ cutoff and is what fixes the 4×4. `LT1` is the rider's **first lactate threshol
 threshold test; LT1 and CP vary independently (LT1 ≈ 65–85% of CP). Where only CP is known, `LT1 ≈
 0.80·CP` is a fallback, still the weakest default in the model and worth replacing with a measurement.
 
-**Optional realism (off by default; the field ships with all three off, so headline numbers are the
-plain model):**
-- *pH-slowed / fatiguing PCr recovery* (`fatK`): scale `τ_p` upward as the slow reserve is emptier,
+**Optional realism terms (each can be disabled by zeroing its coefficient).** Two of the three ship **on**
+by default and are therefore included in every headline number in this paper: the pH-slowed PCr recovery
+(`fatK = 0.75`) and the aerobic ramp (`τ_aer = 25 s`). The glycolytic flux-fatigue term (`g_fat`) ships
+**off** (`g_fat = 0`). (An earlier draft mis-stated that all three ship off; the shipped defaults and the
+numbers below use `fatK` and the aerobic ramp on, `g_fat` off.)
+- *pH-slowed / fatiguing PCr recovery* (`fatK`, **on by default**): scale `τ_p` upward as the slow reserve is emptier,
   `τ_p_eff = τ_p · (1 + k·(1 − R_g/C_g))`. Note it **cannot** be pushed to reproduce Bogdanis's muscle-PCr
   recovery (78.7% at 3.8 min) without breaking the Ferguson W′ curve and the 4×4 — the `k ≈ 16` that hits
   Bogdanis drops Ferguson to 30/68/94 and the 4×4 back to −30% — which is §4.1a's point restated: W′ and
   muscle PCr do not share a time constant.
-- *Aerobic ramp* (`τ_aer ≈ 25 s`): a first-order aerobic supply `A(t)` rising toward `min(P, CP)`, with
-  `need = (P − A)·Δt`, reproducing the onset O₂ deficit. It is also what absorbs the shortfall across
-  repeated sprints (§6.10).
+- *Aerobic ramp* (`τ_aer ≈ 25 s`, **on by default**): a first-order aerobic supply `A(t)` rising toward
+  `min(P, CP)`, with `need = (P − A)·Δt`, reproducing the onset O₂ deficit. It is also what absorbs the
+  shortfall across repeated sprints (§6.10).
 - *Glycolytic flux fatigue* (`g_fat`, **new in v0.7**): scale the glycolytic ceiling down as the slow
   reserve empties, `rate_g_eff = rate_g · (R_g/C_g)^{g_fat}`, capturing acidotic inhibition of
   phosphorylase/PFK. Off (0) by default. It moves the repeated-sprint partition from *rising* toward
@@ -548,8 +551,9 @@ plain model):**
   which is the point. And it is **not** "testable in an afternoon": checking PCr in-cycling needs
   31P-MRS, which §6.5 says is unavailable in this modality. It requires a surrogate (post-exercise
   sampling, or knee-extension 31P-MRS with a cross-modality transfer assumption; §8).
-- **Synthetic battery (v0.5).** Parameters: `CP = 255 W`, `W′ = 20 kJ`, `f_p = 0.25`, `P_p_max = 690 W`
-  (`g_rate = 0.5`), `τ_p = 27`, `τ_g = 470`, `τ_on = τ_off = 6`, `LT1 = 204 W`.
+- **Synthetic battery.** Parameters: `CP = 255 W`, `W′ = 20 kJ`, `f_p = 0.25`, `P_p_max = 690 W`
+  (`g_rate = 0.5`), `τ_p = 27`, `τ_g = 470`, `τ_on = τ_off = 6`, `LT1 = 204 W`, and the shipped optional
+  terms `fatK = 0.75` and `τ_aer = 25 s` on, `g_fat = 0` off.
 
   | Test | Result |
   |---|---|
