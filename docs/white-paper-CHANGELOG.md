@@ -4,6 +4,43 @@ Revision history for `white-paper-dual-tank-anaerobic-model.md` and the model im
 `connectiq/source/DualTankView.mc` and `tools/calibrate/app.R`. Full point-by-point review responses
 live in `white-paper-review-response*.md`.
 
+## v0.7 — 2026-07-12 (review round 5 / Reviewer 2 3rd / Reviewer 3 — recovery-law fix + reframe)
+- **Recovery-law fix (both codebases).** The linear LT1 gate `(LT1−P)/LT1` — whose rate went to zero at
+  LT1, so the effective recovery constant diverged to ∞ and the model **could not complete a 4×4** — is
+  replaced by **Skiba's intensity-dependent shape** `τ_W′(CP−P) = 546·e^(−0.01·(CP−P))+316`, amplitude
+  re-anchored so the 20 W passive rate still reproduces Ferguson 2010. Verified: W′bal half-times now
+  201/241/291/367 s at 20/100/150/190 W (were 201/353/675/2601, ∞ at LT1); Ferguson unchanged (40/63/87);
+  §4.4 sprint battery bit-identical; **4×4 now completes** (100/49/7/−24% vs v0.6's 100/38/−23/−76%).
+  (Reviewer 3 M2; round-5.)
+- **Tanks reframed as compartments of W′, not muscle metabolites (§4.1a, §4.1).** W′ recovers ~4× faster
+  than the PCr/lactate it is named after (built from Ferguson's own channels, the model predicts 20/35/50%
+  vs observed 37/65/86%). This **exonerates the τ's** (right constants for W′) and **convicts the naming**
+  (labels are motivation). Introduced "fast/slow reserve" naming; withdrew every "bar = biopsy PCr"
+  reading, including the flattering §4.4 "matches Bogdanis 17%" claim (can't use the mapping selectively).
+  Symmetric τ_g defence added; §4.1a's finding is now "the offset is forced by the data," not "the τ's are
+  wrong." (Reviewer 2 §4; Reviewer 3 M1.)
+- **§6.9 mechanism corrected + honest baselines.** Ablation shows the discrimination is the **glycolytic
+  flux ceiling scaled by the ramp** (full 77% → no-ramp 52% → no-ceiling 47% → neither 25%), not the ramp
+  alone; `g_rate` promoted to load-bearing/flagged/banded. Added the missing scope limit (submaximal
+  alactic 10×6 s@450 W reads ~52%, near the glycolytic session), the deficit `D` as a third column, full
+  session definitions, and the zero-parameter "% of work in efforts <15 s" stopwatch baseline (100% vs 0%).
+  Retracted "W′bal cannot tell these apart." (Reviewer 2 §2; Reviewer 3 M3–M5; round-5 A/B/C.)
+- **New §6.10 — repeated-sprint ATP partitioning vs biopsy (Gaitanos 1993 / Sci Rep 2024).** The model
+  **fails** it (glycolytic share 23%↗ vs observed 40%↘ — wrong level and direction); the optional
+  `g_fat` flux-fatigue term + aerobic ramp move it toward flat/falling but do not reproduce it. Retracted
+  §7's "unfalsifiable in-modality — permanently": biopsy during ergometry *is* in-modality
+  compartment-level data. Reclassifies the per-system split as a descriptive W′-statistic, not a validated
+  ATP partition. (round-5 D; Reviewer 3.)
+- **§7 hygiene.** Flagged `gate_p` (shape swings the headline 21–31 pts) and `g_rate`; corrected the
+  "PCr full most of the time" under-claim (effective τ_p is 100–500 s while riding); retracted "τ_off is
+  the only non-redundant parameter" (a 20× change moves the split 1–2 pts); downgraded the spill-order flag
+  (tested inert); fixed the deficit-recurrence mechanism (fullness taper, not P₁ₛ decay); added the
+  identifiability degeneracy map and the product-location fork (pacing display vs post-ride metric).
+- **Code:** `gate_p` scales the amount not the exponent (matches pseudocode — closes Reviewer 3 m2); the
+  `rate_limited`/`exhausted` flag split is now documented in §4.3; added the optional `gFat` term (off by
+  default) to `app.R`, `DualTankView.mc`, and `properties.xml`. New refs: Bogdanis 1998 (PMID 9715738),
+  Bogdanis 1995 (PMID 7714837), Gaitanos 1993 (PMID 8226455), Sci Rep 2024 (full entry).
+
 ## v0.6 — 2026-07-12 (training-load use case)
 - **Added §6.9 — training-load partitioning.** The reviews evaluated the model as a *pacing* aid; this
   adds the *training* use case, where the cumulative per-system load (already recorded as

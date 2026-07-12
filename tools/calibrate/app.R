@@ -26,7 +26,7 @@ suppressWarnings(suppressMessages(library(FITfileR)))
 
 DURATIONS <- c(1,5,10,15,20,30,45,60,90,120,180,240,300,420,600,720,900,1200,1800,2400,3600)
 DEFAULTS  <- list(fP = 0.25, pPmax = 300, tauP = 27, tauG = 470,
-                  lt1Frac = 0.80, eta = 1.00, fatK = 0.75, tauAer = 25, tauOn = 6)
+                  lt1Frac = 0.80, eta = 1.00, fatK = 0.75, gFat = 0.00, tauAer = 25, tauOn = 6)
 GLY_RATE_FRAC <- 0.5   # glycolytic peak rate as a fraction of PCr peak rate (PCr is the higher-power system)
 PARAMS <- c("CP","Wprime","pPmax","fP","tauP","tauG","eta")   # the tracked "sprint values"
 PARAM_DESC <- c(
@@ -39,6 +39,7 @@ PARAM_DESC <- c(
   eta     = "PCr recovery-rate efficiency (0-1): rescales tauP (degenerate with it), not a true hysteresis.",
   lt1Frac = "LT1 as a fraction of CP: set from a MEASURED LT1 test, not left at the 0.80 default.",
   fatK    = "Fatigue slowing of PCr recovery: default (needs repeated-bout data).",
+  gFat    = "Glycolytic flux fatigue exponent: rate_g *= (rG/cG)^gFat. Optional (0 = off); shifts repeated-sprint partition toward the biopsy direction (§6.10).",
   tauAer  = "Aerobic on-ramp time constant (s): default.",
   tauOn   = "Glycolytic activation time constant (s): how fast glycolysis ramps in at effort onset (~6 s, Parolin 1999); default.")
 cv <- function(x) { x <- x[is.finite(x)]; if (length(x) > 1 && mean(x) != 0) sd(x)/abs(mean(x)) else NA_real_ }
@@ -110,7 +111,7 @@ the final set with uncertainty flags is on <i>App parameters</i>.</li>
 <tr><th>Parameter</th><th>Source</th><th>Reliable?</th></tr>
 <tr><td>CP, Wprime, pPmax</td><td>best across all files (power-duration curve)</td><td>yes</td></tr>
 <tr><td>fP, tauP, tauG, eta</td><td>model fit on rides with maximal anchors</td><td>only with the right data</td></tr>
-<tr><td>lt1Frac, fatK, tauAer, tauOn</td><td>defaults (tauOn ~6 s, Parolin 1999)</td><td>need special tests / not power-identifiable</td></tr>
+<tr><td>lt1Frac, fatK, gFat, tauAer, tauOn</td><td>defaults (tauOn ~6 s, Parolin 1999; gFat off)</td><td>need special tests / not power-identifiable</td></tr>
 </table>
 <p>A single all-out effort obeys t_lim = W'/(P-CP), so it gives only CP and W'. The tank split and
 recovery rates appear only across <b>repeated efforts with recovery</b>, and only where you anchor
@@ -319,6 +320,11 @@ simulate_tanks <- function(power, cp, par) {
       g <- g + (1 - g) * kOn
       rateP <- par$pPmax * (rP / cP)           # rate ceiling (tapered)
       rateG <- GLY_RATE_FRAC * par$pPmax * g
+      # Optional glycolytic flux fatigue (gFat > 0): acidosis inhibits phosphorylase/PFK,
+      # so glycolytic flux falls across repeated maximal sprints. Off (0) by default -- it
+      # shifts the depletion split, so headline numbers are unchanged unless enabled (§6.10).
+      gFat <- if (is.null(par$gFat)) 0 else par$gFat
+      if (gFat > 0) rateG <- rateG * (max(0, rG / cG))^gFat
       wP <- cP; wG <- cG * g; totW <- wP + wG   # share weight (capacity-proportional)
       pShare <- if (totW > 1e-9) delta * wP / totW else delta
       gShare <- delta - pShare
@@ -337,10 +343,20 @@ simulate_tanks <- function(power, cp, par) {
       # full at rest. (eta folded into tauP, default 1.)
       gateP <- (cp - p) / cp; if (gateP < 0) gateP <- 0
       tauPeff <- par$tauP * (1 + par$fatK * (1 - rG / cG)); rP <- rP + gateP * par$eta * (cP - rP) * (1 - exp(-1 / tauPeff))
-      # glycolytic tank AND the deficit clear only below LT1 (gated) -- D is supra-cap
-      # byproduct load, so it must respect the same intensity gate as the glycolytic tank.
-      lt1 <- par$lt1Frac * cp
-      if (p < lt1) { gate <- (lt1 - p) / lt1; rG <- rG + gate * (cG - rG) * bG; D <- D * (1 - gate * bG) }
+      # Glycolytic tank AND the deficit recover whenever p < CP, at Skiba's intensity-
+      # dependent W'bal rate tau_W'(CP-p) = 546*e^(-0.01*(CP-p)) + 316, its amplitude
+      # re-anchored so the 20 W passive rate reproduces Ferguson 2010 (as v0.6's linear
+      # gate did at that point). Replaces the old linear (LT1-p)/LT1 gate, whose rate went
+      # to zero at LT1 (recovery -> infinity) so the model could not complete a 4x4.
+      if (p < cp) {
+        dcp <- cp - p
+        tauW <- 546 * exp(-0.01 * dcp) + 316
+        tauWa <- 546 * exp(-0.01 * (cp - 20)) + 316
+        gate20 <- (par$lt1Frac * cp - 20) / (par$lt1Frac * cp)
+        fG <- max(0, gate20 * tauWa / tauW)
+        kG <- min(1, bG * fG)
+        rG <- rG + (cG - rG) * kG; D <- D * (1 - kG)
+      }
     }
     rP <- max(0, min(cP, rP)); rG <- max(0, min(cG, rG)); resTot[i] <- rP + rG - D
   }
@@ -507,18 +523,18 @@ server <- function(input, output, session) {
              tauP = round(if (is.null(a)) DEFAULTS$tauP else a$tauP),
              tauG = round(if (is.null(a)) DEFAULTS$tauG else a$tauG),
              eta = round(if (is.null(a)) DEFAULTS$eta else a$eta, 2),
-             lt1Frac = DEFAULTS$lt1Frac, fatK = DEFAULTS$fatK, tauAer = DEFAULTS$tauAer, tauOn = DEFAULTS$tauOn)
+             lt1Frac = DEFAULTS$lt1Frac, fatK = DEFAULTS$fatK, gFat = DEFAULTS$gFat, tauAer = DEFAULTS$tauAer, tauOn = DEFAULTS$tauOn)
     src <- c(CP = "best across files", Wprime = "best across files", pPmax = "best 1s - CP",
              fP = src_rec, tauP = src_rec, tauG = src_rec, eta = src_rec,
-             lt1Frac = "default", fatK = "default", tauAer = "default", tauOn = "default (Parolin 1999)")
+             lt1Frac = "default", fatK = "default", gFat = "default (off)", tauAer = "default", tauOn = "default (Parolin 1999)")
     unc <- c(CP = nzchar(cpWhy), Wprime = nzchar(cpWhy), pPmax = (!is.finite(p1) || p1 < 1.6 * f$CP),
              fP = recU || spread("fP"), tauP = recU || spread("tauP"), tauG = recU || spread("tauG"),
-             eta = recU || spread("eta"), lt1Frac = TRUE, fatK = TRUE, tauAer = TRUE, tauOn = TRUE)
+             eta = recU || spread("eta"), lt1Frac = TRUE, fatK = TRUE, gFat = TRUE, tauAer = TRUE, tauOn = TRUE)
     note <- c(CP = cpWhy, Wprime = cpWhy, pPmax = "no clear maximal sprint",
               fP = if (recU) recWhy else "wide spread across rides", tauP = if (recU) recWhy else "wide spread across rides",
               tauG = if (recU) recWhy else "wide spread across rides", eta = if (recU) recWhy else "wide spread across rides",
-              lt1Frac = "needs a threshold test", fatK = "needs repeated-bout data", tauAer = "needs onset-kinetics data",
-              tauOn = "literature default ~6 s; not power-identifiable")
+              lt1Frac = "needs a threshold test", fatK = "needs repeated-bout data", gFat = "optional realism term; off by default (§6.10)",
+              tauAer = "needs onset-kinetics data", tauOn = "literature default ~6 s; not power-identifiable")
     ord <- names(PARAM_DESC)
     data.frame(param = ord, value = as.numeric(val[ord]), source = src[ord],
                uncertain = as.logical(unc[ord]), note = note[ord], stringsAsFactors = FALSE)
@@ -614,7 +630,7 @@ server <- function(input, output, session) {
     filename = function() paste0("dualtank_ciq_settings_", Sys.Date(), ".json"),
     content = function(file) {
       et <- est_table(); v <- setNames(et$value, et$param)
-      keys <- c("CP","Wprime","fP","pPmax","tauP","tauG","lt1Frac","eta","fatK","tauAer","tauOn")   # match properties.xml
+      keys <- c("CP","Wprime","fP","pPmax","tauP","tauG","lt1Frac","eta","fatK","gFat","tauAer","tauOn")   # match properties.xml
       body <- paste(vapply(keys, function(k) sprintf('  "%s": %s', k, format(v[[k]], trim = TRUE)), character(1)), collapse = ",\n")
       writeLines(c("{", body, "}"), file)
     })
