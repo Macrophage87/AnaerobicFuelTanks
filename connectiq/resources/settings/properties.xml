@@ -8,6 +8,7 @@
     <property id="lt1Frac" type="float">0.80</property>
     <property id="eta"     type="float">1.00</property>
     <property id="fatK"    type="float">0.75</property>
+    <property id="gFat"    type="float">0.00</property>
     <property id="tauAer"  type="number">25</property>
     <property id="tauOn"   type="number">6</property>
 </properties>

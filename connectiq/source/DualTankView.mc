@@ -21,8 +21,9 @@ using Toybox.Lang;
 //     W'bal in steady effort); the peak-flux RATE CEILING (pPmax, tapered with
 //     fullness) governs maximal efforts, where PCr dominance emerges. Unmet demand is
 //     banked as a deficit so combined W'bal stays energy-conserving.
-//   - Below supply: PCr recovers (tauP, efficiency eta); glycolytic recovers
-//     slowly (tauG) and only below LT1 (lt1Frac * CP).
+//   - Below supply: PCr recovers (tauP, efficiency eta); glycolytic (and the
+//     deficit) recover whenever P < CP at Skiba's intensity-dependent W'bal rate
+//     tau_W'(CP-P), amplitude anchored to Ferguson 2010 at 20 W.
 //
 // REALISM TERMS (from white paper, tunable via settings):
 //   - Aerobic ramp: BELOW CP the aerobic system covers demand (no anaerobic draw, so
@@ -82,6 +83,7 @@ class DualTankView extends WatchUi.DataField {
     // ---- Settings ----
     hidden var mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta;
     hidden var mFatK;    // PCr recovery fatigue-slowing coefficient (0 = disabled)
+    hidden var mGFat;    // glycolytic flux fatigue exponent, rate_g *= (rG/cG)^gFat (0 = off)
     hidden var mTauAer;  // aerobic ramp time constant, s (0 = disabled -> hard CP)
     hidden var mTauOn;   // glycolytic activation time constant, s (~6, Parolin 1999)
     // ---- Derived capacities ----
@@ -173,6 +175,7 @@ class DualTankView extends WatchUi.DataField {
         mLt1Frac = propFloat("lt1Frac", 0.80);
         mEta     = propFloat("eta", 0.80);
         mFatK    = propFloat("fatK", 0.75);
+        mGFat    = propFloat("gFat", 0.0);
         mTauAer  = propFloat("tauAer", 25.0);
         mTauOn   = propFloat("tauOn", 6.0);
 
@@ -183,6 +186,7 @@ class DualTankView extends WatchUi.DataField {
         if (mTauP < 1.0)   { mTauP = 1.0; }
         if (mTauG < 1.0)   { mTauG = 1.0; }
         if (mFatK < 0.0)   { mFatK = 0.0; }
+        if (mGFat < 0.0)   { mGFat = 0.0; }
         if (mTauAer < 0.0) { mTauAer = 0.0; }
         if (mTauOn < 0.0)  { mTauOn = 0.0; }
 
@@ -246,8 +250,14 @@ class DualTankView extends WatchUi.DataField {
     //   cap - R_N = (cap - R_0) * (1 - a)^N
     hidden function applyRestRecovery(secs) {
         if (secs <= 0) { return; }
-        // Glycolytic first (gate = 1 at rest): b = 1 - e^(-1/tauG)
-        var bG = 1.0 - Math.pow(Math.E, -1.0 / mTauG);
+        // Glycolytic at rest (P = 0): Skiba rate at CP-0, anchored to Ferguson at 20 W,
+        // matching the live-loop recovery law. b = (1 - e^(-1/tauG)) * f(0).
+        var tauW0 = 546.0 * Math.pow(Math.E, -0.01 * mCP) + 316.0;
+        var tauWa = 546.0 * Math.pow(Math.E, -0.01 * (mCP - 20.0)) + 316.0;
+        var g20 = (mCP > 0.0) ? (mLt1Frac * mCP - 20.0) / (mLt1Frac * mCP) : 1.0;
+        var f0 = g20 * tauWa / tauW0;
+        if (f0 < 0.0) { f0 = 0.0; }
+        var bG = (1.0 - Math.pow(Math.E, -1.0 / mTauG)) * f0;
         if (bG < 0.0) { bG = 0.0; }
         if (bG > 1.0) { bG = 1.0; }
         mRG = mCapG - (mCapG - mRG) * Math.pow(1.0 - bG, secs);
@@ -376,6 +386,15 @@ class DualTankView extends WatchUi.DataField {
 
             var rateP = mPPmax * (mRP / mCapP);      // rate ceiling (tapered)
             var rateG = GLY_RATE_FRAC * mPPmax * mG;
+            // Optional glycolytic flux fatigue (mGFat > 0): acidosis inhibits phosphorylase
+            // /PFK, so glycolytic flux falls across repeated maximal sprints. Off (0) by
+            // default — it shifts the depletion split, so headline behaviour is unchanged
+            // unless enabled. See white paper §6.10.
+            if (mGFat > 0.0 && mCapG > 0.0) {
+                var fillG2 = mRG / mCapG;
+                if (fillG2 < 0.0) { fillG2 = 0.0; }
+                rateG *= Math.pow(fillG2, mGFat);
+            }
             var pcap = rateP * dt;
             var gcap = rateG * dt;
             var wP = mCapP;                           // share weight (capacity-proportional)
@@ -428,14 +447,24 @@ class DualTankView extends WatchUi.DataField {
             if (gateP < 0.0) { gateP = 0.0; }
             var tauPeff = pcrTau();
             mRP += gateP * mEta * (mCapP - mRP) * (1.0 - Math.pow(Math.E, -dt / tauPeff));
-            // Glycolytic tank AND the deficit clear only below LT1 (gated) — the deficit is
-            // supra-cap byproduct load, so it must respect the same intensity gate as R_g.
-            var lt1 = mLt1Frac * mCP;
-            if (p < lt1 && lt1 > 0.0) {
-                var gate = (lt1 - p) / lt1;
-                var kG = 1.0 - Math.pow(Math.E, -dt / mTauG);
-                mRG += gate * (mCapG - mRG) * kG;
-                mDeficit -= mDeficit * (gate * kG);
+            // Glycolytic tank AND the deficit recover whenever P < CP, at Skiba's
+            // intensity-dependent W'bal rate tau_W'(CP-P) = 546*e^(-0.01*(CP-P)) + 316,
+            // its amplitude re-anchored so the 20 W passive rate reproduces Ferguson 2010
+            // (as v0.6 did). This REPLACES the old linear (LT1-P)/LT1 gate, whose rate went
+            // to zero at LT1 (recovery -> infinity), which made the model unable to complete
+            // a standard 4x4. Skiba's form is bounded and was fitted across recovery powers.
+            if (p < mCP && mCP > 0.0) {
+                var dcp = mCP - p;
+                var tauW = 546.0 * Math.pow(Math.E, -0.01 * dcp) + 316.0;
+                var tauWanchor = 546.0 * Math.pow(Math.E, -0.01 * (mCP - 20.0)) + 316.0;
+                var gate20 = (mLt1Frac * mCP - 20.0) / (mLt1Frac * mCP);
+                var fG = gate20 * tauWanchor / tauW;
+                if (fG < 0.0) { fG = 0.0; }
+                var kG = (1.0 - Math.pow(Math.E, -dt / mTauG)) * fG;
+                if (kG < 0.0) { kG = 0.0; }
+                if (kG > 1.0) { kG = 1.0; }
+                mRG += (mCapG - mRG) * kG;
+                mDeficit -= mDeficit * kG;
             }
             mConsP = 0.0;
             mConsG = 0.0;
