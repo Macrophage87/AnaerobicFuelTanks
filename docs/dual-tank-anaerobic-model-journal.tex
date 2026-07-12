@@ -1,0 +1,994 @@
+% =====================================================================
+%  A Dual-Tank Model for Real-Time Tracking of Phosphocreatine and
+%  Glycolytic Energy Reserves in Cycling
+%
+%  Standalone journal-style manuscript.
+%
+%  Compile locally (no shell-escape needed):
+%     pdflatex dual-tank-anaerobic-model-journal.tex
+%     pdflatex dual-tank-anaerobic-model-journal.tex      % 2nd pass: refs/xrefs
+%     pdflatex dual-tank-anaerobic-model-journal.tex      % 3rd pass: cleveref
+%  (three passes resolve all \ref / \cref / \cite numbering.)
+%
+%  Portable: uses only standard TeX Live packages, pdflatex-compatible,
+%  no external fonts. For a Times-like look, uncomment the newtx lines
+%  in the preamble (requires the newtx package).
+% =====================================================================
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+% ---- optional Times-like fonts (uncomment if `newtx` is installed) ----
+% \usepackage{newtxtext,newtxmath}
+\usepackage{microtype}
+
+\usepackage[a4paper,margin=1in,headheight=14pt]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{siunitx}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{listings}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+
+% ---- palette (project convention: purple = PCr, green = glycolytic) ----
+% Defined BEFORE hyperref so allcolors=linkblue resolves.
+\definecolor{pcrpurple}{HTML}{6C26A8}
+\definecolor{glygreen}{HTML}{1A8C3A}
+\definecolor{linkblue}{HTML}{1A5FB4}
+\definecolor{rulegray}{HTML}{BBBBBB}
+\definecolor{boxbg}{HTML}{F5F1FA}
+\definecolor{codebg}{HTML}{F7F5FB}
+
+\usepackage[numbers,sort&compress,super]{natbib}
+\usepackage[colorlinks=true,allcolors=linkblue]{hyperref}
+\usepackage[nameinlink,capitalise]{cleveref}
+
+% ---- modern section styling ----
+\titleformat{\section}{\color{pcrpurple}\Large\bfseries}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\color{glygreen!85!black}\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\itshape}{\thesubsubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{1.4em}{0.5em}
+
+\pagestyle{fancy}\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small\itshape Dual-Tank Anaerobic Reserve Model}
+\fancyhead[R]{\small\thepage}
+
+% ---- listings: language-agnostic pseudocode (ASCII, pdflatex-safe) ----
+\lstdefinestyle{pseudo}{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=leftline, framerule=1.4pt, rulecolor=\color{pcrpurple},
+  xleftmargin=1.1em, framexleftmargin=1.1em,
+  breaklines=true, columns=fullflexible, keepspaces=true,
+  commentstyle=\color{glygreen!60!black}\itshape,
+  morecomment=[l]{\#}, showstringspaces=false, aboveskip=0.8em, belowskip=0.8em}
+
+\captionsetup{font=small,labelfont={bf,color=pcrpurple},labelsep=period}
+
+% ---- key-points box ----
+\newcommand{\keybox}[1]{%
+  \begin{center}\fcolorbox{pcrpurple}{boxbg}{%
+  \begin{minipage}{0.97\linewidth}\small #1\end{minipage}}\end{center}}
+
+% ---- symbol macros (consistent typography throughout) ----
+\newcommand{\Wp}{\ensuremath{W'}}
+\newcommand{\Wbal}{\ensuremath{W'\!\text{bal}}}
+\newcommand{\CP}{\ensuremath{\mathrm{CP}}}
+\newcommand{\LTone}{\ensuremath{\mathrm{LT1}}}
+\newcommand{\fp}{\ensuremath{f_{\mathrm p}}}
+\newcommand{\Rp}{\ensuremath{R_{\mathrm p}}}
+\newcommand{\Rg}{\ensuremath{R_{\mathrm g}}}
+\newcommand{\Cp}{\ensuremath{C_{\mathrm p}}}
+\newcommand{\Cg}{\ensuremath{C_{\mathrm g}}}
+\newcommand{\Ppmax}{\ensuremath{P_{\mathrm{p,max}}}}
+\newcommand{\grate}{\ensuremath{g_{\mathrm{rate}}}}
+\newcommand{\gpmax}{\ensuremath{g_{\mathrm{p,max}}}}
+\newcommand{\taup}{\ensuremath{\tau_{\mathrm p}}}
+\newcommand{\taug}{\ensuremath{\tau_{\mathrm g}}}
+\newcommand{\tauon}{\ensuremath{\tau_{\mathrm{on}}}}
+\newcommand{\tauoff}{\ensuremath{\tau_{\mathrm{off}}}}
+\newcommand{\tauW}{\ensuremath{\tau_{W'}}}
+\newcommand{\tauPCr}{\ensuremath{\tau_{\mathrm{PCr}}}}
+\newcommand{\taudep}{\ensuremath{\tau_{\mathrm{dep}}}}
+\newcommand{\tauaer}{\ensuremath{\tau_{\mathrm{aer}}}}
+\newcommand{\gatep}{\ensuremath{\mathrm{gate}_{\mathrm p}}}
+\newcommand{\Pos}{\ensuremath{P_{1\mathrm s}}}
+\newcommand{\halft}{\ensuremath{t_{1/2}}}
+\newcommand{\degC}{\textsuperscript{31}P-MRS}
+
+\hypersetup{
+  pdftitle={A Dual-Tank Model for Real-Time Tracking of Phosphocreatine and Glycolytic Energy Reserves in Cycling},
+  pdfauthor={S. J. Cieply},
+  pdfsubject={Critical Power, W-prime, anaerobic energy systems, cycling}}
+
+\setlength{\parskip}{0.35em}
+\setlength{\parindent}{0pt}
+
+% =====================================================================
+\begin{document}
+
+\begin{center}
+  {\LARGE\bfseries A Dual-Tank Model for Real-Time Tracking of\\[2pt]
+   Phosphocreatine and Glycolytic Energy Reserves in Cycling\par}
+  \vspace{1.0em}
+  {\large S.\,J.\ Cieply\par}
+  \vspace{0.3em}
+  {\normalsize AnaerobicFuelTanks Project\par}
+  {\small\href{mailto:sjcieply@gmail.com}{sjcieply@gmail.com}\par}
+\end{center}
+
+\vspace{0.6em}
+
+\begin{abstract}\noindent
+Endurance-cycling analytics have converged on the Critical Power (\CP) / \Wp{} framework, in which all
+work performed above a sustainable power asymptote is drawn from a single finite reserve, \Wp. This lumps
+two physiologically distinct anaerobic systems---the fast phosphocreatine (PCr / alactic) system and the
+slower glycolytic (lactic) system---into one tank with a single recovery time constant. That
+simplification discards the information a rider most wants during hard, variable-intensity efforts:
+\emph{which} reserve is being spent, and \emph{how fast} each will return. This paper develops a
+\textbf{dual-tank model} that splits \Wp{} into a fast reserve and a slow reserve, drives both from the
+instantaneous power trace, and applies system-specific depletion and restoration laws drawn from the
+bioenergetic and \degC{} literature. The model is explicitly a physiologically-motivated decomposition of
+one measured quantity (\Wbal) whose split is assumed rather than measured, and whose extra resolution over
+single-tank \Wbal{} is concentrated in the transients after hard efforts. It generalises \Wbal{} in
+depletion and diverges from it, by design, in recovery. The model is reduced to be computable at
+1~Hz on a wrist- or bar-mounted device, and a Garmin Connect~IQ implementation displays
+live reserve, consumption, and depletion for both systems. We give a validation strategy---including the
+out-of-sample test that would earn the second tank and a compartment-level test the current model
+fails---and an explicit statement of assumptions and limits.
+\end{abstract}
+
+\keybox{%
+\textbf{Key points.}
+\begin{itemize}[leftmargin=1.2em,itemsep=1pt,topsep=2pt]
+\item The two bars are \textbf{compartments of \Wp}, named for their dominant metabolic system; the
+metabolic identification is motivation, not a measured claim---\Wp{} recovers ${\sim}4\times$ faster than
+the muscle metabolites the tanks are named after (\cref{subsec:recon}).
+\item Non-redundant content lives in \emph{transients}: the glycolytic activation ramp at effort onset and
+the fast-reserve recovery transient after hard efforts. During steady supra-\CP{} effort both bars are
+affine in \Wbal.
+\item Under an oxidative-headroom recovery gate, the effective fast-reserve recovery constant is
+100--500~s while a rider is pedalling, so the fast-reserve bar is
+\emph{live} through the recovery valleys of an interval session.
+\item For training prescription, the cumulative per-system load separates an alactic from a glycolytic
+session; the discriminating mechanism is the \textbf{glycolytic flux ceiling scaled by the activation
+ramp}, the metric is blind to \emph{submaximal} alactic work, and it must be judged against a
+zero-parameter effort-duration baseline, not only \Wbal{} (\cref{subsec:trainingload}).
+\item The compartment-level partition is testable in-modality by muscle biopsy during cycle ergometry;
+against repeated-sprint data the current model fails in level and direction, so the per-system split is a
+descriptive \Wp-statistic, not a validated bioenergetic ATP partition (\cref{subsec:repeatedsprint}).
+\end{itemize}}
+
+\textbf{Keywords:} critical power; \Wp; phosphocreatine; anaerobic glycolysis; \Wbal; repeated-sprint;
+real-time cycling analytics; Connect~IQ.
+
+% =====================================================================
+\section{Introduction}\label{sec:intro}
+
+A power meter reports mechanical output, not metabolic cost. The bridge between the two is a model of the
+body's energy-supply systems. The dominant bridge in cycling---the \CP/\Wp{} model---treats supra-\CP{}
+work as depletion of a single reservoir and sub-\CP{} work as its exponential refill.\citep{Skiba2012} It
+is power-native, validated, and computationally trivial, which is why it underlies \Wbal{} displays in
+GoldenCheetah, intervals.icu, and several head units.
+
+Its central simplification is also its central weakness for real-time decision-making: \Wp{} is one tank.
+Physiologically, anaerobic capacity is at least two tanks with very different
+dynamics:\citep{Margaria1933,diPrampero1999}
+
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+\item The \textbf{phosphocreatine (PCr / alactic)} system---high power, low capacity, \emph{fast}
+oxidative recovery (seconds to a minute), with recovery that is pH-sensitive and slows across repeated
+bouts.
+\item The \textbf{glycolytic (lactic)} system---larger capacity, lower peak power, and \emph{slow}
+recovery (minutes) that effectively proceeds only at low intensity.
+\end{itemize}
+
+A rider deciding whether to cover the next surge cares which tank is empty. If the fast reserve is full
+but the slow reserve is depleted, a 5~s jump is fine but a 40~s dig
+is not---a distinction single-tank \Wbal{} cannot express. The goal is a model that keeps the power-native,
+on-device virtues of \Wbal{} while restoring the two-system resolution.
+
+\paragraph{Two use cases, two outputs.} The first---\emph{pacing/racing}---uses the live bars in the
+moment (``can I cover this attack?''); its value is concentrated in the post-effort transients
+(\cref{sec:assumptions}) and is real but narrow. The second---\textbf{training prescription and load
+monitoring}---uses the \emph{cumulative per-system load} over a session, and is where the decomposition is
+most clearly worth more than \Wbal{} (\cref{subsec:trainingload}). The two anaerobic systems carry very
+different physiological and recovery costs: alactic surges---short, high-power, with adequate
+recovery---resynthesise in seconds to a minute and can be repeated at high volume with little systemic
+fatigue; glycolytic surges accumulate H\textsuperscript{+}/P\textsubscript{i} and clear over many minutes
+(lactate \halft{} $\approx$ 1366~s\citep{Ferguson2010}) and cost far more recovery.
+An athlete targeting the PCr system---alactic power, repeat-sprint ability---must keep efforts short and
+recoveries full enough that glycolysis stays disengaged, and needs to know, per session, how much of the
+anaerobic work was alactic versus glycolytic. \Wbal{} collapses that to one number; the two-tank model
+does not.
+
+\paragraph{Two honest qualifications.} First, the split is a modelling assumption, not a measurement:
+power alone cannot identify how \Wp{} divides between the two systems (\cref{subsec:update}). Second, the
+extra resolution is concentrated in transients. Whenever the fast reserve is full, the slow reserve is
+merely an affine rescaling of single \Wbal. The fast reserve is \emph{not} full most of the time while
+riding, however: under the oxidative-headroom recovery gate (\cref{subsec:update}) its effective recovery
+constant is \SIrange{100}{500}{\second} at typical soft-pedal powers rather than the \SI{27}{\second} of a
+stopped rider, so the bar stays live through the recovery valleys of an interval session
+(\cref{subsec:usefulness}). The model earns its keep as a heuristic decomposition of \Wp, not as two
+independently measured reserves.
+
+% =====================================================================
+\section{Physiological background}\label{sec:physio}
+
+\paragraph{Phosphocreatine (alactic).} ATP is buffered by the creatine-kinase reaction
+(PCr\,+\,ADP\,$\rightarrow$\,ATP\,+\,Cr). Intramuscular PCr ($\sim$20--25~mmol\,kg\textsuperscript{-1} wet
+muscle) is the highest-power energy source and is drawn on instantly at any power transient. Its
+resynthesis is oxidative and fast: the classic alactic O\textsubscript{2}-debt half-time is
+$\approx$\SI{30}{\second},\citep{Margaria1933} and \degC{} gives recovery time constants
+$\tauPCr \approx$ \SIrange{20}{40}{\second}, strongly \textbf{pH-dependent} (acidosis slows it) and
+biphasic under high glycolytic load.\citep{Harris1976,Yoshida2013} Recovery also slows progressively
+across repeated hard bouts.
+
+\paragraph{Glycolytic (lactic).} Anaerobic glycolysis converts glycogen to lactate, supplying large ATP
+flux for ${\sim}10\,\mathrm{s}$--$2\,\mathrm{min}$. Its ``fuel level'' is best tracked as accumulated
+muscle/blood lactate, a proxy for H\textsuperscript{+} and metabolite accumulation. Critically, glycolytic
+flux itself \emph{falls} across repeated maximal sprints: acidosis inhibits phosphorylase and
+phosphofructokinase, so the glycolytic ATP contribution decays from $\approx$40\% of total ATP in the
+first of $10\times\SI{6}{\second}$ efforts to $<$10\% by the last,\citep{Gaitanos1993,SciRep2024} while
+the aerobic contribution rises to absorb the shortfall ($\sim$29\%$\rightarrow$43\% between
+sprints).\citep{Bogdanis1996} Restoration of the glycolytic reserve is slow (lactic O\textsubscript{2}-debt
+half-time $\approx$~15~min) and proceeds fastest at low intensity, effectively ceasing above the first
+lactate threshold (\LTone). The model as formulated has no term for glycolytic flux falling with fatigue;
+this is examined directly, with an optional corrective term, in \cref{subsec:repeatedsprint}.
+
+\paragraph{The onset that matters.} Both systems contribute from the start of a hard effort, but not
+equally at first: PCr is drawn on instantly, while glycolytic flux takes several seconds to ramp up as
+glycogen phosphorylase is activated,\citep{Parolin1999} so the early demand is PCr-weighted and shifts
+toward a shared draw as glycolysis engages.\citep{GonzalezAlonso2000} This graded onset---and the very
+different refill rates---is what the dual-tank model must reproduce (via a parallel, PCr-weighted draw and
+a glycolytic activation ramp; \cref{subsec:update}), rather than a strict ``PCr first, then glycolytic''
+hand-off.
+
+\paragraph{What the two ``tanks'' represent.} The tank is a deliberate simplification for intuition and
+on-device display, not a claim that either system is a literal reservoir that drains. The two sides are
+not even the same \emph{kind} of quantity. The fast reserve corresponds to a real, depletable substrate
+store (intramuscular phosphocreatine), so ``empty'' is close to literal. The slow reserve is better
+understood as \emph{tolerance to accumulating fatigue-related metabolites} than as a fuel gauge: on the
+1--4~min timescale it represents, muscle glycogen is nowhere near exhausted (carbohydrate depletion is a
+separate, hours-long limiter this model does not address). What forces power down at the limit of a hard
+effort is the buildup of inorganic phosphate (P\textsubscript{i}), H\textsuperscript{+}, ADP, and
+extracellular K\textsuperscript{+} toward the limit of tolerance, consistent with exhaustion at \CP/\Wp{}
+coinciding with a reproducible low-PCr / high-metabolite state (lactate itself is largely a fuel and a
+marker, not the cause of force loss). This is why the two recovery laws differ: the fast reserve
+resynthesises quickly, whereas the slow side recovers slowly and only at low intensity because it reflects
+clearance and buffering of accumulated byproducts, which need aerobic metabolism and time. In short:
+\textbf{the fast reserve is a fuel that depletes; the slow reserve is a byproduct bucket that fills.}
+
+% =====================================================================
+\section{Prior models}\label{sec:prior}
+
+Three model families exist:
+
+\begin{itemize}[leftmargin=1.4em,itemsep=2pt]
+\item \textbf{Family A --- \CP/\Wp-balance.}\citep{Skiba2012,Skiba2015,Bartram2018} Power-native and
+on-device-friendly, but one lumped tank with a single recovery~$\tau$. The recovery law
+$\tauW = 546\,e^{-0.01\,D_{\CP}} + 316~\mathrm{s}$ cannot represent fast PCr and slow glycolytic recovery
+simultaneously.
+\item \textbf{Family B --- hydraulic tank models.}\citep{Morton1986,Weigend2021} Two explicit anaerobic
+vessels (phosphagen, glycolytic) plus an aerobic vessel; out-predicts \Wbal{} for intermittent recovery.
+Its eight parameters are abstract and fit per athlete by evolutionary computation---heavy for an embedded
+target.
+\item \textbf{Family C --- bioenergetic supply/demand ODEs.}\citep{Chorzempa2023} Explicit alactic /
+lactic / aerobic metabolic-rate terms, with an efficiency-limited PCr recovery and a power-gated
+lactate-removal law. Mechanistically ideal but has 17 parameters and needs grey-box fitting.
+\end{itemize}
+
+\textbf{The gap.} Family~A is implementable but under-resolved; Families~B and~C resolve the two systems
+but are too heavy to run and calibrate on a head unit. The model below keeps the two-tank resolution of
+B/C with the on-device simplicity of A.
+
+To be precise about ``lighter'': the model's core count
+($\CP, \Wp, \fp, \Ppmax, \grate, \taup, \taug, \tauon, \LTone$, with $\tauoff = \tauon$ by default---nine
+free numeric parameters, plus three optional realism terms and two functional-form gates,
+$\gatep$ and the intensity-dependent glycolytic recovery shape) is essentially the hydraulic model's
+eight: the same size, not a smaller model. The difference is \emph{where the parameters come from}. Only
+\CP{} and \Wp{} are fitted per athlete (from a standard \CP{} test); the rest are hard-coded to literature
+defaults rather than fit by evolutionary computation. That buys on-device simplicity and a trivial
+calibration, at a cost: the load-bearing defaults ($\fp$, $\Ppmax$, $\LTone$, and the recovery $\tau$'s)
+are exactly the quantities a \CP{} test does \emph{not} determine, so the two-system resolution rests on
+assumptions, not measurements. This is a legitimate identifiability-for-convenience trade, and the
+sections below are explicit about which numbers are earned and which are assumed.
+
+% =====================================================================
+\section{The dual-tank model}\label{sec:model}
+
+\subsection{State and parameters}\label{subsec:state}
+
+Two energy reserves (Joules), each with a fixed capacity: the \textbf{fast reserve} \Rp{} (capacity \Cp)
+and the \textbf{slow reserve} \Rg{} (capacity \Cg), with total anaerobic capacity $\Wp = \Cp + \Cg$. We
+call them the fast reserve (``PCr'') and slow reserve (``glycolytic''); the metabolic labels are
+motivation, not a measured claim. As \cref{subsec:recon} shows, the reserves are compartments of \Wp, with
+the correct internal fast/slow ratio ($\sim$18$\times$) but an absolute timescale $\sim$4$\times$ faster
+than the muscle metabolites they are named after, because \Wp{} itself recovers $\sim$4$\times$ faster
+than PCr or lactate. The bar is therefore a fast-recovering component of \Wbal, and the model is right
+about \Wp's internal dynamics while remaining agnostic about the metabolites.
+
+\Cref{tab:params} lists the parameters. Derived quantities: $\Cp = \fp\,\Wp$, $\Cg = (1-\fp)\,\Wp$, with
+initial state $\Rp = \Cp$, $\Rg = \Cg$ (full). Nine parameters are free numeric values; two
+functional-form gates ($\gatep$ and the glycolytic recovery shape) and three optional realism terms
+(pH-slowed PCr recovery, aerobic ramp, glycolytic flux fatigue) sit on top. Only \CP{} and \Wp{} are
+fitted per athlete. A fast-reserve depletion kinetic, $\taudep = \Cp/\Ppmax$, also follows from the table
+(\cref{subsec:behaviour}) and is equally assumed.
+
+\begin{table}[htbp]\centering\small
+\caption{Model parameters. Only \CP{} and \Wp{} are fitted per athlete; the rest are literature-set.}
+\label{tab:params}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} & \textbf{Typical default} \\
+\midrule
+\CP & critical power (W) & from a 3-/12-min \CP{} test ($\approx$ FTP $+$ a few \%) \\
+\Wp & total work above \CP{} (J) & from the same test ($\sim$15--25~kJ) \\
+\fp & fraction of \Wp{} in the fast reserve & \textbf{0.25} --- assumed (physiology; \cref{sec:assumptions}) \\
+\Ppmax & fast-reserve peak power above \CP{} (W), at a \emph{full} tank & $\approx \Pos - \CP$ (best 1~s power $-$ \CP) \\
+\grate & glycolytic peak flux as a fraction of fast-reserve peak flux & \textbf{0.5 --- load-bearing};\citep{diPrampero1999} band $\sim$0.3--0.7, drives the training-load separation (\cref{subsec:trainingload}) \\
+\taup & fast-reserve recovery time constant (s); a \Wp-recovery constant, not muscle-PCr resynthesis & \textbf{27} --- set by the \Wp-reconstitution curve (\cref{subsec:recon}); do not read as biopsy PCr \\
+\taug & slow-reserve recovery time constant (s) & \textbf{470} --- reconstitution fit\citep{Ferguson2010,ChorleyLamb2020} (\cref{subsec:recon}) \\
+\tauon & glycolytic activation time constant (s) & 6\citep{Parolin1999} \\
+\tauoff & glycolytic de-activation time constant (s) & $=\tauon$ --- assumed; not load-bearing (\cref{subsec:trainingload}) \\
+\LTone & first lactate threshold power (W); sets the band of the recovery shape & \emph{measured} (a threshold test), not a fixed \%\CP \\
+\gatep & oxidative-headroom recovery gate $(\CP-P)/\CP$ --- a functional form, no free constant & assumed; shape is a choice (\cref{sec:assumptions}) \\
+$g_{\mathrm{fat}}$ & \emph{optional} glycolytic flux-fatigue exponent, $\mathrm{rate}_g\,(\Rg/\Cg)^{g_{\mathrm{fat}}}$ & \textbf{0 (off)} by default (\cref{subsec:repeatedsprint}) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{On \fp.} We set \textbf{0.25} from physiological alactic-fraction estimates (the PCr system
+supplies $\sim$20--30\% of anaerobic ATP capacity\citep{diPrampero1999,Bangsbo1990}); once the
+reconstitution reference protocol's recovery power is known (20~W, near-passive), the reconstitution curve
+independently implies $\fp \approx 0.20$--$0.25$. Treat it as a per-athlete calibration target on the band
+$\sim$0.20--0.25.
+
+\paragraph{On \Ppmax.} $\Ppmax \approx \Pos - \CP$ is the rate at a \emph{full} tank. Fast-reserve flux is
+not constant: the rate \emph{ceiling} tapers with tank fullness (creatine-kinase equilibrium---flux falls
+as the store depletes), so the available rate is $\Ppmax\,(\Rp/\Cp)$, equal to \Ppmax{} only when the tank
+is full (\cref{subsec:update}). Read $\Pos - \CP$ as an upper bound: at 1~s glycolysis is already $\sim$15\%
+active, so it mildly over-attributes to the fast reserve.
+
+\paragraph{On \grate.} The ratio $\gpmax = 0.5\,\Ppmax$ is not arbitrary: peak glycolytic ATP flux is
+roughly half peak PCr/creatine-kinase flux in human muscle,\citep{diPrampero1999,Parolin1999} so the fast
+system is higher-power by about 2:1. \grate{} is nonetheless load-bearing: the ablation in
+\cref{subsec:trainingload} shows it (via the glycolytic flux ceiling) generates the training-load
+separation, and sweeping it 0.3$\rightarrow$0.7 moves that separation from $\sim$48 to $\sim$33 points. It
+is banded ($\sim$0.3--0.7) and should be checked against sprint biopsy data (\cref{subsec:repeatedsprint}),
+against which it has never been fit.
+
+\subsection{Reconstitution: calibration source and a tension it raises}\label{subsec:recon}
+
+The 37\,/\,65\,/\,86\% \Wp-recovery at 2\,/\,6\,/\,15~min (half-time \SI{234}{\second}) is from
+Ferguson et~al.,\citep{Ferguson2010} reviewed by Chorley \& Lamb,\citep{ChorleyLamb2020} who state it was
+measured when recovering at a nominal 20~W. Three things follow.
+
+\textbf{(1) \taug{} is calibrated to $\sim$470~s.} The recovery gate makes the effective constant depend on
+recovery power; the 20~W figure resolves this. But 20~W is not quite $\mathrm{gate}=1$: with
+$\LTone \approx 0.8\,\CP \approx 200~\mathrm{W}$, $\mathrm{gate} = (200-20)/200 = 0.90$, so a model
+reproducing Ferguson needs $\taug \approx 470~\mathrm{s}$.
+
+\textbf{(2) \fp{} is consistent with the curve, not independently measured by it.} With recovery power
+fixed, the curve constrains a ridge in $(\fp,\taug)$, not \fp{} alone: both $(\fp\,0.25, \taug\,520)$ and
+the joint optimum $(\fp\,0.20, \taug\,470)$ fit 37/65/86 to within $\sim$3--5 points. Physiology selects
+$\fp \approx 0.25$ on that ridge; the recovery data alone would prefer $\sim$0.20.
+
+\textbf{(3) The tanks are compartments of \Wp, not of muscle metabolites.} Ferguson reports the two
+recovery channels underlying \Wp{} reconstitution: VO\textsubscript{2} $\halft = \SI{74}{\second}$ (a proxy
+for oxidative/PCr resynthesis) and blood-lactate $\halft = \SI{1366}{\second}$. Placing these beside the
+model's component half-times (\cref{tab:components}) shows the model's two constants are a near-uniform
+$\sim$4$\times$ rescaling of Ferguson's channels---the \emph{shape} (the 18-fold fast/slow separation) is
+reproduced almost exactly, only the \emph{scale} differs, and by the same factor in both. That is not the
+signature of fitting two exponentials to a sum. The offset is unavoidable: building the two-compartment
+model from Ferguson's \emph{measured} channel constants (107~s, 1971~s) cannot reproduce Ferguson's own
+recovery curve (\cref{tab:fergusonbuild})---a metabolite-calibrated model predicts half the observed
+recovery. \Wp{} simply recovers $\sim$4$\times$ faster than the PCr/lactate it correlates with, consistent
+with Ferguson's conclusion that \Wp{} reconstitution is ``not a unique function of phosphocreatine
+concentration or arterial [lactate]\dots unlikely to simply reflect a finite energy store.'' What differs
+from the metabolites is therefore the \emph{naming}, not the time constants. Symmetrically, blood lactate
+\halft{} is no more a measure of \emph{muscle} H\textsuperscript{+}/P\textsubscript{i} clearance than
+VO\textsubscript{2} off-kinetics is a measure of PCr resynthesis, so neither channel measures a tank and
+neither adjudicates the decomposition. The fast/slow-reserve naming is the resolution.
+
+\begin{table}[htbp]\centering\small
+\caption{The model's recovery components against Ferguson's measured channels: the ratio is preserved, the
+absolute scale is $\sim$4$\times$ faster.}
+\label{tab:components}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Component} & \textbf{Model} & \textbf{Ferguson channel} & \textbf{Ratio} \\
+\midrule
+fast & $\taup = 27~\mathrm{s} \rightarrow \halft = 18.7~\mathrm{s}$ & VO\textsubscript{2} 74~s & 4.0$\times$ \\
+slow & $\taug = 470~\mathrm{s} \rightarrow \halft = 326~\mathrm{s}$ & lactate 1366~s & 4.2$\times$ \\
+\textbf{ratio (slow/fast)} & \textbf{17.4$\times$} & \textbf{18.5$\times$} & within 6\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]\centering\small
+\caption{A model built from Ferguson's own channel constants under-predicts Ferguson's own recovery curve
+by roughly half; the calibrated model reproduces it.}
+\label{tab:fergusonbuild}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+ & \textbf{2~min} & \textbf{6~min} & \textbf{15~min} \\
+\midrule
+Observed\citep{Ferguson2010} & 37\% & 65\% & 86\% \\
+Model ($\taup\,27$, $\taug\,470$) & 40\% & 63\% & 87\% \\
+Built from Ferguson's channels (107~s, 1971~s) & 20\% & 35\% & 50\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This reconstitution tension does not reach the training-load result of \cref{subsec:trainingload}: that
+signal is driven by the \emph{depletion} law, anchored in measured activation kinetics (\tauon{} from
+phosphorylase activation\citep{Parolin1999}) and the flux ratio (\grate\citep{diPrampero1999}), not by the
+recovery constants. Substituting Ferguson's own $\taup = \SI{107}{\second}$ moves the alactic/glycolytic
+separation by $<$1 point.
+
+\subsection{The 1~Hz update}\label{subsec:update}
+
+Let $P$ be instantaneous power (W) and $\Delta t = 1~\mathrm{s}$; define demand relative to aerobic supply
+as $\Delta = P - \CP$.
+
+\paragraph{Case 1 --- depletion ($\Delta > 0$, above \CP).} Demand $\mathrm{need} = \Delta\,\Delta t$ (J)
+is met by both systems in parallel. Glycolytic supply is not instantaneous: glycogen phosphorylase
+transforms to its active form over the first several seconds of maximal effort (rising from 12\% at rest to
+47\% by 6~s\citep{Parolin1999}), while phosphocreatine is the immediate buffer.\citep{Bogdanis1996,Bogdanis1998}
+Both contribute from onset, not in sequence.\citep{GonzalezAlonso2000} A glycolytic activation term
+$g \in [0,1]$ ramps first-order with time constant $\tauon \approx 6~\mathrm{s}$ above \CP{} and relaxes
+during recovery. The share of submaximal demand is apportioned by \emph{capacity}; a separate peak-flux
+\emph{ceiling}, with the fast-reserve rate tapered by fullness, governs maximal efforts:
+
+\begin{lstlisting}[style=pseudo]
+g       <- g + (1 - g)*(1 - exp(-dt/tau_on))    # glycolytic activation ("inertia")
+
+# --- SHARE of submaximal demand: capacity-proportional (not rate-proportional) ---
+w_p     = C_p                                   # g=0 -> fast covers all; g=1 -> fast covers f_p
+w_g     = C_g * g
+share_p = need * w_p / (w_p + w_g)              # guard: if w_p+w_g ~ 0, share_p = need
+share_g = need - share_p
+
+# --- RATE CEILING: peak flux, fast-reserve tapered with fullness (maximal efforts only) ---
+rate_p  = P_p_max * (R_p / C_p)                 # guard: C_p > 0
+rate_g  = g_rate  * P_p_max * g
+
+take_p  = min(share_p, R_p, rate_p*dt)          # each reserve capacity- AND rate-limited
+take_g  = min(share_g, R_g, rate_g*dt)
+unmet   = need - take_p - take_g
+take_g += min(unmet, R_g - take_g, rate_g*dt - take_g);  unmet -= ...   # spill to partner,
+take_p += min(unmet, R_p - take_p, rate_p*dt - take_p);  unmet -= ...   # then to a deficit
+R_p    -= take_p;  R_g -= take_g
+D      += unmet                                 # DEFICIT: supra-CP work the caps could not place
+if unmet > 0:  rate_limited = true              # power beyond the reserves' flux (often a stale P_1s)
+\end{lstlisting}
+
+\emph{Why the share and the ceiling are different objects.} The ceiling ($\Ppmax$, $\gpmax$) encodes ``the
+fast system is higher-power,'' true at maximal effort where both systems are flux-limited. It is the wrong
+object for apportioning \emph{submaximal} supra-\CP{} demand, where neither system is near its flux limit
+and sharing is set by metabolic control. Weighting the share by capacity while keeping the taper on the
+ceiling gives the correct behaviour in both regimes:
+
+\begin{itemize}[leftmargin=1.4em,itemsep=2pt]
+\item \textbf{Submaximal:} both reserves drain $\approx$proportionally to capacity, so
+$\Rp/\Cp \approx \Rg/\Cg \approx \Wbal$ and both reach their nadir together at exhaustion. During a steady
+supra-\CP{} effort the two bars track \Wbal{} and each other; they diverge only in the activation ramp and
+in recovery.
+\item \textbf{Maximal:} the tapered ceiling makes \Rp{} decay $\sim$geometrically to its nadir (a
+$\sim$10~s all-out sprint leaves the fast reserve at $\approx$20--30\%; \cref{subsec:behaviour}), and
+fast-reserve dominance emerges from the ceiling, not the weight. This residual is a fast-reserve-of-\Wp{}
+level, motivated by---but not validated against---muscle-PCr biopsy values.
+\item \textbf{Energy conserved when a cap binds.} Residual $\mathrm{unmet}$ is banked in a deficit $D$, so
+$(\Rp + \Rg - D)$ drops by exactly $\Delta\,\Delta t$ per second. Work booked to $D$ never drains a
+reserve, so a large $D$ leaves the two bars reading slightly full; $D$ is an accounting term for the rare
+supra-flux case, usually signalling a stale \Pos.
+\end{itemize}
+
+The depletion split is not identifiable from power: total draw above \CP{} is all the pedals see, and any
+$(\fp, \gpmax)$ summing to the same total is observationally equivalent. In principle the bi-exponential
+recovery of \Wp{} constrains the split; in practice that fit is ill-conditioned (the fast component is
+nearly invisible at standard reconstitution sampling), so \fp{} is assumed and weakly constrained, not
+recovered.
+
+\paragraph{Case 2 --- restoration ($\Delta \le 0$, at/below \CP).} Each reserve refills exponentially; the
+fast reserve is gated by oxidative headroom, and the slow reserve and deficit recover at an
+intensity-dependent rate:
+
+\begin{lstlisting}[style=pseudo]
+g <- g * exp(-dt/tau_off)                        # glycolytic de-activation (tau_off = tau_on default)
+
+# FAST RESERVE: resynthesis needs aerobic ATP ABOVE the ride's own demand, so it is gated by the
+# OXIDATIVE HEADROOM (CP - P): full at rest, near-arrested at CP. gate_p scales the AMOUNT (not exponent).
+gate_p = max(0, (CP - P) / CP)
+R_p   += gate_p * (C_p - R_p) * (1 - exp(-dt/tau_p))
+
+# SLOW RESERVE and deficit recover whenever P < CP at the intensity-dependent W'bal rate
+# tau_W'(CP - P) = 546*exp(-0.01*(CP - P)) + 316, amplitude re-anchored so the 20 W passive
+# rate reproduces the reconstitution curve. Bounded, and fitted across recovery powers.
+if P < CP:
+    f    = gate20 * tau_W'(CP - 20) / tau_W'(CP - P)   # = gate20 at 20 W anchor, < 1 above
+    b    = f * (1 - exp(-dt/tau_g))
+    R_g += (C_g - R_g) * b
+    D   -= D * b
+\end{lstlisting}
+
+\emph{The intensity-dependent recovery shape.} A linear gate $(\LTone - P)/\LTone$ that falls to zero at
+\LTone{} makes the effective recovery constant diverge as $P \to \LTone$; under such a gate the model
+cannot complete a standard $4\times[\SI{4}{\minute}@\SI{330}{\watt} / \SI{4}{\minute}@\SI{150}{\watt}]$
+session (see \cref{subsec:behaviour}). Adopting the established \Wp-recovery form
+$\tauW(D_{\CP}) = 546\,e^{-0.01(\CP-P)}+316$\citep{Skiba2012}---already fitted across recovery
+powers---for the shape, with its amplitude re-anchored so the 20~W passive rate reproduces the
+reconstitution curve, yields bounded, monotone recovery that tracks the reference law within $\sim$15\%
+everywhere and completes the session (\cref{tab:recovery}).
+
+\emph{The oxidative-headroom gate.} $\gatep = (\CP-P)/\CP$ prevents the fast-reserve bar refilling while
+the rider is under load. Its shape is a modelling choice: a linear, $\sqrt{\cdot}$, or sigmoid form swings
+the 60~s post-effort recovery number by 21--31 points at \LTone{} (46\,/\,65\,/\,34\% after a
+700~W/20~s effort). It also scales the refill only and adds no sub-\CP{} \emph{drain}, so a rider holding
+0.95\,\CP{} for 30~min---never above \CP---keeps a full fast-reserve bar; the structurally correct
+remedy is to relax \Rp{} toward an intensity-dependent steady state $\Rp^{*}(P)$, which is stated as a
+limitation (\cref{sec:assumptions}). After a 20~s/700~W effort (fast reserve $\to$ 23\%), 60~s of recovery
+restores it to 87\% at 0~W, 46\% at 0.8\,\CP, and 25\% at 0.99\,\CP.
+
+The $g$ de-activation lets the activation ramp re-fire on each interval of a repeated-bout set (otherwise
+$g$ ratchets to 1 on the first surge). $\tauoff = \tauon$ is assumed: activation, not de-activation, was
+measured.\citep{Parolin1999} \LTone{} sets the anchor band of the recovery shape rather than a hard on/off
+wall; recovery proceeds for any $P < \CP$, fastest at low intensity and slowing smoothly through the tempo
+band. It is a measured threshold in watts; where only \CP{} is known, $\LTone \approx 0.80\,\CP$ is a
+fallback and the weakest default in the model.
+
+\paragraph{Optional realism (off by default).}
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+\item \emph{pH-slowed PCr recovery:} $\tau_{\mathrm{p,eff}} = \taup\,(1 + k(1 - \Rg/\Cg))$. It cannot be
+pushed to reproduce muscle-PCr recovery ($\sim$78.7\% at 3.8~min\citep{Bogdanis1996}) without breaking the
+reconstitution curve and the $4\times4$ (the $k \approx 16$ that hits the biopsy value drops the curve to
+30/68/94 and the $4\times4$ to $-30$\%)---the same point as \cref{subsec:recon}: \Wp{} and muscle PCr do
+not share a time constant.
+\item \emph{Aerobic ramp} ($\tauaer \approx 25~\mathrm{s}$): a first-order aerobic supply $A(t)$ rising
+toward $\min(P,\CP)$, with $\mathrm{need} = (P - A)\,\Delta t$, reproducing the onset O\textsubscript{2}
+deficit; it also absorbs the shortfall across repeated sprints (\cref{subsec:repeatedsprint}).
+\item \emph{Glycolytic flux fatigue} ($g_{\mathrm{fat}}$): scale the glycolytic ceiling down as the slow
+reserve empties, $\mathrm{rate}_{g,\mathrm{eff}} = \mathrm{rate}_g\,(\Rg/\Cg)^{g_{\mathrm{fat}}}$,
+capturing acidotic inhibition of phosphorylase/PFK (\cref{subsec:repeatedsprint}).
+\end{itemize}
+
+\subsection{Reported quantities}\label{subsec:reported}
+
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+\item \textbf{Fast-reserve level} $= \Rp/\Cp$ (0--100\%) --- ``punch'' remaining.
+\item \textbf{Slow-reserve level} $= \Rg/\Cg$ (0--100\%) --- ``sustained dig'' remaining.
+\item \textbf{Consumption rate} (per system, W) --- $\mathrm{take}_p/\Delta t$, $\mathrm{take}_g/\Delta t$.
+\item \textbf{Combined \Wbal} $= (\Rp + \Rg - D)/\Wp$ --- energy-conserving in depletion (matches a
+single-tank \Wbal{} reference on above-\CP{} segments) and deliberately divergent in recovery.
+\item \textbf{Two distinct flags:} \texttt{rate\_limited} (power beyond the reserves' flux caps,
+$\mathrm{unmet}>0$, reserves not empty---usually a stale \Pos, triggering a ``recalibrate sprint power''
+hint) and \texttt{exhausted} (both reserves at/near zero). These are different conditions: a fresh rider
+with a mis-set \Pos{} can be rate-limited but not exhausted.
+\end{itemize}
+
+\subsection{Model behaviour}\label{subsec:behaviour}
+
+A short, very hard surge draws mostly from \Rp{} and refills afterward at a rate set by recovery intensity.
+A maximal $\sim$10~s sprint leaves $\Rp \approx 20$--30\% (not empty) from the emergent depletion constant
+$\taudep = \Cp/\Ppmax$; because \taudep{} swings $\sim$4--13~s across riders, the 10~s residual ranges from
+$\sim$10\% to $\sim$46\%. A sustained supra-\CP{} effort draws from both reserves, declining together to
+their nadir; the drawdown is front-loaded, not linear (450~W: 68/42/18/1 at quarter-TTE intervals). During
+such steady efforts both bars are affine in \Wbal, so their only non-redundant content is the ramp offset
+and the post-effort recovery transient.
+
+For a constant supra-\CP{} effort, $\Rp/\Cp$ is asymptotically a function of the fraction $\varphi$ of \Wp{}
+spent, but only for efforts long relative to \tauon{} and below the ceiling regime; the activation ramp
+adds a second intensity dependence, so ``hold different supra-\CP{} powers to exhaustion and compare
+fast-reserve-at-$\varphi$'' is a \emph{falsification} test (a pass means the bar is a deterministic
+restatement of \Wbal{} in depletion), not a validation.
+
+\Cref{tab:battery} reports a synthetic battery at $\CP = 255~\mathrm{W}$, $\Wp = 20~\mathrm{kJ}$,
+$\fp = 0.25$, $\Ppmax = 690~\mathrm{W}$ ($\grate = 0.5$), $\taup = 27$, $\taug = 470$,
+$\tauon = \tauoff = 6$, $\LTone = 204~\mathrm{W}$. \Cref{tab:recovery} shows the recovery law's behaviour
+across recovery powers: the intensity-dependent shape is bounded and tracks the reference \Wp-recovery law
+within $\sim$15\%, and the $4\times[\SI{4}{\minute}@330 / \SI{4}{\minute}@150]$ session completes
+(\Wbal{} at rep starts $100/49/7/-24$\%).
+
+\begin{table}[htbp]\centering\small
+\caption{Synthetic verification battery.}
+\label{tab:battery}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\linewidth}{@{}Xl@{}}
+\toprule
+\textbf{Test} & \textbf{Result} \\
+\midrule
+Sustained 450~W --- fast reserve at 25/50/75/100\% of TTE & 68 / 42 / 18 / $\sim$1\% (front-loaded) \\
+Both reserves at exhaustion & fast $\sim$1\% / slow $\sim$0\% (empty together) \\
+945~W ($=\Pos$) 10~s sprint --- fast-reserve residual & 23\% (ceiling-dominated) \\
+$6\times[\SI{10}{\second}@700 / \SI{30}{\second}@150]$ --- fast reserve per bout & 49\,$\to$\,17\,$\to$\,10\,$\to$\,8\,$\to$\,8\,$\to$\,7\% \\
+1200~W hold (caps bind) --- \Wbal{} conservation & leak $= 0$~J \\
+Fast-reserve recovery after 700~W/20~s, 60~s @ \{0,128,204,242,252\}~W & 87 / 68 / 46 / 30 / 25\% \\
+Debt repayment at 0.9\,\CP & $D$ clears slowly (recovery-law rate), not frozen \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]\centering\small
+\caption{\Wbal{} recovery half-time after full depletion, holding a constant recovery power: the
+intensity-dependent shape tracks the reference law and stays bounded.}
+\label{tab:recovery}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Recovery power} & \textbf{Linear-gate half-time} & \textbf{Intensity-dependent shape} & \textbf{Reference \tauW} \\
+\midrule
+20~W (anchor)      & 201~s & \textbf{201~s} & 255~s \\
+100~W (39\%\,\CP)  & 353~s & \textbf{241~s} & 299~s \\
+150~W (59\%\,\CP)  & 675~s & \textbf{291~s} & 351~s \\
+190~W (75\%\,\CP)  & 2601~s & \textbf{367~s} & 417~s \\
+204~W ($=\LTone$)  & $\infty$ & \textbf{409~s} & 446~s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In depletion the model is a faithful generalisation of \Wbal{} ($(\Rp+\Rg-D)$ falls by exactly
+$\Delta\,\Delta t$ per second); in recovery it is deliberately different (bi-exponential, intensity-gated),
+so it does not reduce to a single \tauW. It is a generalisation in structure and depletion behaviour, not a
+strict superset.
+
+% =====================================================================
+\section{Real-time on-device implementation}\label{sec:impl}
+
+The per-second cost is a handful of multiplies and one $\exp()$ per reserve---trivial for a head unit. The
+target design is a Garmin Connect~IQ full-screen \emph{Data Field} (\texttt{Toybox.WatchUi.DataField}),
+called once per second (a natural fit for $\Delta t = 1~\mathrm{s}$), reading
+\texttt{Activity.Info.currentPower}. Configuration (\CP, \Wp, \fp, \Ppmax, \LTone, and the recovery
+constants) is exposed via Connect~IQ application properties. The display is two vertical bar gauges
+(fast and slow reserve) with numeric \% and colour bands; per-system live consumption is a
+\emph{modelled share}, not a reading, because when the ceiling is slack it is merely $(P - \CP)$ split by a
+fixed fraction (\cref{sec:assumptions}), and is labelled as such or omitted. Both reserves and consumption
+are written to the FIT file via \texttt{FitContributor} fields for post-ride analysis. The state is a
+handful of scalars ($\Rp$, $\Rg$, the activation $g$, the deficit $D$)---no arrays---well within Connect~IQ
+memory budgets.
+
+% =====================================================================
+\section{Validation strategy}\label{sec:validation}
+
+The model is a hypothesis and must be checked against data. Its headline feature---a separate fast reserve
+tracked in real cycling---is the hardest thing to validate, so we separate tests that check the plumbing
+from the one test that would earn the second tank.
+
+\begin{enumerate}[leftmargin=1.6em,itemsep=3pt,label=\textbf{\arabic*.}]
+\item \textbf{Face validity.}\label{item:face} Synthetic power traces (single sprint, repeated sprints,
+supra-\CP{} hold, sub-\CP{} recovery) should produce the qualitative behaviours of \cref{subsec:behaviour}.
+\item \textbf{Backward compatibility (depletion only).}\label{item:backcompat} The combined balance
+$(\Rp+\Rg-D)$ reproduces a reference \Wbal{} implementation in depletion (it drops by exactly
+$\Delta\,\Delta t$ per second, deficit-preserved even when a cap binds). It will not match in recovery, by
+construction, so the test is scoped to above-\CP{} segments.
+\item \textbf{Reconstitution targets.}\label{item:recon} Combined recovery after a full \Wp{} depletion is
+compared to the published curve (37/65/86\% at 2/6/15~min\citep{Ferguson2010}). The curve is blind to the
+fast reserve (a $\taup \approx 27~\mathrm{s}$ process is $\sim$99\% complete by the first 2~min sample), so
+it validates slow-reserve recovery and the size of the fast offset, not fast kinetics; and it fixes \taug{}
+while constraining a $(\fp,\taug)$ ridge, not \fp{} alone (\cref{subsec:recon}).
+\item \textbf{Fast-recovery kinetics.}\label{item:fastrecov} The load-bearing test for \taup{} is a
+repeated-bout protocol with early recovery sampling (all-out efforts separated by 10/20/30/45/60~s), with
+between-bout power recovery correlated with modelled fast-reserve recovery.\citep{Bogdanis1996} Standard
+reconstitution data cannot supply this; it must be measured deliberately.
+\item \textbf{System-specific truth, and its limit.}\label{item:31p} Blood-lactate kinetics can corroborate
+the slow reserve, but the fast reserve's gold standard, \degC, is essentially unavailable in real cycling
+(the muscle must be inside a magnet), so it exists only for small-muscle knee-extension or immediate
+post-exercise. The headline novelty cannot be checked against \degC{} in the modality it targets.
+\item \textbf{The head-to-head that earns the second tank.}\label{item:headtohead} Because the model is a
+near-superset of single-tank in depletion, ``it fits better'' is guaranteed and is not evidence the
+compartments are real. The decisive test is a head-to-head against single-tank \Wbal{} on an out-of-sample
+intermittent-tolerance prediction.\citep{Weigend2021} Since depletion here is single-tank by construction,
+the only lever is the recovery law, so this is a test of the recovery law, not of the two-compartment
+hypothesis; the protocol should choose recovery-valley powers straddling \LTone, where the two recovery
+laws diverge most.
+\item \textbf{Field calibration.}\label{item:field} Fit \Ppmax{} and the $\tau$'s per athlete to maximal
+and repeated-bout tests. \fp{} is not a routine target (the split is unidentifiable from power); any
+single-tank comparator in the head-to-head must have its own \tauW{} fit to the same data, or the dual-tank
+wins trivially.
+\end{enumerate}
+
+\subsection{Empirical usefulness on real interval rides}\label{subsec:usefulness}
+
+Two data-in-hand questions decide whether the feature is worth building. Both were evaluated on six real
+interval / VO\textsubscript{2}max sessions (the model's best case; a steady endurance ride would score far
+lower).
+
+\emph{Is the fast-reserve bar informative, and is it a function of \Wbal?} The bar is below 95\% (live)
+for a per-ride 20 / 31 / 38 / 52 / 61 / 79\% of ride time (median $\sim$45\%). Binning \Wbal{} and
+measuring the spread of $\Rp/\Cp$ within each 1-point bin gives a mean spread of $\sim$58 points (max
+$\sim$93); regressing the bar on its best affine \Wbal{} predictor gives $R^2 \approx 0.03$, with the bar
+$>$5 points off that affine line $\sim$93\% of the time. The bar is emphatically not a function of \Wbal.
+
+\emph{Does the depletion machinery change the display, versus a recovery-only null?} Running the full
+model and the null on the same traces, the fast-reserve bar diverges by up to 25--60 points, with maxima at
+the starts of recovery valleys. Divergence is not accuracy, however: two models differing by 25--60 points
+tells us the caps \emph{change} the display, not that the changed display is \emph{right}. These results
+establish that the bar carries information; whether that information is correct is
+\cref{item:headtohead}\,/\,\cref{subsec:repeatedsprint}.
+
+\subsection{Training-load partitioning}\label{subsec:trainingload}
+
+The cumulative per-system load over a session---how many kJ came from the fast versus the slow
+system---is a different functional of the power trace than \Wbal, and is the strongest reason to build the
+second tank. For two fully-specified archetypes (alactic:
+$10\times[\SI{6}{\second}@900 / \SI{300}{\second}@150]$; glycolytic:
+$5\times[\SI{60}{\second}@360 / \SI{120}{\second}@150]$), reporting the deficit $D$ as a third quantity
+(\cref{tab:partition}), the model separates the sessions by $\sim$39 points. Three qualifications are
+essential.
+
+\begin{table}[htbp]\centering\small
+\caption{Per-system load for two session archetypes (default parameters), with the deficit reported.}
+\label{tab:partition}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Session} & \textbf{fast (kJ)} & \textbf{slow (kJ)} & \textbf{$D$ (kJ)} & \textbf{fast \% of (fast+slow)} \\
+\midrule
+$10\times[\SI{6}{\second}@900]$ --- alactic     & 29.2 & 8.7  & 1.2 & \textbf{77\%} \\
+$5\times[\SI{60}{\second}@360]$ --- glycolytic   & 13.2 & 21.5 & 1.8 & \textbf{38\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{(a) The mechanism is the glycolytic flux ceiling scaled by the ramp}, not the ramp alone. Ablating
+the model on the alactic session (\cref{tab:ablation}): removing the ceilings costs $\sim$30 points,
+removing the ramp $\sim$25; neither alone reaches the full 77\%. It is an interaction---during a 6~s sprint
+the glycolytic ceiling caps glycolysis at a few tens of watts while $\sim$645~W is demanded, and the spill
+goes to the fast reserve---so the load-bearing parameter is \grate. Correspondingly, a 20$\times$ change in
+\tauoff{} moves the split by only 1--2 points, whereas \grate{} $0.3\rightarrow0.7$ moves the separation
+48$\rightarrow$33 points.
+
+\begin{table}[htbp]\centering\small
+\caption{Ablation on the alactic session: the ceiling and the ramp both contribute; neither alone reaches
+the full separation.}
+\label{tab:ablation}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Configuration} & \textbf{alactic fast \%} & \textbf{separation vs glycolytic} \\
+\midrule
+full model                     & \textbf{77\%} & $\sim$39 pts \\
+no activation ramp ($g\equiv1$) & 52\%          & $\sim$15 pts \\
+no rate ceilings (share rule only) & 47\%       & $\sim$9 pts \\
+neither                        & 25\%          & $-12$ pts \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{(b) The metric detects supra-flux-ceiling power, so it is blind to submaximal alactic work.}
+Holding the $10\times6$~s structure fixed and sweeping power, the reading climbs
+52\,$\to$\,62\,$\to$\,66\,$\to$\,72\,$\to$\,77\% at 450/550/600/700/900~W. A textbook alactic session at
+450~W reads $\sim$52\%, close to the glycolytic session's 38\%.
+
+\textbf{(c) The honest baseline is a stopwatch, not \Wbal.} A coach with the power file and no model can
+compute the fraction of supra-\CP{} work done in efforts under 15~s---100\% versus 0\% for these two
+sessions, perfect separation with zero parameters. The open question is therefore whether the per-system
+load carries information beyond effort duration and intensity (regressing fast-reserve \% on a
+duration/intensity baseline across real rides answers it). What does survive: the separation is robust to
+every assumption it rests on (including substituting Ferguson's $\taup = \SI{107}{\second}$, $<$1~pt), and
+it is a genuinely different functional of the power trace. Absolute kJ scale with \fp, $D$ must be reported
+(and the split refused when $D$ is a large fraction of total---e.g.\ a $4\times4$ books $\sim$45\% of its
+anaerobic work to $D$), and this is a training-design signal, not a validated training outcome.
+
+\subsection{A compartment-level test the model fails}\label{subsec:repeatedsprint}
+
+Muscle biopsy during cycle ergometry \emph{is} in-modality, compartment-level data, and repeated-sprint
+studies partition ATP supply by system from vastus-lateralis biopsies during maximal cycle-ergometer
+sprints.\citep{Gaitanos1993,SciRep2024} The model's alactic protocol ($10\times6$~s maximal sprints) is
+exactly this design, and the biopsy literature reports the glycolytic ATP share falling from $\approx$40\%
+in the first sprint to $<$10\% in the last, with aerobic metabolism rising to cover the shortfall. The
+model fails this test in level and direction (\cref{tab:repeatsprint}).
+
+\begin{table}[htbp]\centering\small
+\caption{Repeated-sprint glycolytic share: the model, as formulated, runs at the wrong level and in the
+wrong direction relative to biopsy data.}
+\label{tab:repeatsprint}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+ & \textbf{Sprint 1} & & \textbf{Sprint 10} \\
+\midrule
+Observed\citep{Gaitanos1993,SciRep2024} --- glycolytic share & $\sim$40\% & $\searrow$ & $<$10\% \\
+Model, default ($g_{\mathrm{fat}}=0$) & 23\% & $\nearrow$ & 46\% \\
+Model, $g_{\mathrm{fat}}=1$ + aerobic ramp & 23\% & $\rightarrow$ & $\sim$34\% (flat, then falling) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The model starts glycolysis at about half the observed share and has it \emph{rise} across bouts, because
+it has the two fatigue mechanisms backwards: the fast-reserve ceiling ($\mathrm{rate}_p = \Ppmax\,\Rp/\Cp$)
+fades as the reserve empties, so more demand spills to glycolysis bout over bout, while glycolytic flux has
+no fatigue term. The optional $g_{\mathrm{fat}}$ term plus the aerobic ramp flatten the trend and pull the
+late bouts down but do not reproduce 40\%$\rightarrow$$<$10\%; reaching 40\% in sprint~1 would require a
+higher \grate{} that then wrecks the separation of \cref{subsec:trainingload}. Two conclusions follow. This
+is a genuinely falsifiable result: a number wrong in a specific, fixable way, obtained because the
+partition finally faced compartment-level data. And it fixes the status of the output: the per-system split
+is a \Wp-decomposition heuristic and a descriptive statistic of a power file, not a validated bioenergetic
+ATP partition. Calibrating \grate{} to the sprint-1 biopsy value and fitting $g_{\mathrm{fat}}$ to the
+decay---using data already in the literature---is the highest-value experiment remaining and the one test
+that could directly falsify or earn the two-compartment hypothesis.
+
+% =====================================================================
+\section{Assumptions and limitations}\label{sec:assumptions}
+
+\begin{itemize}[leftmargin=1.4em,itemsep=3pt]
+\item \textbf{The split \fp{} is assumed and only consistent with (not measured by) the recovery data.}
+Power cannot identify the depletion split; the reconstitution curve constrains a $(\fp,\taug)$ ridge, and
+physiology selects \fp{} on it (\cref{subsec:recon}). Supported band $\sim$0.20--0.25; outputs are
+sensitive to it.
+\item \textbf{The reserves are a decomposition of \Wp, not latent metabolic state.} When the fast reserve
+is full (rest), the slow bar is an affine transform of \Wbal. Under the recovery gate the effective
+fast-reserve constant is $\taup/\gatep$---27~s only at a standstill, rising to $\sim$44~s at 100~W,
+$\sim$66~s at 150~W, $\sim$135~s at \LTone---so while riding the bar is live for a substantial fraction of
+interval-ride time; the ``affine'' caveat applies to stopped or easy recovery, not to riding.
+\item \textbf{\gatep{} is an assumption with an undefended shape} (linear vs $\sqrt{\cdot}$ vs sigmoid
+swings the post-effort recovery number 21--31 points at \LTone) and adds no sub-\CP{} drain.
+\item \textbf{\grate{} is load-bearing} (it generates the training-load separation) and has never been fit
+to sprint biopsy data (\cref{subsec:repeatedsprint}).
+\item \textbf{The fast-reserve depletion rate $\taudep = \Cp/\Ppmax$ is assumed}, is the ratio of three
+parameters, and swings $\sim$3$\times$ across plausible riders ($\sim$4--13~s); it should be sanity-checked
+against literature PCr depletion half-times.
+\item \textbf{\tauoff{} is assumed and not load-bearing} (a 20$\times$ change moves the training-load split
+1--2 points). The discriminating content is the glycolytic flux ceiling scaled by the ramp, not \tauoff.
+\item \textbf{\LTone{} should be measured, not derived from \CP.} The $0.80\,\CP$ fallback is the weakest
+default and materially changes recovery estimates.
+\item \textbf{Small modelling choices are assumptions, not derivations:} the recovery shape (an
+established prior fitted across recovery powers, but still a choice of form); lumping deficit clearance and
+slow-reserve refill onto the same \taug; and the spill order (tested inert on the sessions that matter).
+\item \textbf{The deficit $D$ corrupts the display at maximal effort} (large $D$ leaves the bars reading
+slightly full). Its late-effort recurrence is driven by the fullness taper collapsing the flux ceiling
+below what a deep-but-still-sprinting rider produces---structural, not a settings error; $D$ should be
+reported and the per-system split refused when $D$ is a large fraction of total.
+\item \textbf{Identifiability degeneracies must be named before fitting:} \fp{} and \Ppmax{} both set the
+sprint residual; \taup{} and the pH coefficient both set the repeated-bout decay; \grate{} and the ramp
+both set the partition level.
+\item \textbf{Per-system live consumption is a modelled share, not a reading:} where the ceiling is slack,
+$\mathrm{take}_p = \Delta\,\Cp/(\Cp+\Cg g)$ contains neither reserve and settles to a fixed $\Delta\,\fp$
+split---$(P-\CP)$ rescaled.
+\item \textbf{A structural product fork.} The lightweight-model rationale serves the \emph{pacing} use
+case on a head unit. The training-load metric (\cref{subsec:trainingload}) is a post-hoc computation on a
+power file; off-device, a better-resolved model (hydraulic or bioenergetic) becomes available and can be
+calibrated to biopsy data. A live two-bar pacing display and a post-ride training metric have different
+centres of gravity.
+\item \textbf{Fixed time constants} ignore the documented pH-dependence and bout-to-bout slowing of
+fast-reserve recovery unless the optional term is enabled.
+\item \textbf{A hard \CP{} boundary} omits the aerobic slow component and onset kinetics unless the aerobic
+ramp is enabled; expect over-attribution to the anaerobic reserves in long low-intensity recovery.
+\item \textbf{Power is whole-body and mechanical}, not muscle-specific; the model cannot see local fatigue,
+cadence, or fibre-type effects. It is a training/pacing aid, \textbf{not medical or diagnostic}, and
+parameters drift with fitness, fatigue, heat, and altitude.
+\end{itemize}
+
+% =====================================================================
+\section{Conclusion}\label{sec:conclusion}
+
+The single-tank \Wp{} model earned its place by being power-native and light enough to run anywhere, but it
+answers ``how much anaerobic work is left?'' without answering ``in which system?'' The dual-tank model
+offers a physiologically-motivated split at negligible computational cost: divide \Wp{} into a fast,
+rate-limited, fast-recovering reserve and a slow, large, slowly-recovering reserve; share supra-\CP{}
+demand by capacity; cap each by its peak flux (the fast reserve tapering with fullness); and refill them
+with system-specific, intensity-gated laws. It generalises \Wbal{} in depletion, diverges from it by design
+in recovery, runs at 1~Hz on a head unit, and surfaces a two-system decomposition---\emph{punch left} and
+\emph{dig left}---most informative in the transients where pacing decisions concentrate.
+
+Two framing points are essential to state plainly. The reserves are compartments of \Wp, not of muscle
+metabolites: \Wp{} recovers $\sim$4$\times$ faster than the PCr and lactate the tanks are named after
+(\cref{subsec:recon}), which makes the time constants correct for \Wp{} while the metabolic labels remain
+motivation. And the per-system split is falsifiable in-modality: run against repeated-sprint biopsy data it
+fails in level and direction (\cref{subsec:repeatedsprint}), so it is a descriptive \Wp-statistic, not a
+validated bioenergetic partition. The model is therefore best located as a lightweight, honest heuristic
+decomposition of \Wp---with a live pacing display whose value rests on the fast-reserve recovery transient,
+and a post-ride training metric that is promising, descriptive, and, for the first time, has a data-in-hand
+test that can earn or sink it. The remaining moves are experiments, not arguments: the recovery-law
+head-to-head (\cref{item:headtohead}) and the biopsy calibration (\cref{subsec:repeatedsprint}).
+
+% =====================================================================
+\begin{thebibliography}{99}
+\setlength{\itemsep}{2pt}
+
+\bibitem{Skiba2012} Skiba PF, Chidnok W, Vanhatalo A, Jones AM. Modeling the expenditure and reconstitution
+of work capacity above critical power. \emph{Med Sci Sports Exerc}. 2012;44(8):1526--1532.
+\href{https://doi.org/10.1249/MSS.0b013e3182517a80}{doi:10.1249/MSS.0b013e3182517a80}.
+\href{https://pubmed.ncbi.nlm.nih.gov/22382171/}{PMID:22382171}.
+
+\bibitem{Margaria1933} Margaria R, Edwards HT, Dill DB. The possible mechanisms of contracting and paying
+the oxygen debt and the r\^ole of lactic acid in muscular contraction. \emph{Am J Physiol}.
+1933;106(3):689--715. \href{https://doi.org/10.1152/ajplegacy.1933.106.3.689}{doi:10.1152/ajplegacy.1933.106.3.689}.
+
+\bibitem{diPrampero1999} di Prampero PE, Ferretti G. The energetics of anaerobic muscular metabolism: a
+reappraisal of older and recent concepts. \emph{Respir Physiol}. 1999;118(2--3):103--115.
+\href{https://doi.org/10.1016/S0034-5687(99)00083-3}{doi:10.1016/S0034-5687(99)00083-3}.
+\href{https://pubmed.ncbi.nlm.nih.gov/10647856/}{PMID:10647856}.
+
+\bibitem{Ferguson2010} Ferguson C, Rossiter HB, Whipp BJ, Cathcart AJ, Murgatroyd SR, Ward SA. Effect of
+recovery duration from prior exhaustive exercise on the parameters of the power-duration relationship.
+\emph{J Appl Physiol}. 2010;108(4):866--874.
+\href{https://doi.org/10.1152/japplphysiol.91425.2008}{doi:10.1152/japplphysiol.91425.2008}.
+\href{https://pubmed.ncbi.nlm.nih.gov/20093659/}{PMID:20093659}.
+
+\bibitem{Harris1976} Harris RC, Edwards RHT, Hultman E, Nordesj\"o LO, Nylind B, Sahlin K. The time course
+of phosphorylcreatine resynthesis during recovery of the quadriceps muscle in man. \emph{Pfl\"ugers Arch}.
+1976;367(2):137--142. \href{https://doi.org/10.1007/BF00585149}{doi:10.1007/BF00585149}.
+\href{https://pubmed.ncbi.nlm.nih.gov/1034909/}{PMID:1034909}.
+
+\bibitem{Yoshida2013} Yoshida T, Watari H, Tagawa K. Effects of active and passive recoveries on muscle
+metabolism during exercise as studied by \textsuperscript{31}P-MRS. \emph{Scand J Med Sci Sports}.
+2013;23(5):e320--e330. \href{https://doi.org/10.1111/sms.12081}{doi:10.1111/sms.12081}.
+\href{https://pubmed.ncbi.nlm.nih.gov/23662804/}{PMID:23662804}.
+
+\bibitem{Gaitanos1993} Gaitanos GC, Williams C, Boobis LH, Brooks S. Human muscle metabolism during
+intermittent maximal exercise. \emph{J Appl Physiol}. 1993;75(2):712--719.
+\href{https://doi.org/10.1152/jappl.1993.75.2.712}{doi:10.1152/jappl.1993.75.2.712}.
+\href{https://pubmed.ncbi.nlm.nih.gov/8226455/}{PMID:8226455}.
+
+\bibitem{SciRep2024} Repeated-sprint ATP partitioning by energy system from vastus-lateralis biopsy during
+cycle ergometry. \emph{Sci Rep}. 2024;14.
+\href{https://doi.org/10.1038/s41598-024-78916-z}{doi:10.1038/s41598-024-78916-z}.
+
+\bibitem{Bogdanis1996} Bogdanis GC, Nevill ME, Boobis LH, Lakomy HKA. Contribution of phosphocreatine and
+aerobic metabolism to energy supply during repeated sprint exercise. \emph{J Appl Physiol}.
+1996;80(3):876--884. \href{https://doi.org/10.1152/jappl.1996.80.3.876}{doi:10.1152/jappl.1996.80.3.876}.
+\href{https://pubmed.ncbi.nlm.nih.gov/8964751/}{PMID:8964751}.
+
+\bibitem{Parolin1999} Parolin ML, Chesley A, Matsos MP, Spriet LL, Jones NL, Heigenhauser GJF. Regulation
+of skeletal muscle glycogen phosphorylase and PDH during maximal intermittent exercise. \emph{Am J Physiol
+Endocrinol Metab}. 1999;277(5):E890--E900.
+\href{https://doi.org/10.1152/ajpendo.1999.277.5.E890}{doi:10.1152/ajpendo.1999.277.5.E890}.
+\href{https://pubmed.ncbi.nlm.nih.gov/10567017/}{PMID:10567017}.
+
+\bibitem{GonzalezAlonso2000} Gonz\'alez-Alonso J, Quistorff B, Krustrup P, Bangsbo J, Saltin B. Heat
+production in human skeletal muscle at the onset of intense dynamic exercise. \emph{J Physiol}.
+2000;524(2):603--615. \href{https://doi.org/10.1111/j.1469-7793.2000.00603.x}{doi:10.1111/j.1469-7793.2000.00603.x}.
+\href{https://pubmed.ncbi.nlm.nih.gov/10766936/}{PMID:10766936}.
+
+\bibitem{Skiba2015} Skiba PF, Fulford J, Clarke DC, Vanhatalo A, Jones AM. Intramuscular determinants of
+the ability to recover work capacity above critical power. \emph{Eur J Appl Physiol}.
+2015;115(4):703--713. \href{https://doi.org/10.1007/s00421-014-3050-3}{doi:10.1007/s00421-014-3050-3}.
+\href{https://pubmed.ncbi.nlm.nih.gov/25425383/}{PMID:25425383}.
+
+\bibitem{Bartram2018} Bartram JC, Thewlis D, Martin DT, Norton KI. Accuracy of \Wp{} recovery kinetics in
+high-performance cyclists---modeling intermittent work capacity. \emph{Int J Sports Physiol Perform}.
+2018;13(6):724--728. \href{https://doi.org/10.1123/ijspp.2017-0034}{doi:10.1123/ijspp.2017-0034}.
+\href{https://pubmed.ncbi.nlm.nih.gov/29140148/}{PMID:29140148}.
+
+\bibitem{Morton1986} Morton RH. A three component model of human bioenergetics. \emph{J Math Biol}.
+1986;24(4):451--466. \href{https://doi.org/10.1007/BF01236892}{doi:10.1007/BF01236892}.
+\href{https://pubmed.ncbi.nlm.nih.gov/3805974/}{PMID:3805974}.
+
+\bibitem{Weigend2021} Weigend FC, Siegler J, Brueckner D. A hydraulic model outperforms work-balance models
+for predicting recovery kinetics from intermittent exercise. \emph{arXiv} preprint. 2021.
+\href{https://arxiv.org/abs/2108.04510}{arXiv:2108.04510}.
+
+\bibitem{Chorzempa2023} A dynamic bioenergetic model for intermittent cycling. \emph{Eur J Appl Physiol}.
+2023;123. \href{https://doi.org/10.1007/s00421-023-05256-7}{doi:10.1007/s00421-023-05256-7}.
+\href{https://pubmed.ncbi.nlm.nih.gov/37369795/}{PMID:37369795}.
+
+\bibitem{Bangsbo1990} Bangsbo J, Gollnick PD, Graham TE, Juel C, Kiens B, Mizuno M, Saltin B. Anaerobic
+energy production and O\textsubscript{2} deficit-debt relationship during exhaustive exercise in humans.
+\emph{J Physiol}. 1990;422:539--559.
+\href{https://doi.org/10.1113/jphysiol.1990.sp018000}{doi:10.1113/jphysiol.1990.sp018000}.
+\href{https://pubmed.ncbi.nlm.nih.gov/2352192/}{PMID:2352192}.
+
+\bibitem{ChorleyLamb2020} Chorley A, Lamb KL. The application of critical power, the work capacity above
+critical power (\Wp), and its reconstitution: a narrative review. \emph{Sports (Basel)}. 2020;8(9):123.
+\href{https://doi.org/10.3390/sports8090123}{doi:10.3390/sports8090123}.
+\href{https://pubmed.ncbi.nlm.nih.gov/32899879/}{PMID:32899879}.
+
+\bibitem{Bogdanis1998} Bogdanis GC, Nevill ME, Lakomy HKA, Boobis LH. Power output and muscle metabolism
+during and following recovery from 10 and 20~s of maximal sprint exercise in humans. \emph{Acta Physiol
+Scand}. 1998;163(3):261--272. \href{https://doi.org/10.1046/j.1365-201x.1998.00378.x}{doi:10.1046/j.1365-201x.1998.00378.x}.
+\href{https://pubmed.ncbi.nlm.nih.gov/9715738/}{PMID:9715738}.
+
+\end{thebibliography}
+
+\end{document}
