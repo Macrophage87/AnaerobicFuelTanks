@@ -11,15 +11,17 @@
     <string id="sPPmax">PCr max power (W)</string>
     <string id="sPPmaxp">Max rate the PCr tank can deliver above CP.</string>
     <string id="sTauP">PCr recovery tau (s)</string>
-    <string id="sTauPp">Time constant of phosphocreatine recovery (fast, ~22 s).</string>
+    <string id="sTauPp">Time constant of phosphocreatine recovery (fast, ~27 s).</string>
     <string id="sTauG">Glycolytic recovery tau (s)</string>
-    <string id="sTauGp">Time constant of glycolytic recovery (slow, ~360 s).</string>
+    <string id="sTauGp">Time constant of glycolytic recovery (slow, ~470 s).</string>
     <string id="sLt1">LT1 fraction of CP</string>
     <string id="sLt1p">Below this fraction of CP the glycolytic tank refills (~0.80).</string>
     <string id="sEta">PCr recovery efficiency</string>
     <string id="sEtap">Fraction of recovery energy stored as usable PCr (0-1).</string>
     <string id="sFatK">PCr fatigue slowing</string>
     <string id="sFatKp">How much low glycolytic reserve slows PCr recovery; 0 disables (~0.75).</string>
+    <string id="sGFat">Glycolytic fatigue (optional)</string>
+    <string id="sGFatp">Optional: lowers glycolytic flux as its reserve empties (repeated-sprint realism); 0 disables (default 0).</string>
     <string id="sTauAer">Aerobic ramp tau (s)</string>
     <string id="sTauAerp">Aerobic supply response time toward min(P,CP); 0 = hard CP edge (~25).</string>
     <string id="sTauOn">Glycolytic activation tau (s)</string>
