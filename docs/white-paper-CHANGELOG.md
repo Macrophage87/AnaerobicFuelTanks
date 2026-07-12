@@ -4,6 +4,15 @@ Revision history for `white-paper-dual-tank-anaerobic-model.md` and the model im
 `connectiq/source/DualTankView.mc` and `tools/calibrate/app.R`. Full point-by-point review responses
 live in `white-paper-review-response*.md`.
 
+## v0.6 — 2026-07-12 (training-load use case)
+- **Added §6.9 — training-load partitioning.** The reviews evaluated the model as a *pacing* aid; this
+  adds the *training* use case, where the cumulative per-system load (already recorded as
+  `PCr_depleted_kJ`/`GLY_depleted_kJ`) distinguishes an alactic session (~76% PCr) from a glycolytic one
+  (~41%) via the activation ramp. W′bal (one number) and the recovery-only null (fixed `f_p` every
+  session) both structurally lack this — so it is the strongest standalone argument for the second tank,
+  and gives the depletion machinery a purpose the reviews did not credit. Motivated by the asymmetric
+  recovery cost of alactic vs glycolytic work. No code change (the FIT fields already record it).
+
 ## v0.5 — 2026-07-11 (review round 4 / Reviewer 2 2nd / Reviewer 3)
 - **PCr recovery gated by oxidative headroom** `gate_p = (CP−P)/CP` (both codebases) — fixes the
   headline bug (PCr no longer refills at full rate while the rider is under load). After a 700 W/20 s

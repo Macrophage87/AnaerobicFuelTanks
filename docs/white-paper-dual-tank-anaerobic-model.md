@@ -1,7 +1,7 @@
 # A Dual-Tank Model for Real-Time Tracking of Phosphocreatine and Glycolytic Energy Reserves in Cycling
 
 **White paper — AnaerobicFuelTanks project**
-*Version 0.5 · 2026-07-11 (fourth revision — oxidative-headroom-gated PCr recovery; τ_g → 470; both-bars-affine scope narrowing; first empirical results on real rides)*
+*Version 0.6 · 2026-07-12 (adds the training-load-partitioning use case — §6.9 — where the decomposition provides information W′bal and the recovery-only null model both lack)*
 
 > **Scope and status (read this once).** This is a **physiologically-motivated decomposition of one
 > measured quantity — single-tank W′bal — whose split fraction `f_p` is assumed, not measured** (power
@@ -14,9 +14,13 @@
 > and its new oxidative-headroom gate (§4.2). **There is still no experiment showing the two-bar
 > decomposition is *more correct* than single-tank W′bal** — that requires the recovery-law head-to-head
 > (§6.6), and at the compartment level it is unfalsifiable in-modality *even in principle* (§6.5, §8). But
-> v0.5 adds the first **usefulness** evidence from real rides (§6.8): on interval sessions the PCr bar is
-> informative (below 95%) ~45% of the time and the depletion caps move it up to ~25–60 pts vs a
-> recovery-only null at the moments that matter. `f_p`, `τ_off`, and the emergent `τ_dep` remain assumed;
+> v0.5–0.6 add **usefulness** arguments the "affine with W′bal" critique does not reach. (i) On real
+> interval rides the PCr bar is informative (below 95%) ~45% of the time and the caps move it up to
+> ~25–60 pts vs a recovery-only null at decision points (§6.8). (ii) For **training** (as opposed to
+> pacing), the *cumulative per-system load* distinguishes an alactic session (~76% PCr) from a glycolytic
+> one (~41%) — information W′bal and the recovery-only null both structurally lack, since the null reports
+> a fixed `f_p` for every session (§6.9). This second point is the strongest standalone reason to build
+> the second tank. `f_p`, `τ_off`, and the emergent `τ_dep` remain assumed;
 > `τ_g`/reconstitution were verified against primary sources (§4.1a). The rest of the paper builds on
 > these; it does not re-litigate them.
 
@@ -67,6 +71,20 @@ A rider deciding whether to cover the next surge cares which tank is empty. If t
 full but glycolytic is depleted, a 5-second jump is fine but a 40-second dig is not — a distinction
 the single-tank W′bal cannot express. The goal of this paper is a model that keeps the
 power-native, on-device virtues of W′bal while restoring the two-system resolution.
+
+**There are two distinct use cases, and they are informed by different outputs.** The first —
+*pacing/racing* — uses the live bars in the moment ("can I cover this attack?"); its value is
+concentrated in the post-effort transients (§7), and is real but narrow. The second — **training
+prescription and load monitoring** — uses the *cumulative per-system load* over a session, and it is
+where the decomposition is most clearly worth more than W′bal (§6.9). The two anaerobic systems carry
+very different **physiological and recovery costs**: PCr-based (alactic) surges — short, high-power, with
+adequate recovery — resynthesise in seconds-to-a-minute and can be repeated at high volume with little
+systemic fatigue or metabolite accumulation; glycolytic surges accumulate H⁺/Pi and clear over many
+minutes (lactate t½ ≈ 1366 s; Ferguson 2010), and cost far more recovery. An athlete who wants to
+*target* the PCr system — alactic power, repeat-sprint ability — needs to keep efforts short and
+recoveries full enough that glycolysis stays disengaged, and to know, per session, how much of the
+anaerobic work was alactic vs glycolytic. W′bal collapses that to one number; the two-tank model does
+not (§6.9).
 
 Two honest qualifications, stated here rather than buried in §7. First, the split is a **modeling
 assumption**, not a measurement — power alone cannot identify how W′ divides between the two systems
@@ -553,6 +571,45 @@ in-modality — §6.5, §8). They answer a narrower, real question — *is the t
 and does the model's complexity change what it shows* — with data instead of assertion, and the answers
 are yes and yes, for interval training.
 
+### 6.9 Training-load partitioning — a use case the reviews evaluated past
+
+Every review assessed the model as a **pacing** aid and correctly found the live bars affine with W′bal
+outside transients. But there is a second use case they did not weigh, and it is where the decomposition
+is most clearly worth more than W′bal: **training prescription and load monitoring.** The relevant output
+here is not the live bar but the **cumulative per-system load over a session** — how many kJ came from the
+alactic (PCr) vs the glycolytic system — which the field already records (`PCr_depleted_kJ`,
+`GLY_depleted_kJ`). This matters because the two systems carry asymmetric recovery costs (§1): alactic
+work is cheap and repeatable; glycolytic work is expensive and self-limiting. A coach building a
+PCr-targeted block (alactic power, repeat-sprint ability) wants sessions that stay alactic; one building
+lactate tolerance wants the opposite. **W′bal cannot tell these apart — it is one number.**
+
+The model can, because the **activation ramp** makes the per-system split depend on *effort structure*,
+not just `f_p`: short efforts keep `g` low (PCr-weighted); sustained efforts let `g → 1`
+(glycolytic-weighted). Simulated per-system load for three archetypal sessions (default parameters):
+
+| Session | PCr load | Glyc load | **PCr % of anaerobic load** | W′bal | recovery-only null |
+|---|---|---|---|---|---|
+| 10 × [6 s @ 900 W / full recovery] — **alactic** | 26.8 kJ | 8.7 kJ | **76%** | one number | 25% |
+| 5 × [60 s @ 360 W / short recovery] — **glycolytic** | 12.1 kJ | 17.7 kJ | **41%** | one number | 25% |
+| 3 × [8 min over-under / sustained] — **glycolytic** | 12.7 kJ | 18.3 kJ | **41%** | one number | 25% |
+
+Two things stand out. First, the model **discriminates** the alactic session (76% PCr) from the
+glycolytic ones (41%) — the qualitative signal a training plan needs. Second, this is a use case where
+**the depletion-side machinery earns its keep and the recovery-only null model does not**: the null
+depletes both tanks proportionally to capacity regardless of effort structure, so it reports a fixed
+`f_p` (25%) for *every* session and is blind to exactly the distinction that matters here. The
+discriminating content is the activation ramp — precisely the `τ_on`/`τ_off` term the reviews identified
+as the depletion phase's only non-redundant information (§7), now shown to carry a concrete, actionable
+signal.
+
+Honest limits: the *absolute* per-system kJ scale with the assumed `f_p`, so the exact percentages are
+soft; what is robust is the **ordering and separation** between session types, which the ramp drives. And
+this is still a training-*design* signal, not a validated training *outcome* — it says a session was
+alactic- or glycolytic-dominant, not that partitioning training by it improves adaptation (an
+intervention study, not a modelling result). But unlike the pacing case, here the two-bar model provides
+information W′bal and the null model both *structurally lack* — which is the strongest standalone argument
+in the paper for building the second tank at all.
+
 ---
 
 ## 7. Assumptions and limitations
@@ -630,7 +687,12 @@ are yes and yes, for interval training.
   meter rescaled. So: **keep the ceiling (scoped to sprint fidelity), and relabel per-system live
   consumption as "modelled share," not a measurement** (or drop it). That is the answer to Reviewer 2's
   S1, drawn from the model's own equations — not "adopt the null wholesale," but "keep the one part that
-  does work and stop claiming the parts that don't."
+  does work and stop claiming the parts that don't." **And there is a second regime the null cannot
+  touch:** cumulative per-system *training load* (§6.9) — the activation ramp makes the split
+  effort-structure-dependent (alactic 76% vs glycolytic 41% PCr), while the null reports a fixed `f_p`
+  for every session. So the depletion machinery earns its keep in **two** places (maximal sprint
+  fidelity, and training-load partitioning), not zero as the affine-with-W′bal critique implies for
+  pacing alone.
 - **Fixed time constants** ignore the documented pH-dependence and bout-to-bout slowing of PCr
   recovery unless the optional fatigue term is enabled.
 - **Hard CP boundary** omits the aerobic slow component and onset kinetics unless the optional
@@ -658,10 +720,12 @@ most informative in the transients where pacing decisions concentrate.
 
 The honest bottom line, stated rather than gestured at: **there is still no evidence the two-bar
 decomposition is more *correct* than single-tank W′bal** (that needs §6.6, and at the compartment level
-is unfalsifiable in-modality even in principle — §6.5, §7). What v0.5 *does* add, for the first time, is
-**usefulness** evidence from real rides (§6.8): on interval sessions the PCr bar is informative ~45% of
-the time, and — answering the reviewers' null-model challenge with data — the depletion caps move the
-display by up to ~25–60 pts at the moments that matter, so they are not inert. That resolves the fork
+is unfalsifiable in-modality even in principle — §6.5, §7). What v0.5–0.6 *do* add is
+**usefulness** arguments: on real interval rides the PCr bar is informative ~45% of the time and the
+caps move the display up to ~25–60 pts at decision points (§6.8); and — the strongest standalone point —
+for **training** the cumulative per-system load distinguishes an alactic session (~76% PCr) from a
+glycolytic one (~41%), information both W′bal and the recovery-only null structurally lack (§6.9). So the
+depletion machinery is not inert. That resolves the fork
 more precisely than "ship vs re-architect": **ship the heuristic, keep the ceiling scoped to sprint
 fidelity, and stop claiming the parts of the machinery the equations show are inert** (per-system live
 consumption is `(power − CP)` rescaled, not a reading — §7). The `τ_g` confound is closed (Ferguson at
