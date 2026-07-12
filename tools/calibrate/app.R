@@ -25,8 +25,8 @@ suppressWarnings(suppressMessages(library(FITfileR)))
 # install.packages(c("shiny","bslib","ggplot2","DT","yaml")); remotes::install_github("grimbough/FITfileR")
 
 DURATIONS <- c(1,5,10,15,20,30,45,60,90,120,180,240,300,420,600,720,900,1200,1800,2400,3600)
-DEFAULTS  <- list(fP = 0.25, pPmax = 300, tauP = 22, tauG = 520,
-                  lt1Frac = 0.80, eta = 0.80, fatK = 0.75, tauAer = 25, tauOn = 6)
+DEFAULTS  <- list(fP = 0.25, pPmax = 300, tauP = 27, tauG = 470,
+                  lt1Frac = 0.80, eta = 1.00, fatK = 0.75, tauAer = 25, tauOn = 6)
 GLY_RATE_FRAC <- 0.5   # glycolytic peak rate as a fraction of PCr peak rate (PCr is the higher-power system)
 PARAMS <- c("CP","Wprime","pPmax","fP","tauP","tauG","eta")   # the tracked "sprint values"
 PARAM_DESC <- c(
@@ -291,6 +291,7 @@ fit_cp <- function(dur, pw, tmin, tmax) {
 }
 simulate_tanks <- function(power, cp, par) {
   n <- length(power); cP <- par$fP * par$Wprime; cG <- (1 - par$fP) * par$Wprime
+  if (cP < 1e-6) cP <- 1e-6; if (cG < 1e-6) cG <- 1e-6   # guard f_p at 0/1 (rate taper divides by cP)
   rP <- cP; rG <- cG; aer <- cp; g <- 0; D <- 0; resTot <- numeric(n); deficit <- numeric(n)
   AER_FALL <- 6
   kUp <- if (par$tauAer > 0) 1 - exp(-1 / par$tauAer) else 1
@@ -306,19 +307,20 @@ simulate_tanks <- function(power, cp, par) {
     } else supply <- cp
     delta <- p - supply
     if (delta > 0) {
-      # PARALLEL draw. Glycolysis has activation inertia (Parolin 1999): its rate ramps
-      # in over ~tauOn s, so at onset PCr (the immediate buffer) covers almost everything
-      # and both drain together as g -> 1. PCr's available rate TAPERS with tank fullness
-      # (creatine-kinase equilibrium: flux falls as the store depletes), so R_p reaches
-      # its nadir AT exhaustion rather than emptying early and flat-lining. Glycolytic
-      # peak rate is lower (gPmax). Demand is split in proportion to available rate; both
-      # tanks are rate- AND capacity-limited, and any residual demand the tanks cannot
-      # meet is banked as a DEFICIT (debt) so combined W'bal stays energy-conserving.
+      # PARALLEL draw. Glycolysis has activation inertia (Parolin 1999): it ramps in over
+      # ~tauOn s, so at onset PCr (the immediate buffer) covers almost everything and both
+      # drain together as g -> 1. TWO distinct roles, deliberately decoupled:
+      #  * the SHARE of submaximal demand is capacity-proportional (wP=cP, wG=cG*g) -> at
+      #    steady state both tanks track W'bal and empty together at exhaustion;
+      #  * the RATE CEILING is the peak-flux cap, tapered with fullness (PCr flux falls as
+      #    the store depletes; creatine-kinase equilibrium). The ceiling governs MAXIMAL
+      #    efforts (PCr dominance emerges here); it does not distort submaximal sharing.
+      # Residual demand the tanks cannot meet is banked as a DEFICIT (energy conservation).
       g <- g + (1 - g) * kOn
-      rateP <- par$pPmax * (rP / cP)
+      rateP <- par$pPmax * (rP / cP)           # rate ceiling (tapered)
       rateG <- GLY_RATE_FRAC * par$pPmax * g
-      totalRate <- rateP + rateG
-      pShare <- if (totalRate > 0) delta * rateP / totalRate else 0
+      wP <- cP; wG <- cG * g; totW <- wP + wG   # share weight (capacity-proportional)
+      pShare <- if (totW > 1e-9) delta * wP / totW else delta
       gShare <- delta - pShare
       takeP <- min(pShare, rP, rateP)
       takeG <- min(gShare, rG, rateG)
@@ -329,10 +331,16 @@ simulate_tanks <- function(power, cp, par) {
       D <- D + unmet
       deficit[i] <- unmet
     } else {
-      g <- g * (1 - kOn)                       # glycolytic deactivation during recovery
-      D <- D * (1 - bG)                        # debt repaid with glycolytic kinetics
-      tauPeff <- par$tauP * (1 + par$fatK * (1 - rG / cG)); rP <- rP + par$eta * (cP - rP) * (1 - exp(-1 / tauPeff))
-      lt1 <- par$lt1Frac * cp; if (p < lt1) rG <- rG + ((lt1 - p) / lt1) * (cG - rG) * bG
+      g <- g * (1 - kOn)                        # glycolytic deactivation during recovery
+      # PCr resynthesis is OXIDATIVE -- it needs aerobic ATP above what the ride itself
+      # consumes, so it is gated by the oxidative headroom (CP - P): near-arrested at CP,
+      # full at rest. (eta folded into tauP, default 1.)
+      gateP <- (cp - p) / cp; if (gateP < 0) gateP <- 0
+      tauPeff <- par$tauP * (1 + par$fatK * (1 - rG / cG)); rP <- rP + gateP * par$eta * (cP - rP) * (1 - exp(-1 / tauPeff))
+      # glycolytic tank AND the deficit clear only below LT1 (gated) -- D is supra-cap
+      # byproduct load, so it must respect the same intensity gate as the glycolytic tank.
+      lt1 <- par$lt1Frac * cp
+      if (p < lt1) { gate <- (lt1 - p) / lt1; rG <- rG + gate * (cG - rG) * bG; D <- D * (1 - gate * bG) }
     }
     rP <- max(0, min(cP, rP)); rG <- max(0, min(cG, rG)); resTot[i] <- rP + rG - D
   }
@@ -367,8 +375,10 @@ ride_flag <- function(dg, fit) {
   if (length(fl)) paste(fl, collapse = ";") else "ok"
 }
 fit_recovery <- function(power, cp, base, marks, submax = FALSE) {
-  Wp <- base$Wprime; th0 <- c(base$fP, base$tauP, base$tauG, base$eta)
-  obj <- function(th) { par <- base; par$fP <- th[1]; par$tauP <- th[2]; par$tauG <- th[3]; par$eta <- th[4]
+  # eta is degenerate with tauP (it only rescales the effective recovery constant), so it
+  # is NOT fitted -- it is held at base$eta (default 1.0) and tauP carries the recovery rate.
+  Wp <- base$Wprime; th0 <- c(base$fP, base$tauP, base$tauG)
+  obj <- function(th) { par <- base; par$fP <- th[1]; par$tauP <- th[2]; par$tauG <- th[3]
     s <- simulate_tanks(power, cp, par); feas <- 5 * mean((s$deficit/Wp)^2)
     if (submax) {
       # Efforts were NOT to failure -> no reserve=0 anchor. Submaximal repeated bouts
@@ -379,8 +389,8 @@ fit_recovery <- function(power, cp, base, marks, submax = FALSE) {
       feas + 0.02 * mean(((th - th0) / pmax(1e-6, th0))^2)
     } else feas + (if (length(marks)) mean((s$total[marks]/Wp)^2) else 0) }
   st <- optim(th0, obj, method = "L-BFGS-B",
-              lower = c(0.10,5,60,0.30), upper = c(0.60,120,1800,1.00), control = list(maxit = 200))
-  list(fP = st$par[1], tauP = st$par[2], tauG = st$par[3], eta = st$par[4],
+              lower = c(0.10,5,60), upper = c(0.60,120,1800), control = list(maxit = 200))
+  list(fP = st$par[1], tauP = st$par[2], tauG = st$par[3], eta = base$eta,
        obj = st$value, conv = st$convergence, submax = submax)
 }
 fit_all_rides <- function(power_list, names, cp, base, anchors, interval_idx, submax_idx = integer(0)) {

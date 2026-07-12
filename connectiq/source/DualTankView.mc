@@ -17,8 +17,10 @@ using Toybox.Lang;
 //   - Demand above the aerobic supply is met by BOTH tanks in parallel. Glycolysis
 //     has activation inertia (tauOn ~6 s, Parolin 1999), so PCr — the immediate
 //     buffer — covers most of the onset and both drain together as glycolysis ramps
-//     in. PCr is the higher-power system (peak rate pPmax > glycolytic peak gPmax);
-//     demand is split in proportion to available rate, both tanks rate-capped.
+//     in. The SHARE of submaximal demand is capacity-proportional (both tanks track
+//     W'bal in steady effort); the peak-flux RATE CEILING (pPmax, tapered with
+//     fullness) governs maximal efforts, where PCr dominance emerges. Unmet demand is
+//     banked as a deficit so combined W'bal stays energy-conserving.
 //   - Below supply: PCr recovers (tauP, efficiency eta); glycolytic recovers
 //     slowly (tauG) and only below LT1 (lt1Frac * CP).
 //
@@ -91,7 +93,8 @@ class DualTankView extends WatchUi.DataField {
     hidden var mAer;            // aerobic supply (W), when ramp enabled
     hidden var mG;              // glycolytic activation (0..1): ramps in over tauOn
     hidden var mDeficit;        // energy debt (J): supra-CP work the rate caps couldn't place
-    hidden var mExhausted;
+    hidden var mExhausted;      // genuine exhaustion: both reserves at/near zero (drives red flash)
+    hidden var mRateLimited;    // producing power beyond the tanks' flux (unmet > 0) — usually a stale P1s
     hidden var mFlashOn;
     hidden var mStarted;
     hidden var mPaused;         // timer paused/stopped
@@ -115,6 +118,7 @@ class DualTankView extends WatchUi.DataField {
         mG = 0.0;
         mDeficit = 0.0;
         mExhausted = false;
+        mRateLimited = false;
         mFlashOn = false;
         mStarted = false;
         mPaused = false;
@@ -207,6 +211,7 @@ class DualTankView extends WatchUi.DataField {
         mG = 0.0;
         mDeficit = 0.0;
         mExhausted = false;
+        mRateLimited = false;
     }
 
     hidden function nowSec() {
@@ -357,24 +362,26 @@ class DualTankView extends WatchUi.DataField {
 
         if (delta > 0.0) {
             // DEPLETION — PARALLEL draw. Glycolysis has activation inertia (Parolin
-            // 1999: phosphorylase ramps in over the first few seconds), so PCr — the
-            // immediate buffer — covers almost everything at onset and both systems
-            // then drain together as mG -> 1. PCr's available rate TAPERS with tank
-            // fullness (creatine-kinase equilibrium: flux falls as the store depletes),
-            // so R_p reaches its nadir AT exhaustion instead of emptying early. Demand
-            // is split in proportion to available rate (rateP : rateG), both tanks rate-
-            // AND capacity-limited. Residual demand the tanks cannot place is banked as
-            // a DEFICIT (debt) so combined W'bal stays energy-conserving.
+            // 1999), so PCr — the immediate buffer — covers almost everything at onset
+            // and both drain together as mG -> 1. TWO distinct roles, decoupled: the
+            // SHARE of submaximal demand is capacity-proportional (wP=cP, wG=cG*g) so at
+            // steady state both tanks track W'bal and empty together at exhaustion; the
+            // RATE CEILING is the peak-flux cap, tapered with fullness (PCr flux falls as
+            // the store depletes). The ceiling governs MAXIMAL efforts (PCr dominance
+            // emerges there) without distorting submaximal sharing. Residual demand the
+            // tanks cannot place is banked as a DEFICIT so combined W'bal is conserved.
             var need = delta * dt;
             var kOn = (mTauOn > 0.0) ? (1.0 - Math.pow(Math.E, -dt / mTauOn)) : 1.0;
             mG += (1.0 - mG) * kOn;
 
-            var rateP = mPPmax * (mRP / mCapP);
+            var rateP = mPPmax * (mRP / mCapP);      // rate ceiling (tapered)
             var rateG = GLY_RATE_FRAC * mPPmax * mG;
             var pcap = rateP * dt;
             var gcap = rateG * dt;
-            var totalRate = rateP + rateG;
-            var pShare = (totalRate > 0.0) ? need * (rateP / totalRate) : 0.0;
+            var wP = mCapP;                           // share weight (capacity-proportional)
+            var wG = mCapG * mG;
+            var totW = wP + wG;
+            var pShare = (totW > 1e-9) ? need * (wP / totW) : need;
             var gShare = need - pShare;
 
             takeP = pShare;
@@ -403,24 +410,37 @@ class DualTankView extends WatchUi.DataField {
             mDeficit += unmet;                       // bank the debt (energy conservation)
             mDepP += takeP;
             mDepG += takeG;
-            mExhausted = (unmet > 0.0);
+            // Two distinct states: genuine exhaustion (tanks empty) drives the red flash;
+            // rate-limited (unmet>0 with tanks non-empty) means "power beyond my flux caps",
+            // usually a stale P1s rather than a spent rider.
+            mExhausted = ((mRP + mRG) <= 1.0);
+            mRateLimited = (unmet > 0.0);
             mConsP = takeP / dt;
             mConsG = takeG / dt;
         } else {
             // RESTORATION — PCr with fatigue-slowed tau; glycolytic gated below LT1.
             var kOff = (mTauOn > 0.0) ? (1.0 - Math.pow(Math.E, -dt / mTauOn)) : 1.0;
             mG -= mG * kOff;                          // glycolytic deactivation during recovery
-            mDeficit -= mDeficit * (1.0 - Math.pow(Math.E, -dt / mTauG));   // debt repaid (glycolytic kinetics)
+            // PCr resynthesis is OXIDATIVE: it needs aerobic ATP above what the ride itself
+            // consumes, so it is gated by the oxidative headroom (CP - P) — near-arrested at
+            // CP, full at rest. Without this the "punch" bar refills while still under load.
+            var gateP = (mCP - p) / mCP;
+            if (gateP < 0.0) { gateP = 0.0; }
             var tauPeff = pcrTau();
-            mRP += mEta * (mCapP - mRP) * (1.0 - Math.pow(Math.E, -dt / tauPeff));
+            mRP += gateP * mEta * (mCapP - mRP) * (1.0 - Math.pow(Math.E, -dt / tauPeff));
+            // Glycolytic tank AND the deficit clear only below LT1 (gated) — the deficit is
+            // supra-cap byproduct load, so it must respect the same intensity gate as R_g.
             var lt1 = mLt1Frac * mCP;
             if (p < lt1 && lt1 > 0.0) {
                 var gate = (lt1 - p) / lt1;
-                mRG += gate * (mCapG - mRG) * (1.0 - Math.pow(Math.E, -dt / mTauG));
+                var kG = 1.0 - Math.pow(Math.E, -dt / mTauG);
+                mRG += gate * (mCapG - mRG) * kG;
+                mDeficit -= mDeficit * (gate * kG);
             }
             mConsP = 0.0;
             mConsG = 0.0;
-            mExhausted = false;
+            mExhausted = ((mRP + mRG) <= 1.0);
+            mRateLimited = false;
         }
 
         // Clamp
