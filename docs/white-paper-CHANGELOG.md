@@ -16,10 +16,14 @@ live in `white-paper-review-response*.md`.
   compatibility and dropped from the estimator's fitted set.
 - **LT1-gated the deficit repayment** — `D` now clears only below LT1, like the glycolytic tank.
 - **Guards:** `C_p > 0` (rate taper divides by it) and `w_p + w_g > 0` (share denominator).
-- **Flagged `τ_g`, `τ_off`, and `τ_dep = C_p/P_p_max` as assumptions** (`τ_g` is protocol-confounded up
-  to 2×; Parolin measured activation, not de-activation; `τ_dep` is an emergent, uncalibrated
-  depletion kinetic). Added a "Scope and status" box; scoped §6.7 (`f_p` not a routine fit target);
-  reframed §6.6 as a test of the *recovery law*; added the recovery-only null-model question (§7).
+- **Flagged `τ_off` and `τ_dep = C_p/P_p_max` as assumptions**; added a "Scope and status" box; scoped
+  §6.7 (`f_p` not a routine fit target); reframed §6.6 as a test of the *recovery law*; added the
+  recovery-only null-model question (§7).
+- **Literature verification (§4.1a) — two open items resolved.** Confirmed (via PubMed) that the
+  37/65/86% reconstitution curve is Ferguson et al. 2010 measured at **20 W (near-passive) recovery**,
+  so `τ_g = 520` is calibrated, **not** confounded to ~260 s; and that the same curve, once its recovery
+  power is known, corroborates `f_p ≈ 0.20–0.25`, converging with the physiological alactic fraction.
+  Noted Ferguson's caution that W′ recovery is not a unique function of PCr/lactate.
 
 ## v0.3 — 2026-07-11 (review round 2)
 - Fullness-tapered PCr flux (PCr reaches nadir at exhaustion, not ~37.5% of TTE).
