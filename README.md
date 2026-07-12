@@ -98,19 +98,20 @@ recovery rules), so keep sharing that file rather than the summary below.
 > muscle phosphocreatine has resynthesised (W′ recovers ~4× faster than the metabolites). Help me set/refine
 > the twelve settings from my data; flag anything my data can't constrain instead of guessing.
 >
-> **Parameters — key = meaning [default, typical range, unit]:**
-> - `CP` = critical power [250, from test, W]
-> - `Wprime` = anaerobic work capacity above CP (W′) [20000, 10k–30k, J]
-> - `fP` = fast-reserve share of W′ [0.25, 0.20–0.25] — **assumed**, weakly identifiable
-> - `pPmax` = fast-reserve peak power above CP, full tank [300, ≈ best 1 s power − CP, W]
-> - `tauP` = fast-reserve recovery constant [27, 20–40, s] — a **W′-recovery** constant, not muscle PCr
-> - `tauG` = slow-reserve recovery constant [470, 300–600, s]
-> - `lt1Frac` = LT1 as a fraction of CP; anchors the recovery-rate band [0.80, 0.65–0.85]
-> - `eta` = **deprecated** identity — leave at 1.0
-> - `fatK` = slows fast-reserve recovery as the slow reserve empties [0.75, 0–1.5]
-> - `gFat` = **optional** glycolytic flux-fatigue exponent, **off by default** [0.0, 0–1.5]
-> - `tauAer` = aerobic onset time constant [25, 15–40, s]
-> - `tauOn` = glycolytic activation time constant [6, ~6, s] — literature-set, not power-identifiable
+> **Parameters — Setting name (as shown in Garmin Connect) (key) = meaning [default, typical range, unit].
+> When you give me results, label each by its Setting name, not the key — that's what I type it into:**
+> - **Critical Power (W)** (`CP`) = critical power [250, from test, W]
+> - **W-prime (J)** (`Wprime`) = anaerobic work capacity above CP (W′) [20000, 10k–30k, J]
+> - **PCr fraction of W-prime** (`fP`) = fast-reserve share of W′ [0.25, 0.20–0.25] — **assumed**, weakly identifiable
+> - **PCr max power (W)** (`pPmax`) = fast-reserve peak power above CP, full tank [300, ≈ best 1 s power − CP, W]
+> - **PCr recovery tau (s)** (`tauP`) = fast-reserve recovery constant [27, 20–40, s] — a **W′-recovery** constant, not muscle PCr
+> - **Glycolytic recovery tau (s)** (`tauG`) = slow-reserve recovery constant [470, 300–600, s]
+> - **LT1 fraction of CP** (`lt1Frac`) = LT1 as a fraction of CP; anchors the recovery-rate band [0.80, 0.65–0.85]
+> - **PCr recovery efficiency** (`eta`) = **deprecated** identity — leave at 1.0
+> - **PCr fatigue slowing** (`fatK`) = slows fast-reserve recovery as the slow reserve empties [0.75, 0–1.5]
+> - **Glycolytic fatigue (optional)** (`gFat`) = **optional** glycolytic flux-fatigue exponent, **off by default** [0.0, 0–1.5]
+> - **Aerobic ramp tau (s)** (`tauAer`) = aerobic onset time constant [25, 15–40, s]
+> - **Glycolytic activation tau (s)** (`tauOn`) = glycolytic activation time constant [6, ~6, s] — literature-set, not power-identifiable
 >
 > **How to estimate each:**
 > - `CP`, `Wprime`: from maximal efforts spanning ~2–12 min (`W = CP·t + Wprime`), or intervals.icu CP/W′.
@@ -139,8 +140,10 @@ recovery rules), so keep sharing that file rather than the summary below.
 > **Iterating over time:** each time I share new workouts, tell me which parameters the new data
 > constrains, revise those, leave the rest at default.
 >
-> **Output:** the twelve settings ready to paste into the field, marking which are well-constrained vs
-> still default/uncertain (note `eta` deprecated at 1.0, `gFat` optional at 0).
+> **Output:** the twelve settings ready to enter, **each labelled by its Garmin Connect Setting name**
+> (e.g. "PCr fraction of W-prime", not `fP`), key in parentheses, marking which are well-constrained vs
+> still default/uncertain (note "PCr recovery efficiency" / `eta` deprecated at 1.0, "Glycolytic fatigue
+> (optional)" / `gFat` optional at 0).
 
 </details>
 

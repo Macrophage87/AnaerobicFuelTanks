@@ -25,25 +25,29 @@ per-system training load, not as a biopsy readout.
 
 ---
 
-## The twelve settings (key = meaning [default, typical range, unit])
+## The twelve settings (Setting name — key — meaning [default, typical range, unit])
 
 Only `CP` and `Wprime` are truly fitted per athlete; the rest are literature-set defaults you refine only
 when your data constrains them.
 
-| Key | Meaning | Default | Typical range | Notes |
-|---|---|---|---|---|
-| `CP` | critical power | 250 | from test | W |
-| `Wprime` | anaerobic work capacity above CP (W′) | 20000 | 10k–30k | J |
-| `fP` | fast-reserve share of W′ | 0.25 | 0.20–0.25 | **assumed**, weakly identifiable |
-| `pPmax` | fast-reserve peak power above CP, at a full tank | 300 | — | W; ≈ best 1 s power − CP |
-| `tauP` | fast-reserve recovery time constant | 27 | 20–40 | s; a **W′-recovery** constant, not muscle PCr |
-| `tauG` | slow-reserve recovery time constant | 470 | 300–600 | s |
-| `lt1Frac` | LT1 as a fraction of CP; sets the recovery-rate band | 0.80 | 0.65–0.85 | prefer a measured LT1 |
-| `eta` | **deprecated** — identity; leave at 1.0 | 1.00 | — | kept only for compatibility |
-| `fatK` | slows fast-reserve recovery as the slow reserve empties | 0.75 | 0–1.5 | pH/repeated-bout slowing |
-| `gFat` | **optional** glycolytic flux-fatigue exponent; **off by default** | 0.00 | 0–1.5 | leave 0 unless doing repeated-sprint analysis |
-| `tauAer` | aerobic onset time constant | 25 | 15–40 | s |
-| `tauOn` | glycolytic activation time constant | 6 | ~6 | s; Parolin 1999, not power-identifiable |
+**When you give me results, label each one with the *Setting name* below (the exact wording shown in the
+Garmin Connect settings screen), not the internal key** — that is what I type the value into. Keep the key
+in parentheses only for cross-reference.
+
+| Setting name (in Garmin Connect) | key | Meaning | Default | Typical range | Notes |
+|---|---|---|---|---|---|
+| **Critical Power (W)** | `CP` | critical power | 250 | from test | W |
+| **W-prime (J)** | `Wprime` | anaerobic work capacity above CP (W′) | 20000 | 10k–30k | J |
+| **PCr fraction of W-prime** | `fP` | fast-reserve share of W′ | 0.25 | 0.20–0.25 | **assumed**, weakly identifiable |
+| **PCr max power (W)** | `pPmax` | fast-reserve peak power above CP, at a full tank | 300 | — | W; ≈ best 1 s power − CP |
+| **PCr recovery tau (s)** | `tauP` | fast-reserve recovery time constant | 27 | 20–40 | s; a **W′-recovery** constant, not muscle PCr |
+| **Glycolytic recovery tau (s)** | `tauG` | slow-reserve recovery time constant | 470 | 300–600 | s |
+| **LT1 fraction of CP** | `lt1Frac` | LT1 as a fraction of CP; sets the recovery-rate band | 0.80 | 0.65–0.85 | prefer a measured LT1 |
+| **PCr recovery efficiency** | `eta` | **deprecated** — identity; leave at 1.0 | 1.00 | — | kept only for compatibility |
+| **PCr fatigue slowing** | `fatK` | slows fast-reserve recovery as the slow reserve empties | 0.75 | 0–1.5 | pH/repeated-bout slowing |
+| **Glycolytic fatigue (optional)** | `gFat` | **optional** glycolytic flux-fatigue exponent; **off by default** | 0.00 | 0–1.5 | leave 0 unless doing repeated-sprint analysis |
+| **Aerobic ramp tau (s)** | `tauAer` | aerobic onset time constant | 25 | 15–40 | s |
+| **Glycolytic activation tau (s)** | `tauOn` | glycolytic activation time constant | 6 | ~6 | s; Parolin 1999, not power-identifiable |
 
 `Cp = fP·Wprime`, `Cg = (1 − fP)·Wprime`. A fast-reserve *depletion* kinetic `tau_dep = Cp/pPmax` also
 falls out of these and is equally assumed.
@@ -120,6 +124,8 @@ leave the rest at default. Flag anything my data cannot constrain instead of gue
 
 ## Output
 
-Return the twelve settings ready to paste into the field, marking which are well-constrained versus still
-default/uncertain, and noting `eta` is deprecated (leave 1.0) and `gFat` is optional (leave 0 for normal
-use).
+Return the twelve settings ready to enter into the field, **labelling each by its Garmin Connect *Setting
+name*** (e.g. "PCr fraction of W-prime", not `fP`) so I can find and type it directly, with the internal key
+in parentheses for reference. Mark which are well-constrained versus still default/uncertain, and note
+"PCr recovery efficiency" (`eta`) is deprecated (leave 1.0) and "Glycolytic fatigue (optional)" (`gFat`) is
+optional (leave 0 for normal use).
