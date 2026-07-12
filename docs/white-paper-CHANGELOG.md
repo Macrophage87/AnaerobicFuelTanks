@@ -4,6 +4,27 @@ Revision history for `white-paper-dual-tank-anaerobic-model.md` and the model im
 `connectiq/source/DualTankView.mc` and `tools/calibrate/app.R`. Full point-by-point review responses
 live in `white-paper-review-response*.md`.
 
+## v0.5 — 2026-07-11 (review round 4 / Reviewer 2 2nd / Reviewer 3)
+- **PCr recovery gated by oxidative headroom** `gate_p = (CP−P)/CP` (both codebases) — fixes the
+  headline bug (PCr no longer refills at full rate while the rider is under load). After a 700 W/20 s
+  effort, 60 s recovery now gives 87% @0 W but 46% @0.8·CP and 25% @0.99·CP (was a flat 92%).
+- **`τ_g` 520 → 470** (Ferguson recovered at 20 W ⇒ gate ≈ 0.90, and the true joint optimum is
+  `(f_p 0.20, τ_g 470)`, SSE 10.7). Deleted the stale §6.3(b) fossil; downgraded "corroborated by two
+  independent lines" → "consistent with (the curve constrains a `(f_p, τ_g)` ridge; physiology selects)."
+- **Exhaustion flag split** into genuine `exhausted` (tanks ≈ 0) vs `rate_limited` (unmet > 0).
+- **Confronted the Ferguson component mismatch** (§4.1a): model half-times 18.7 s / 326 s vs Ferguson's
+  74 s / 1366 s (~4× each) while the aggregate fits, and Ferguson concludes the decomposition can't be
+  done — now hosted as the strongest datum in the paper, not a footnote.
+- **First empirical results (§6.8)** on six real interval rides: PCr bar informative (<95%) ~45% of
+  ride time (20–79%); dual-tank vs recovery-only null diverges up to ~25–60 pts at recovery-valley
+  starts — answering the null-model challenge (S1/point 1/point 7) with data.
+- **Answered S1**: caps earn their keep only in the maximal regime; per-system live consumption is
+  `(power−CP)` rescaled → relabelled "modelled share," not a reading. `τ_p = 27` re-justified from
+  31P-MRS (not "22 inflated by η"). `τ_dep` residual reported across its 4–13 s range (not just centre).
+  Scope box narrowed (both bars affine in W′bal); falsification-test reframed; hard epistemic boundary
+  (compartments unfalsifiable in-modality) stated; consistency pass on stale strata; `P_p_max` added to
+  settings; battery parameter set published; drawdown relabelled front-loaded (not linear).
+
 ## v0.4 — 2026-07-11 (review round 3 / Reviewer 2)
 - **Decoupled the share weight from the rate ceiling.** Submaximal supra-CP demand is now split by
   **capacity** (`w_p = C_p`, `w_g = C_g·g`); the peak-flux **ceiling** (`P_p_max` tapered by fullness,

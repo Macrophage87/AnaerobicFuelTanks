@@ -25,7 +25,7 @@ suppressWarnings(suppressMessages(library(FITfileR)))
 # install.packages(c("shiny","bslib","ggplot2","DT","yaml")); remotes::install_github("grimbough/FITfileR")
 
 DURATIONS <- c(1,5,10,15,20,30,45,60,90,120,180,240,300,420,600,720,900,1200,1800,2400,3600)
-DEFAULTS  <- list(fP = 0.25, pPmax = 300, tauP = 27, tauG = 520,
+DEFAULTS  <- list(fP = 0.25, pPmax = 300, tauP = 27, tauG = 470,
                   lt1Frac = 0.80, eta = 1.00, fatK = 0.75, tauAer = 25, tauOn = 6)
 GLY_RATE_FRAC <- 0.5   # glycolytic peak rate as a fraction of PCr peak rate (PCr is the higher-power system)
 PARAMS <- c("CP","Wprime","pPmax","fP","tauP","tauG","eta")   # the tracked "sprint values"
@@ -332,8 +332,11 @@ simulate_tanks <- function(power, cp, par) {
       deficit[i] <- unmet
     } else {
       g <- g * (1 - kOn)                        # glycolytic deactivation during recovery
-      # PCr recovers at any sub-CP intensity (ungated); eta folded into tauP (default eta=1).
-      tauPeff <- par$tauP * (1 + par$fatK * (1 - rG / cG)); rP <- rP + par$eta * (cP - rP) * (1 - exp(-1 / tauPeff))
+      # PCr resynthesis is OXIDATIVE -- it needs aerobic ATP above what the ride itself
+      # consumes, so it is gated by the oxidative headroom (CP - P): near-arrested at CP,
+      # full at rest. (eta folded into tauP, default 1.)
+      gateP <- (cp - p) / cp; if (gateP < 0) gateP <- 0
+      tauPeff <- par$tauP * (1 + par$fatK * (1 - rG / cG)); rP <- rP + gateP * par$eta * (cP - rP) * (1 - exp(-1 / tauPeff))
       # glycolytic tank AND the deficit clear only below LT1 (gated) -- D is supra-cap
       # byproduct load, so it must respect the same intensity gate as the glycolytic tank.
       lt1 <- par$lt1Frac * cp

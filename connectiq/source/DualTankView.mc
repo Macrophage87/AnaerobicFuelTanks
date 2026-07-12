@@ -93,7 +93,8 @@ class DualTankView extends WatchUi.DataField {
     hidden var mAer;            // aerobic supply (W), when ramp enabled
     hidden var mG;              // glycolytic activation (0..1): ramps in over tauOn
     hidden var mDeficit;        // energy debt (J): supra-CP work the rate caps couldn't place
-    hidden var mExhausted;
+    hidden var mExhausted;      // genuine exhaustion: both reserves at/near zero (drives red flash)
+    hidden var mRateLimited;    // producing power beyond the tanks' flux (unmet > 0) — usually a stale P1s
     hidden var mFlashOn;
     hidden var mStarted;
     hidden var mPaused;         // timer paused/stopped
@@ -117,6 +118,7 @@ class DualTankView extends WatchUi.DataField {
         mG = 0.0;
         mDeficit = 0.0;
         mExhausted = false;
+        mRateLimited = false;
         mFlashOn = false;
         mStarted = false;
         mPaused = false;
@@ -209,6 +211,7 @@ class DualTankView extends WatchUi.DataField {
         mG = 0.0;
         mDeficit = 0.0;
         mExhausted = false;
+        mRateLimited = false;
     }
 
     hidden function nowSec() {
@@ -407,16 +410,24 @@ class DualTankView extends WatchUi.DataField {
             mDeficit += unmet;                       // bank the debt (energy conservation)
             mDepP += takeP;
             mDepG += takeG;
-            mExhausted = (unmet > 0.0);
+            // Two distinct states: genuine exhaustion (tanks empty) drives the red flash;
+            // rate-limited (unmet>0 with tanks non-empty) means "power beyond my flux caps",
+            // usually a stale P1s rather than a spent rider.
+            mExhausted = ((mRP + mRG) <= 1.0);
+            mRateLimited = (unmet > 0.0);
             mConsP = takeP / dt;
             mConsG = takeG / dt;
         } else {
             // RESTORATION — PCr with fatigue-slowed tau; glycolytic gated below LT1.
             var kOff = (mTauOn > 0.0) ? (1.0 - Math.pow(Math.E, -dt / mTauOn)) : 1.0;
             mG -= mG * kOff;                          // glycolytic deactivation during recovery
-            // PCr recovers at any sub-CP intensity (ungated); eta folded into tauP (default 1.0).
+            // PCr resynthesis is OXIDATIVE: it needs aerobic ATP above what the ride itself
+            // consumes, so it is gated by the oxidative headroom (CP - P) — near-arrested at
+            // CP, full at rest. Without this the "punch" bar refills while still under load.
+            var gateP = (mCP - p) / mCP;
+            if (gateP < 0.0) { gateP = 0.0; }
             var tauPeff = pcrTau();
-            mRP += mEta * (mCapP - mRP) * (1.0 - Math.pow(Math.E, -dt / tauPeff));
+            mRP += gateP * mEta * (mCapP - mRP) * (1.0 - Math.pow(Math.E, -dt / tauPeff));
             // Glycolytic tank AND the deficit clear only below LT1 (gated) — the deficit is
             // supra-cap byproduct load, so it must respect the same intensity gate as R_g.
             var lt1 = mLt1Frac * mCP;
@@ -428,7 +439,8 @@ class DualTankView extends WatchUi.DataField {
             }
             mConsP = 0.0;
             mConsG = 0.0;
-            mExhausted = false;
+            mExhausted = ((mRP + mRG) <= 1.0);
+            mRateLimited = false;
         }
 
         // Clamp

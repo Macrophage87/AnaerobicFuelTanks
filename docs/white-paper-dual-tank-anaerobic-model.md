@@ -1,20 +1,24 @@
 # A Dual-Tank Model for Real-Time Tracking of Phosphocreatine and Glycolytic Energy Reserves in Cycling
 
 **White paper — AnaerobicFuelTanks project**
-*Version 0.4 · 2026-07-11 (third revision — capacity-weighted split decoupled from the rate ceiling; η folded into τ_p; LT1-gated deficit; guards)*
+*Version 0.5 · 2026-07-11 (fourth revision — oxidative-headroom-gated PCr recovery; τ_g → 470; both-bars-affine scope narrowing; first empirical results on real rides)*
 
-> **Scope and status (read this once).** This model is a **physiologically-motivated decomposition of
-> one measured quantity — single-tank W′bal — whose split fraction `f_p` is assumed, not measured.**
-> Power alone cannot identify the depletion split (§4.2). By construction the model equals single-tank
-> W′bal in depletion (§4.4) and differs only in *recovery*; and because the fast PCr tank is full most
-> of the time, the second (PCr) bar carries information beyond single-tank W′bal only in the ~30–60 s
-> after hard efforts. **As of v0.4 there is no evidence, of any kind, that the two-bar decomposition is
-> more correct or more useful than single-tank W′bal** — the case is entirely physiological and
-> prospective, resting on the recovery law, which has not yet been tested (§6.6) and cannot be
-> validated in-modality (31P-MRS is unavailable in real cycling, §6.5). Several defaults (`f_p`, `τ_off`,
-> the PCr depletion kinetic `τ_dep`) are literature-set assumptions, flagged where they appear; `τ_g`
-> and the reconstitution calibration were **verified against the primary sources** in this revision
-> (§4.1a). The rest of the paper does not repeat these caveats; it builds on them.
+> **Scope and status (read this once).** This is a **physiologically-motivated decomposition of one
+> measured quantity — single-tank W′bal — whose split fraction `f_p` is assumed, not measured** (power
+> cannot identify the depletion split; §4.2). The two-bar display is precisely characterised, and the
+> characterisation is narrow: **during steady supra-CP effort both bars are affine in W′bal**
+> (`R_p/C_p ≈ R_g/C_g ≈ W′bal + const`; §4.2, §4.4), and when the PCr tank is full — most of the time —
+> the PCr bar is likewise an affine transform of W′bal. **All non-redundant content lives in exactly two
+> transients:** (i) the glycolytic *activation ramp* at effort onset, governed by `τ_on` (measured) and
+> `τ_off` (**not** measured), and (ii) the *PCr recovery transient* after hard efforts, governed by `τ_p`
+> and its new oxidative-headroom gate (§4.2). **There is still no experiment showing the two-bar
+> decomposition is *more correct* than single-tank W′bal** — that requires the recovery-law head-to-head
+> (§6.6), and at the compartment level it is unfalsifiable in-modality *even in principle* (§6.5, §8). But
+> v0.5 adds the first **usefulness** evidence from real rides (§6.8): on interval sessions the PCr bar is
+> informative (below 95%) ~45% of the time and the depletion caps move it up to ~25–60 pts vs a
+> recovery-only null at the moments that matter. `f_p`, `τ_off`, and the emergent `τ_dep` remain assumed;
+> `τ_g`/reconstitution were verified against primary sources (§4.1a). The rest of the paper builds on
+> these; it does not re-litigate them.
 
 ---
 
@@ -67,7 +71,7 @@ power-native, on-device virtues of W′bal while restoring the two-system resolu
 Two honest qualifications, stated here rather than buried in §7. First, the split is a **modeling
 assumption**, not a measurement — power alone cannot identify how W′ divides between the two systems
 (§4.2). Second, the extra resolution is **concentrated in transients**: whenever the fast PCr tank is
-full — which, given its ~20 s recovery, is most of the time — the glycolytic reserve is just an
+full — which, given its ~27 s recovery, is most of the time — the glycolytic reserve is just an
 affine rescaling of the existing single W′bal, so the second bar adds decision-relevant information
 mainly in the ~30–60 s after a hard effort (which is, however, exactly when covering-the-next-attack
 decisions are made). The model earns its keep as a *heuristic decomposition*, not as two independently
@@ -145,9 +149,9 @@ systems but are too heavy to run and calibrate on a head unit. The dual-tank mod
 two-tank resolution of B/C with the on-device simplicity of A.
 
 To be precise about what "lighter" means here, because it is easy to oversell: the model's core
-parameter count (`CP, W′, f_p, P_p_max, g_pmax-ratio, τ_p, τ_g, τ_on, τ_off, LT1, η` — **~11**, plus
-two optional realism terms) is *larger* than the hydraulic model's eight — it is **not** a smaller
-model.
+free-parameter count (`CP, W′, f_p, P_p_max, g_rate, τ_p, τ_g, τ_on, LT1`, with `τ_off = τ_on` by
+default — **nine free**, plus two optional realism terms) is essentially the hydraulic model's eight —
+**the same size, not a smaller model.**
 The difference is *where the parameters come from*. Only `CP` and `W′` are fitted per athlete (from
 a standard CP test); the rest are **hard-coded to literature defaults** rather than fit by
 evolutionary computation. That buys on-device simplicity and a trivial calibration, at a real cost:
@@ -168,7 +172,7 @@ Two energy reserves (Joules), each with a fixed capacity:
 - `R_g` — **glycolytic reserve**, capacity `C_g`
 - Total anaerobic capacity `W′ = C_p + C_g`
 
-The model has **~11 parameters** (plus two optional realism terms). Only `CP` and `W′` come from a
+The model has **nine free parameters** (plus `τ_off = τ_on` and two optional realism terms). Only `CP` and `W′` come from a
 CP test; the rest are literature-fixed defaults (see §3 — this is a real count, not a small one):
 
 | Symbol | Meaning | Typical default |
@@ -178,8 +182,8 @@ CP test; the rest are literature-fixed defaults (see §3 — this is a real coun
 | `f_p` | fraction of W′ assigned to the PCr tank | **0.25** — *assumed* (physiology, not data; §7) |
 | `P_p_max` | PCr peak power above CP (W), at a **full** tank | ≈ P₁ₛ − CP (best 1 s power − CP) |
 | `g_rate` | glycolytic peak flux as a fraction of PCr peak flux (a ratio) | 0.5 → `g_pmax = g_rate·P_p_max` (flux-ratio note) |
-| `τ_p` | PCr recovery time constant (s) | **27** (= 22 s literature `τ_PCr`, mechanically inflated; see η note) |
-| `τ_g` | glycolytic recovery time constant (s) | 520 — reconstitution fit; the source protocol's recovery power is now **confirmed** (20 W), so this is calibrated, not confounded (§6.3) |
+| `τ_p` | PCr recovery time constant (s) | **27** — within the 31P-MRS `τ_PCr` range (20–40 s), gated by oxidative headroom (§4.2) |
+| `τ_g` | glycolytic recovery time constant (s) | **470** — reconstitution fit (Ferguson 2010 at 20 W ⇒ gate ≈ 0.90; joint optimum with `f_p`; §4.1a) |
 | `τ_on` | glycolytic activation time constant (s) | 6 (Parolin 1999) |
 | `τ_off` | glycolytic **de**-activation time constant (s) | = `τ_on` — *assumed* (Parolin measured activation, not de-activation; §7) |
 | `LT1` | first lactate threshold power (W); glycolytic tank recovers below it | **measured** (a threshold test), *not* a fixed %CP |
@@ -194,10 +198,13 @@ out of the above (§4.4) and is equally assumed — see §7.
 
 **`η` was removed (was 0.80).** The former "recovery efficiency" only rescaled the effective PCr
 recovery constant to `τ_p/η` — no sub-`C_p` asymptote, so not a true efficiency, and degenerate with
-`τ_p` when fitted. Worse, it silently made the *effective* recovery constant ≈ 27.6 s while the table
-advertised 22 s. We deleted it and set `τ_p = 27 s` (22 s of literature `τ_PCr` inflated by a
-mechanically-plausible efficiency), so the headline number is the one the rider actually experiences.
-(The settings key `eta` remains, defaulting to 1.0 = identity, for backward compatibility only.)
+`τ_p` when fitted. It silently made the effective constant ≈ 27.6 s while the table advertised 22 s.
+**`τ_p = 27 s` is now justified on its own terms:** it sits inside the 31P-MRS `τ_PCr` range of 20–40 s
+(Yoshida 2013; Harris 1976) — *not* as "22 inflated by η" (that would just re-import the double-count).
+The `eta` settings key remains, defaulting to 1.0 (identity) with a **deprecation note**, so a future
+maintainer cannot silently reintroduce the rescale. (The pulmonary-VO₂ recovery half-time of 74 s in
+Ferguson 2010 is *slower* than muscle `τ_PCr`, because it includes circulatory processes — see the
+component-mismatch discussion in §4.1a.)
 
 The `g_pmax = 0.5·P_p_max` ratio is not arbitrary: peak glycolytic ATP flux is roughly half peak
 PCr/creatine-kinase flux in human muscle (di Prampero & Ferretti 1999; the biopsy time-courses of
@@ -217,32 +224,49 @@ Several of these deserve flags up front, because the defaults are doing real wor
   `P₁ₛ − CP` as an upper bound: at 1 s glycolysis is already ~15% active, so it mildly over-attributes
   to PCr. Note this taper is on the *ceiling* only — it does **not** set the submaximal share (§4.2).
 
-#### 4.1a Literature verification (v0.4) — the two open items resolved
+#### 4.1a Reconstitution: the source, the calibration, and a contradiction the source raises
 
-Two defaults previously flagged "assumed, needs primary-source checking" were verified against the
-sources (via PubMed):
+The 37% / 65% / 86% W′-recovery at 2 / 6 / 15 min (half-time 234 s) is **Ferguson et al. 2010**
+(*J Appl Physiol*, DOI 10.1152/japplphysiol.91425.2008), reviewed by Chorley & Lamb 2020, who state it
+was measured "when recovering at a **nominal 20 W**." Three things follow.
 
-- **The reconstitution reference protocol used ~20 W (near-passive) recovery.** The 37% / 65% / 86%
-  W′-recovery at 2 / 6 / 15 min (half-time 234 s) is **Ferguson et al. 2010** (*J Appl Physiol*, DOI
-  10.1152/japplphysiol.91425.2008), reviewed by Chorley & Lamb 2020. Chorley & Lamb state these figures
-  were obtained "when recovering at a **nominal 20 W**." This **resolves the `τ_g` confound** (finding D
-  of review 3): because the gate was ≈ 1 (20 W ≪ LT1), the passive-rest fit is the correct reading, so
-  `τ_g ≈ 420–520 s` — **not** the ~260 s a 0.4·CP recovery would have implied. `τ_g = 520` stands as
-  calibrated. *(With `f_p` held at 0.25 the single-parameter fit gives `τ_g ≈ 520`; a joint fit gives
-  `f_p = 0.20, τ_g = 420` — both inside the supported bands.)*
-- **The alactic fraction (`f_p`) is corroborated, not just assumed.** di Prampero & Ferretti 1999
-  (*Respir Physiol*, DOI 10.1016/s0034-5687(99)00083-3) confirm the classic two-component split —
-  alactic O₂-debt half-time ≈ 30 s (↔ `τ_p ≈ 27 s`), lactic ≈ 15 min (↔ slow `τ_g`); Bangsbo et al.
-  1990 give ~20% alactic of anaerobic ATP. With the recovery power now known, the reconstitution curve
-  *also* implies `f_p ≈ 0.20–0.25`, so two independent lines converge — a stronger footing than the
-  physiology alone.
+- **`τ_g` is calibrated to ~470 s, not confounded (but not exactly "passive").** The confound of review
+  3 — the LT1 gate makes the effective constant `τ_g/gate`, so the fit depends on recovery power — is
+  resolved by the 20 W figure. But 20 W is not quite `gate = 1`: with `LT1 ≈ 0.8·CP ≈ 200 W`,
+  `gate = (200−20)/200 = 0.90`, so a model reproducing Ferguson needs `τ_g ≈ 470 s` (± a few % on the
+  cohort's unreported LT1), **not 520**. The default is corrected to **470**.
+- **`f_p` is *consistent with* the curve, not independently corroborated by it.** With recovery power
+  fixed, the curve still constrains a **ridge in `(f_p, τ_g)`**, not `f_p` alone: `(f_p 0.25, τ_g 520)`
+  and the true joint optimum **`(f_p 0.20, τ_g 470)` (SSE ≈ 10.7 pts²)** both fit 37/65/86 to within
+  ~3–5 pts. So the honest statement is *one* physiological estimate of `f_p` (di Prampero & Ferretti
+  1999, alactic O₂-debt t½ ≈ 30 s; Bangsbo 1990, ~20% alactic) **plus a reconstitution curve consistent
+  with it** — the physiology is what selects `f_p ≈ 0.25` on the ridge. We keep `f_p = 0.25` as the
+  physiological midpoint but note the recovery data alone would prefer ~0.20. *(An earlier draft called
+  this "two independent lines converge"; that overstated the independence — corrected here.)*
+- **Ferguson's own components contradict the model's identification — and this is the strongest single
+  datum in the paper.** Ferguson reports the two recovery channels underlying W′ reconstitution: VO₂
+  t½ = 74 s (a proxy for oxidative/PCr resynthesis) and blood-lactate t½ = 1366 s. Put those beside the
+  model's component half-times:
 
-**One caution the same source raises**, worth stating: Ferguson et al. 2010 conclude that W′
-reconstitution is "**not a unique function of phosphocreatine concentration or arterial [lactate]**, and
-it is unlikely to simply reflect a finite energy store that becomes depleted." That is a direct warning
-against reading the two tanks literally — precisely the heuristic-not-literal framing of the Scope box
-and §2. The large separation it reports between the fast (VO₂ t½ = 74 s) and slow (lactate t½ = 1366 s)
-recovery channels does, however, support a bi-exponential recovery structure.
+  | Component | Model | Ferguson channel | ratio |
+  |---|---|---|---|
+  | fast | `τ_p = 27 s` → t½ **18.7 s** | VO₂ **74 s** | 4.0× slower |
+  | slow | `τ_g = 470 s` → t½ **326 s** | lactate **1366 s** | 4.2× slower |
+
+  **Both of the model's components are ~4× too fast, yet the aggregate 234 s half-time reproduces.** That
+  is the signature of fitting two exponentials to a *sum* without checking them against the *components* —
+  the identifiability problem this review series has circled, now with a number. And Ferguson's own
+  conclusion is blunter still: W′ reconstitution is "**not a unique function of phosphocreatine
+  concentration or arterial [lactate], and it is unlikely to simply reflect a finite energy store that
+  becomes depleted.**" *The primary source used to calibrate the recovery law explicitly denies that the
+  recovery decomposes the way the model decomposes it.* We host that here rather than resolve it by
+  citation-picking. Two defences, and their limits: (i) VO₂ off-kinetics is **not** PCr resynthesis — it
+  includes slower circulatory processes — and muscle 31P-MRS `τ_PCr` of 20–40 s does support `τ_p = 27`;
+  so `τ_p` is defensible against the 31P literature while being 4× off against the channel measured in
+  the very protocol that produced the recovery curve. (ii) The channel *separation* (74 s vs 1366 s, ~18×)
+  genuinely supports a bi-exponential structure, even if the channel *values* are not the tanks. The
+  tension is the finding; the two-tank recovery is a heuristic that fits the aggregate, not a measured
+  decomposition of it.
 
 ### 4.2 The 1 Hz update
 
@@ -253,7 +277,7 @@ as `Δ = P − CP`.
 parallel**. This matters: glycolytic ATP supply is not instantaneous. Glycogen phosphorylase (the
 rate-limiting glycolytic enzyme) transforms to its active form over the first several seconds of
 maximal effort — Parolin *et al.* (1999) measured it rising from 12% at rest to 47% by 6 s — while
-phosphocreatine is the immediate buffer, near-fully drawn within the first ~10 s (Bogdanis *et al.*
+phosphocreatine is the immediate buffer (a fresh 30 s sprint drains it to ~17%; a 10 s sprint leaves ~20–30%; Bogdanis *et al.*
 1996); both contribute from the onset, not in sequence (González‑Alonso *et al.* 2000). We model this
 with a **glycolytic activation** term `g ∈ [0,1]` that ramps first-order with a time constant
 `τ_on ≈ 6 s` while above CP and relaxes back during recovery:
@@ -324,8 +348,10 @@ refills exponentially toward full; glycolytic refill is gated by intensity.
 ```
 g ← g · exp(−Δt/τ_off)                            # glycolytic DE-activation (τ_off = τ_on default)
 
-# PCr: fast, oxidative — recovers at ANY sub-CP intensity (ungated)
-R_p += (C_p − R_p) · (1 − exp(−Δt/τ_p))           # τ_p already absorbs the old η (§4.1)
+# PCr: fast, oxidative — resynthesis needs aerobic ATP ABOVE the ride's own demand, so it is
+# gated by the OXIDATIVE HEADROOM (CP − P): full at rest, near-arrested at CP.
+gate_p = max(0, (CP − P) / CP)
+R_p += gate_p · (C_p − R_p) · (1 − exp(−Δt/τ_p))  # τ_p from 31P-MRS τ_PCr (§4.1)
 
 # Glycolytic tank AND the deficit clear only below LT1 (a MEASURED power, not a %CP)
 if P < LT1:
@@ -333,6 +359,16 @@ if P < LT1:
     R_g += gate · (C_g − R_g) · (1 − exp(−Δt/τ_g))
     D   -= gate · D · (1 − exp(−Δt/τ_g))          # debt clears on the same gate as R_g
 ```
+
+**The PCr recovery gate is new in v0.5, and it fixes the model's headline use case.** Until now PCr
+recovered at the same rate whether the rider was stopped or holding 99% of CP — so the "punch" bar went
+green while the rider was still under load, in exactly the "*can I cover this next attack?*" scenario the
+field exists for (sitting in a bunch between attacks is recovery at high sub-CP power). PCr resynthesis
+is oxidative and needs spare aerobic capacity, which vanishes as P → CP; the `gate_p = (CP − P)/CP` term
+encodes that. At P = 0 it is identical to the old law (`gate_p = 1`), so nothing in depletion or the
+reconstitution fit moves; at tempo it does the physiologically obvious thing. Verified: after a 20 s /
+700 W effort (PCr → 23%), 60 s of recovery now restores PCr to **87% at 0 W, 46% at 0.8·CP, and 25% at
+0.99·CP** — versus a flat 92% at every recovery power before the gate.
 
 The `g` de-activation is what makes the activation ramp re-fire on each interval of a repeated-bout
 set (without it, `g` would ratchet to 1 on the first surge and every later bout would start at a flat
@@ -370,33 +406,41 @@ fallback, but it is the weakest default in the model and should be replaced by a
 ### 4.4 Why this behaves correctly
 
 - A short, very hard surge draws mostly from `R_p` (glycolysis has not yet ramped in), and `R_p`
-  refills within ~30–60 s of easy pedaling — matching PCr physiology. A maximal ~10 s sprint leaves
-  **`R_p ≈ 20–30%`, not empty** — the tapered ceiling drains it geometrically with an emergent
-  depletion constant `τ_dep = C_p/P_p_max ≈ 7 s`, so `R_p(10 s)/C_p ≈ 20–30%`. That residual *matches*
-  Bogdanis 1996 (PCr ≈ 17% of rest at the end of a 30 s sprint) better than "empty" would; the earlier
-  "empties `C_p`" claim was false under the taper and is withdrawn.
-- A sustained supra-CP effort draws from **both** tanks, both declining ≈ linearly to their nadir
-  together at exhaustion (capacity-weighted share; §4.2). During such steady efforts the two bars track
-  each other and W′bal closely — the honest consequence of capacity weighting, and the behaviour §1/§7
-  advertise; the earlier rate-weighted split manufactured apparent divergence that was a deterministic
-  restatement of W′bal, not new information.
-- **A falsifiable prediction the model makes.** For a constant supra-CP effort, integrating the draw
-  gives `R_p/C_p` as a function only of the fraction `φ` of W′ spent — largely independent of intensity
-  except where the rate ceiling bites. This connects to the reproducible-metabolic-milieu-at-exhaustion
-  literature (§2) and is testable in an afternoon: hold different supra-CP powers to exhaustion and
-  check whether PCr-at-a-given-%W′-spent is intensity-invariant. If it is grossly *not*, the tank
-  architecture is wrong (see §7's "when to re-architect").
-- **Synthetic battery (v0.4), all checks re-run after this revision's changes:**
+  refills after — *at a rate set by recovery intensity* (§4.2 gate). A maximal ~10 s sprint leaves
+  **`R_p ≈ 20–30%`, not empty**, from the tapered ceiling's emergent depletion constant
+  `τ_dep = C_p/P_p_max`. **But `τ_dep` is not a fixed 7 s** — §7 notes it swings ~4–13 s across riders,
+  so the 10 s residual ranges from ~10% (fast riders) to **~46%** (`τ_dep ≈ 13 s`). The central case
+  matches Bogdanis 1996 (PCr ≈ 17% at 30 s); the high tail does *not*, which is an argument for a
+  *measured* PCr depletion constant (the re-architect fork, §7), not an emergent ratio.
+- A sustained supra-CP effort draws from **both** tanks, declining together to their nadir at
+  exhaustion. The drawdown is **front-loaded (mildly concave), not linear** — the activation ramp makes
+  the early draw PCr-weighted (450 W: 68/42/18/1 at quarter-TTE intervals). During such steady efforts
+  **both bars are affine in W′bal** (§4.2), so they carry no information single-tank W′bal lacks *there*;
+  their only non-redundant content is the ramp offset (set by `τ_on`/`τ_off`) and the post-effort PCr
+  recovery transient. This is stated as a limitation, not a feature.
+- **A falsification test (not a validation), and its real cost.** For a constant supra-CP effort,
+  `R_p/C_p` is *asymptotically* a function of the fraction `φ` of W′ spent — but only for efforts long
+  relative to `τ_on` and below the ceiling regime; the activation ramp adds a genuine second intensity
+  dependence (a hard effort reaches a given `φ` faster, with `g` lower, so PCr is *lower* at that `φ`).
+  So the test "hold different supra-CP powers to exhaustion and compare PCr-at-%W′-spent" would report
+  intensity-*dependence* for a correct model, and a naive read would wrongly "falsify" it. Framed
+  correctly it is a **falsification** test (pass ⇒ the bar is a deterministic restatement of W′bal in
+  depletion, i.e. redundant; fail ⇒ the architecture is wrong) — lose–lose for the *depletion* claim,
+  which is the point. And it is **not** "testable in an afternoon": checking PCr in-cycling needs
+  31P-MRS, which §6.5 says is unavailable in this modality. It requires a surrogate (post-exercise
+  sampling, or knee-extension 31P-MRS with a cross-modality transfer assumption; §8).
+- **Synthetic battery (v0.5).** Parameters: `CP = 255 W`, `W′ = 20 kJ`, `f_p = 0.25`, `P_p_max = 690 W`
+  (`g_rate = 0.5`), `τ_p = 27`, `τ_g = 470`, `τ_on = τ_off = 6`, `LT1 = 204 W`.
 
   | Test | Result |
   |---|---|
-  | Sustained 450 W — PCr at 25/50/75/100% of TTE | 68 / 42 / 18 / ~1% (near-linear, nadir at exhaustion) |
+  | Sustained 450 W — PCr at 25/50/75/100% of TTE | 68 / 42 / 18 / ~1% (front-loaded, nadir at exhaustion) |
   | Both tanks at exhaustion | PCr ~1% / GLY ~0% (empty together) |
-  | 945 W (= P₁ₛ) 10 s sprint — PCr residual | 23% (unchanged by the share-rule fix — ceiling-dominated) |
-  | 6×[10 s@700 W / 30 s@150 W] — PCr at each bout end | 49→31→22→17→15→14% (ramp re-fires) |
+  | 945 W (= P₁ₛ) 10 s sprint — PCr residual | 23% (ceiling-dominated; share rule doesn't bind) |
+  | 6×[10 s@700 W / 30 s@150 W] — PCr at each bout end | 49→17→10→8→8→7% (gated recovery: 150 W is high sub-CP, so little refill) |
   | 1200 W hold (caps bind) — combined W′bal conservation | leak = 0 J |
-  | Debt repayment at 0.9·CP (above LT1) | `D` unchanged (correctly LT1-gated) |
-  | `f_p = 0` | runs (guarded), no divide-by-zero |
+  | PCr recovery after 700 W/20 s, 60 s @ {0, 128, 204, 242, 252} W | 87 / 68 / 46 / 30 / 25% (headroom gate) |
+  | Debt repayment at 0.9·CP (above LT1) | `D` unchanged (LT1-gated) |
 
 - **On "generalizing W′bal" — a careful claim.** In *depletion* the model is a faithful generalization:
   `(R_p + R_g − D)` falls by exactly `Δ`·Δt per second (cap-binding or not), so the summed draw above CP
@@ -417,11 +461,13 @@ specification and a ready-to-use build prompt. Summary of the target design:
 - **App type:** a custom full-screen **Data Field** (`Toybox.WatchUi.DataField`), which the head
   unit calls once per second — a natural fit for the `Δt = 1 s` update.
 - **Input:** `Activity.Info.currentPower` inside `compute(info)`.
-- **Configuration:** `CP`, `W′`, `f_p`, **`LT1`** (a measured threshold, not a %CP default — §4.2),
-  and the recovery constants exposed via Connect IQ app settings (`Application.Properties`), so a rider
-  enters them from Garmin Connect.
-- **Display:** two vertical bar gauges (PCr and glycolytic reserve) with numeric % and color
-  bands (green → amber → red), plus optional live consumption in W.
+- **Configuration:** `CP`, `W′`, `f_p`, **`P_p_max`** (a per-athlete calibration target — §6.7),
+  **`LT1`** (a measured threshold, not a %CP default — §4.2), and the recovery constants exposed via
+  Connect IQ app settings (`Application.Properties`), so a rider enters them from Garmin Connect.
+- **Display:** two vertical bar gauges (PCr and glycolytic reserve) with numeric % and color bands
+  (green → amber → red). *Per-system live consumption in W is a "modelled share," not a reading* — when
+  the ceiling is slack it is just `(power − CP)` split by a fixed fraction (§7), so it is labelled as
+  such or omitted.
 - **Recording:** write both reserves and consumption to the FIT file via `FitContributor` fields
   so they sync to Garmin Connect / intervals.icu / Strava for post-ride analysis.
 - **Footprint:** a handful of scalar state variables (`R_p`, `R_g`, the activation `g`, the deficit
@@ -444,28 +490,17 @@ the one test that would actually earn the second tank.
    exactly `Δ`·Δt per second, and the deficit term `D` preserves that even when a rate cap binds. It
    will **not** match in recovery, by construction (§4.4), so this test must be scoped to above-CP
    segments — a test that expected agreement everywhere is one the model is designed to fail.
-3. **Reconstitution targets — what the curve actually constrains.** After a full W′ depletion,
-   combined recovery can be compared to the published curve (≈37% / 65% / 86% at 2 / 6 / 15 min;
-   Chorley & Lamb 2020). Two things follow, and the second corrects the previous revision:
-   (a) **the curve is blind to the fast tank.** A `τ_p ≈ 27 s` process is `1 − e^(−120/27) ≈ 99%`
-   complete by the first (2 min) sample, so this test validates *glycolytic* recovery and the *size* of
-   the PCr offset — **not** PCr recovery kinetics, i.e. not the feature that distinguishes this model
-   from W′bal. To constrain `τ_p` you need samples at ~10/20/30/45/60 s (test 4).
-   (b) **the curve indicts `τ_g`, not `f_p`.** Solving each target point for `τ_g` (passive rest,
-   `f_p = 0.25`) gives 688 / 472 / 537 s — all far above the old 360 s default; the ~234 s half-time
-   cited for the incumbent implies `τ_g ≈ 578 s` independently. A least-squares fit lands at **`τ_g ≈
-   520 s`**, giving 40 / 62 / 87% vs the 37 / 65 / 86% targets (max error ~4 pts, versus 8–9 pts at
-   360 s). So the default `τ_g` was raised 360 → 520; **`f_p` was *not* re-derived from this curve.**
-   The earlier "matching pulls `f_p` down" reasoning was confounded: the implied `f_p` swings from ~0.13
-   (passive rest) to ~0.25 (soft-pedal recovery) depending entirely on the assumed recovery power of
-   the reference protocol, so the curve cannot pin it. `f_p = 0.25` stands on **physiological**
-   grounds (§4.1), not reconstitution.
-   (c) **the `τ_g` confound is now RESOLVED** (it was the top open item of review 3). Because glycolytic
-   recovery is LT1-gated, the *effective* constant is `τ_g/gate`, so the fit depends on the reference
-   protocol's recovery power: passive rest (`gate ≈ 1`) → `τ_g ≈ 520`; a 0.4·CP recovery (`gate ≈ 0.5`)
-   → `τ_g ≈ 260`. That protocol detail is now known: the source is **Ferguson et al. 2010** (DOI
-   10.1152/japplphysiol.91425.2008), and per Chorley & Lamb 2020 the recovery was at a **nominal 20 W** —
-   near-passive, `gate ≈ 1`. So `τ_g ≈ 520 s` is the calibrated value, not a 2× overshoot (§4.1a).
+3. **Reconstitution targets — what the curve constrains, and what it cannot.** Combined recovery after
+   a full W′ depletion is compared to the published curve (37 / 65 / 86% at 2 / 6 / 15 min; Ferguson
+   et al. 2010, at 20 W recovery). (a) **The curve is blind to the fast tank** — a `τ_p ≈ 27 s` process
+   is `1 − e^(−120/27) ≈ 99%` complete by the first (2 min) sample, so it validates *glycolytic*
+   recovery and the *size* of the PCr offset, **not** PCr kinetics (for those you need 10/20/30/45/60 s
+   samples; test 4). (b) **The curve fixes `τ_g` and constrains a `(f_p, τ_g)` ridge, not `f_p` alone.**
+   With the 20 W recovery power known (gate ≈ 0.90), the fit gives `τ_g ≈ 470` and the joint optimum
+   `(f_p 0.20, τ_g 470)`; `f_p` is *selected on that ridge by physiology*, not by the curve (§4.1a). So
+   the curve is **consistent with** `f_p ≈ 0.20–0.25`, not an independent measurement of it. *(This
+   supersedes a v0.3 statement — since deleted — that computed an implied `f_p ≈ 0.13` at the old
+   `τ_g = 360 s`; that value was a fossil of the superseded default.)*
 4. **Fast-recovery kinetics (the missing piece).** The load-bearing test for `τ_p` is a repeated-bout
    protocol with **early** recovery sampling — e.g. all-out efforts separated by 10/20/30/45/60 s — and
    the between-bout power recovery correlated with modelled PCr recovery (as Bogdanis 1996 did for
@@ -489,20 +524,45 @@ the one test that would actually earn the second tank.
 7. **Field calibration — scoped honestly.** Fit **`P_p_max` and the `τ`'s** per athlete to maximal and
    repeated-bout tests. **`f_p` is *not* a routine calibration target:** §4.2 shows the depletion split
    is unidentifiable from power, and only the test-4 class (all-out efforts with early recovery
-   sampling) can constrain it — and even then the fit is ill-conditioned. A sprint-then-hold protocol
-   *without* early recovery sampling cannot fit `f_p`; absent test-4 data it stays assumed.
+   sampling) can constrain it — and even then the fit is ill-conditioned. Also: any single-tank W′bal
+   comparator in test 6 must have **its own `τ_W′` fit to the same data**, or the dual-tank wins
+   trivially by having more recovery freedom and the win means nothing.
+
+### 6.8 First empirical results (v0.5) — usefulness, on real rides
+
+Three reviews converged on the point that the paper validated *plausibility* but never the two cheap,
+data-in-hand questions that decide whether the feature is worth building. Both were run on six real
+interval/VO₂max sessions (the model's best case — a steady endurance ride would score far lower):
+
+- **How often is the PCr bar informative?** The bar carries information beyond single-tank W′bal only
+  when the PCr tank is not full. Across the six rides, **`R_p` is below 95% for ~45% of ride time
+  (range 20–79%)** — well above the ~3% ("curiosity") and ~20% ("real") thresholds a reviewer proposed.
+  On interval sessions the second bar is live nearly half the time. *(Caveat: these are hard interval
+  files; on a steady endurance ride PCr is full most of the time and the figure would be small.)*
+- **Does the depletion machinery change the display, vs the recovery-only null model?** Running the full
+  model and the null (§7) on the same traces, the PCr bar diverges by a **mean of ~6 pts but up to
+  ~25–60 pts**, with the maxima at the **starts of recovery valleys** — right after attacks, the
+  decision-relevant window. That is well above the ~5-pt "a rider could act on it" threshold, so **on
+  interval sessions the caps earn their keep**: they set the post-effort PCr level the recovery law then
+  acts on, and a null model would read materially differently exactly when it matters. This is the first
+  evidence that the depletion-side machinery is not merely inert plumbing — though only in the maximal
+  regime (§7 discusses where it is, and is not, doing work).
+
+Neither result validates the *compartments* (that is §6.6, and at the compartment level unfalsifiable
+in-modality — §6.5, §8). They answer a narrower, real question — *is the two-bar display worth showing,
+and does the model's complexity change what it shows* — with data instead of assertion, and the answers
+are yes and yes, for interval training.
 
 ---
 
 ## 7. Assumptions and limitations
 
-- **The PCr/glycolytic split `f_p` is assumed, but now corroborated by two independent lines.** Power
-  alone cannot identify the depletion split (§4.2). We default to **0.25** from physiological
-  alactic-fraction estimates (~0.20–0.30 of anaerobic ATP capacity; di Prampero & Ferretti 1999,
-  Bangsbo 1990 ~20%); and with the reconstitution recovery power now known (20 W; §4.1a) the
-  reconstitution curve *also* implies `f_p ≈ 0.20–0.25`. The supported band is ~0.20–0.25 — still a
-  per-athlete calibration target, and outputs are sensitive to it, but no longer resting on a single
-  citation.
+- **The PCr/glycolytic split `f_p` is assumed (physiology), and *consistent with* — not corroborated
+  by — the recovery data.** Power cannot identify the depletion split (§4.2). We default to **0.25** from
+  physiological alactic-fraction estimates (~0.20–0.30; di Prampero & Ferretti 1999, Bangsbo 1990 ~20%).
+  The reconstitution curve constrains a `(f_p, τ_g)` ridge, not `f_p`, and physiology is what selects
+  `f_p` on it (§4.1a) — so the two "lines" are not independent, and the recovery data alone would prefer
+  ~0.20. Supported band ~0.20–0.25; a per-athlete target; outputs are sensitive to it.
 - **The reserves are a decomposition, not latent state.** The two bars are a physiologically-motivated
   split of one measured quantity (W′bal), not two independently measured reserves. When the PCr tank is
   full — which, given `τ_p ≈ 27 s`, is most of the time except the ~30–60 s after a hard effort — the
@@ -518,33 +578,59 @@ the one test that would actually earn the second tank.
   scrupulous about the assumed *recovery* constants and silent about this equally load-bearing
   *depletion* one. It should be sanity-checked against literature PCr depletion half-times, not left to
   fall out of `f_p`, `W′`, and a 1 s sprint power.
-- **`τ_g` is now calibrated (confound resolved); `τ_off` remains assumed.** The reconstitution source
-  (Ferguson et al. 2010) recovered at ~20 W, so `τ_g ≈ 520` is the correct passive-rest reading, not a
-  2× overshoot (§4.1a, §6.3c). `τ_off = τ_on` is still an assumption — Parolin measured activation, not
-  de-activation (§4.2) — and remains the load-bearing one for repeated-sprint behaviour.
+- **`τ_g` is calibrated to ~470 (confound resolved); `τ_off` remains assumed.** Ferguson recovered at
+  ~20 W (gate ≈ 0.90), so `τ_g ≈ 470` — not 520, and not the 260 a soft-pedal recovery would have implied
+  (§4.1a). `τ_off = τ_on` is still an assumption (Parolin measured activation, not de-activation; §4.2)
+  and, per Reviewer 2, it is the *only* parameter carrying the depletion-phase novelty: since both bars
+  are affine in W′bal in steady effort, the non-redundant depletion content is the activation-ramp
+  offset, which is a function of `τ_on` (measured) and `τ_off` (not).
 - **`LT1` should be measured, not derived from CP.** The `0.80·CP` fallback will be wrong for many
   riders (LT1 ranges ~65–85% of CP), and it gates whether the glycolytic tank recovers during tempo, so
   a bad value materially changes recovery estimates.
+- **Several small modeling choices are assumptions, flagged not defended.** The LT1 gate shape
+  (`(LT1−P)/LT1`, linear, vanishing just below LT1 — its slope depends on LT1's absolute value, and it
+  arguably switches off metabolite clearance too abruptly through the tempo band); lumping deficit
+  clearance and glycolytic-tank refill onto the *same* `τ_g`; and the spill order (unmet demand spills
+  to glycolytic before PCr). Each is a defensible default, none is derived — named here so a reader
+  weights them accordingly.
+- **The deficit `D` corrupts the display precisely at maximal effort.** When `D` is large the two bars
+  read slightly full; `D` grows when power exceeds the (possibly stale) `P_p_max` rate cap, and `P₁ₛ`
+  decays intra-ride with fatigue, so this recurs late in hard efforts — a display *failure mode*, not
+  just an accounting footnote. The field should surface a "recalibrate sprint power" hint when `D` grows
+  from full tanks (the `rate_limited` flag; §4.3).
+- **The product thesis — two bars → better pacing — is untested as a human-factors claim.** §6.8 shows
+  the bar is *informative* often enough to matter on interval sessions, but not that a rider *decides
+  better* with it. The minimum next step is a usability check (even n=1: race on it, log whether the
+  second bar changed a call) before the display's value is asserted, not just its informativeness.
 - **`C_p = 0` means the *usable* alactic store is spent, not that muscle PCr is zero.** Real PCr bottoms
   out around 20–40% of resting at exhaustion; `C_p` is the usable reserve above that floor, so `R_p = 0`
   on the display is "usable punch gone," not a muscle state that never occurs.
-- **The headline feature is hard to validate in-modality — and unvalidated.** 31P-MRS cannot be run
-  during real cycling (§6.5), depletion "fit-better" is guaranteed by construction, and the recovery
-  law (which carries 100% of the novel signal) has not been tested (§6.6). So, stated plainly: **as of
-  v0.4 there is no evidence, of any kind, that the second bar is more correct or more useful than
-  single-tank W′bal.** The case is entirely physiological and prospective. That is a legitimate v0.4
-  position, but it is the position.
-- **Does the depletion-side machinery earn its keep? (An open design question.)** Everything
-  decision-relevant — *punch back fast, dig back slow* — is a **recovery** phenomenon, and depletion is
-  single-tank by construction. So the obvious null model to beat is: **a single reserve that depletes
-  exactly as W′bal and recovers bi-exponentially** (fast `τ_p` + LT1-gated slow `τ_g`, split `f_p`).
-  That yields the same two bars in recovery, the same divergence from Skiba, and **none** of the rate
-  caps, spill logic, deficit, or guards — i.e. none of the machinery that generated three rounds of
-  bugs. What the caps buy is (a) a non-instantaneous `C_p` drain and a genuine CK-flux constraint, and
-  (b) per-system live consumption in watts (§4.3) — which is also the least identifiable, least
-  actionable output. The rate caps are not worthless, but the paper should either **justify them
-  against this null model or adopt it**; for a Connect IQ field, the null model may deliver the same
-  display for a fraction of the code.
+- **The compartments are unfalsifiable in-modality — permanently, not "not yet."** Two facts compound:
+  the depletion split is unidentifiable from power (§4.2), *and* 31P-MRS cannot be run during real
+  cycling (§6.5). Together these are not "untested" — they are "**no in-modality measurement, even in
+  principle, distinguishes the two-compartment model from a one-compartment model with the same
+  aggregate recovery.**" So for cycling the "two tanks" framing is *terminally* a heuristic: it can be
+  motivated, never confirmed in-modality. The only route to compartment-level evidence is
+  **cross-modality transfer** — measure `τ_p` by knee-extension 31P-MRS (where the magnet works) and
+  assume it transfers — which is itself a nameable, stress-testable assumption, unlike the current
+  no-path-at-all. On *correctness* vs single-tank W′bal there is still no evidence (that needs §6.6). On
+  *usefulness*, v0.5 adds the first real-ride evidence (§6.8): the bar is informative ~45% of interval-
+  ride time and the caps move it materially at decision points — necessary, not sufficient, for the
+  product thesis.
+- **Does the depletion-side machinery earn its keep? (Now answered, with data.)** The null model to
+  beat is **a single reserve that depletes exactly as W′bal and recovers bi-exponentially** (fast `τ_p`
+  + LT1-gated slow `τ_g`, split `f_p`) — the same two bars in recovery, none of the caps/spill/deficit/
+  guards. The answer, from §6.8: the caps **do** move the display on real interval sessions (up to
+  ~25–60 pts at recovery-valley starts), so they are not inert — but they earn their keep in **exactly
+  one regime, the maximal one**, where the tapered ceiling binds and produces the ~23% sprint residual
+  and the post-effort PCr level the recovery law then acts on. Everywhere the ceiling does *not* bind
+  the machinery is inert, and in particular **per-system live consumption (§4.3) is not a reading**:
+  when the ceiling is slack, `take_p = Δ·C_p/(C_p+C_g·g)` contains neither `R_p` nor `R_g` — it settles
+  to a fixed `Δ·f_p` / `Δ·(1−f_p)` split within ~20 s, i.e. it is *(power − CP) × a clock*, the power
+  meter rescaled. So: **keep the ceiling (scoped to sprint fidelity), and relabel per-system live
+  consumption as "modelled share," not a measurement** (or drop it). That is the answer to Reviewer 2's
+  S1, drawn from the model's own equations — not "adopt the null wholesale," but "keep the one part that
+  does work and stop claiming the parts that don't."
 - **Fixed time constants** ignore the documented pH-dependence and bout-to-bout slowing of PCr
   recovery unless the optional fatigue term is enabled.
 - **Hard CP boundary** omits the aerobic slow component and onset kinetics unless the optional
@@ -570,19 +656,20 @@ It generalizes W′bal in depletion and diverges from it — deliberately — in
 a Garmin head unit, and it surfaces a two-system decomposition — *punch left* and *dig left* — that is
 most informative in the transients where pacing decisions concentrate.
 
-The honest bottom line, stated rather than gestured at: **as of v0.4 there is no evidence, of any kind,
-that the two-bar decomposition beats single-tank W′bal.** Depletion is single-tank by construction; the
-split `f_p` is assumed, not measured; and 100% of the novel signal lives in a recovery law that has not
-been tested and cannot be validated in-modality (31P-MRS is unavailable in real cycling). The case is
-entirely physiological and prospective. Three review rounds have also surfaced a real fork (§7): a
-recovery-only null model may deliver the same display with a fraction of the machinery, and it is worth
-choosing between "ship the heuristic" and "re-architect PCr as a state variable" deliberately rather
-than by attrition. For a Connect IQ **data field**, the heuristic — with this revision's fixes — is the
-right call: buildable, honest, and already what §1/§7 describe. Two of the three round-3 open items are
-now **closed** by checking the primary sources (§4.1a): the reconstitution protocol recovered at ~20 W,
-so `τ_g = 520` is calibrated (not confounded), and the same curve corroborates `f_p ≈ 0.20–0.25`. What
-remains is the decisive **recovery-law head-to-head** (§6.6) — the test that would turn "physiologically
-plausible, and now consistent with the recovery data" into "validated."
+The honest bottom line, stated rather than gestured at: **there is still no evidence the two-bar
+decomposition is more *correct* than single-tank W′bal** (that needs §6.6, and at the compartment level
+is unfalsifiable in-modality even in principle — §6.5, §7). What v0.5 *does* add, for the first time, is
+**usefulness** evidence from real rides (§6.8): on interval sessions the PCr bar is informative ~45% of
+the time, and — answering the reviewers' null-model challenge with data — the depletion caps move the
+display by up to ~25–60 pts at the moments that matter, so they are not inert. That resolves the fork
+more precisely than "ship vs re-architect": **ship the heuristic, keep the ceiling scoped to sprint
+fidelity, and stop claiming the parts of the machinery the equations show are inert** (per-system live
+consumption is `(power − CP)` rescaled, not a reading — §7). The `τ_g` confound is closed (Ferguson at
+20 W ⇒ 470; §4.1a), and a genuine tension is now hosted rather than buried: Ferguson's *own* recovery
+components are ~4× slower than the model's while the aggregate fits, and Ferguson concludes the
+decomposition cannot be done — the strongest single datum in the paper, and it points at the model's
+premise. What remains decisive is the **recovery-law head-to-head** (§6.6). The physiological framing has
+run out of room; only that experiment can move this further.
 
 ---
 
@@ -595,7 +682,7 @@ and PMIDs. Primary sources for this paper:
 - Skiba PL et al. 2015 — differential W′bal. DOI 10.1249/MSS.0000000000000226.
 - Bartram J et al. 2018, *IJSPP* — elite τ_W′ recalibration. DOI 10.1123/ijspp.2017-0356.
 - Chorley A, Lamb K 2020, *Sports (Basel)* — CP/W′ reconstitution review (states the 37/65/86% figures were at "nominal 20 W" recovery). DOI 10.3390/sports8090123 (PMC7552657).
-- Ferguson C, Rossiter HB, Whipp BJ, Cathcart AJ, Murgatroyd SR, Ward SA 2010, *J Appl Physiol* — W′ reconstitution 37/65/86% at 2/6/15 min (half-time 234 s) at 20 W recovery; W′ recovery is *not* a unique function of PCr or lactate. PMID 20093659, DOI 10.1152/japplphysiol.91425.2008.
+- Ferguson C, Rossiter HB, Whipp BJ, Cathcart AJ, Murgatroyd SR, Ward SA 2010, *J Appl Physiol* 108(4):866–874 — W′ reconstitution 37/65/86% at 2/6/15 min (half-time 234 s) at 20 W recovery; component recovery channels VO₂ t½ 74 s and lactate t½ 1366 s; W′ recovery is *not* a unique function of PCr or lactate. PMID 20093659, DOI 10.1152/japplphysiol.91425.2008 (the `.2008` DOI stem is the submission year; the article is 2010).
 - Morton RH 1986, *J Math Biol* — three-component hydraulic model. DOI 10.1007/BF01236892.
 - Weigend F, Behncke, Skiba 2021 — hydraulic model & `three_comp_hyd`. arXiv 2104.07903 / 2108.04510.
 - Dynamic bioenergetic model, intermittent cycling, *Eur J Appl Physiol* 2023. PMID 37369795, DOI 10.1007/s00421-023-05256-7 (PMC10638188).
@@ -603,7 +690,7 @@ and PMIDs. Primary sources for this paper:
 - Harris RC et al. 1976 — biphasic PCr resynthesis. *Pflügers Arch*.
 - Yoshida et al. 2013, *Scand J Med Sci Sports* — τ_PCr by muscle. PMID 23662804, DOI 10.1111/sms.12081.
 - Parolin ML et al. 1999, *Am J Physiol Endocrinol Metab* — glycogen phosphorylase / PDH activation kinetics during maximal intermittent exercise (glycolytic activation over the first ~6 s). PMID 10567017, DOI 10.1152/ajpendo.1999.277.5.E890.
-- Bogdanis GC et al. 1996, *J Appl Physiol* — PCr and aerobic contribution during repeated sprints (PCr near-fully used in first 10 s). PMID 8964751, DOI 10.1152/jappl.1996.80.3.876.
+- Bogdanis GC et al. 1996, *J Appl Physiol* — PCr and aerobic contribution during repeated sprints (fresh 30 s sprint → PCr ≈ 17%; the 'near-full by 10 s' figure is *sprint 2*, from 78.7% recovered). PMID 8964751, DOI 10.1152/jappl.1996.80.3.876.
 - González‑Alonso J et al. 2000, *J Physiol* — heat production at exercise onset; PCr + glycogenolysis initially provide most energy. PMID 10766936, DOI 10.1111/j.1469-7793.2000.00603.x.
 - Bangsbo J et al. 1990, *J Physiol* — anaerobic energy production and O₂ deficit during exhaustive exercise. PMID 2352192, DOI 10.1113/jphysiol.1990.sp018000.
 
