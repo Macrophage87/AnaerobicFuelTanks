@@ -58,6 +58,8 @@ AnaerobicFuelTanks/
 ├─ docs/                                   research & design
 │  ├─ literature-review-anaerobic-models.md    survey of the modeling literature (+ .pdf)
 │  ├─ white-paper-dual-tank-anaerobic-model.md the proposed dual-tank model (+ .pdf)
+│  ├─ dual-tank-anaerobic-model-journal.tex    standalone journal-format manuscript (LaTeX)
+│  ├─ llm-calibration-context.md               paste-to-an-LLM brief for setting parameters
 │  └─ connectiq-app-spec-and-prompt.md         app spec + ready-to-use build prompt (+ .pdf)
 ├─ connectiq/                              the Garmin Connect IQ app
 │  ├─ source/            Monkey C: model + rendering + FIT recording
@@ -71,7 +73,8 @@ AnaerobicFuelTanks/
 
 ## Setting your parameters
 
-There are two ways to get the ten numbers the data field needs.
+There are two ways to set the field's twelve parameters (ten that materially affect it — `eta` is a
+deprecated identity and `gFat` is an optional off-by-default term).
 
 ### Method 1 — Work with an LLM (recommended, and best for ongoing tuning)
 
@@ -81,58 +84,70 @@ actually constrains, and — as you feed it more workouts over time — **refine
 after a breakthrough effort, pin down recovery once you do a glycolytic-depleting session, etc.).
 This is the most flexible option because the reasoning adapts to whatever data you have.
 
+The full, self-contained brief lives in
+[`docs/llm-calibration-context.md`](docs/llm-calibration-context.md) — **paste that whole file** to the
+LLM with your data. It mirrors the current model (parameters, estimation guidance, and the depletion /
+recovery rules), so keep sharing that file rather than the summary below.
+
 <details>
 <summary><b>Context to paste to the LLM (with your FIT files)</b></summary>
 
-> I use the AnaerobicFuelTanks Connect IQ data field — it models two anaerobic "tanks" from power,
-> **PCr** (fast, small) and **glycolytic** (slow, large). Help me set/refine these 10 settings from
-> my data. Flag anything my data can't constrain instead of guessing.
+> I use the AnaerobicFuelTanks Connect IQ data field — it models two anaerobic reserves from power, a
+> **fast reserve** ("PCr", small) and a **slow reserve** ("glycolytic", large). Both are compartments of
+> **W′**, named for their dominant system — a full "PCr bar" means the fast *W′* reserve is back, not that
+> muscle phosphocreatine has resynthesised (W′ recovers ~4× faster than the metabolites). Help me set/refine
+> the twelve settings from my data; flag anything my data can't constrain instead of guessing.
 >
 > **Parameters — key = meaning [default, typical range, unit]:**
-> - `CP` = critical power [255, from test, W]
-> - `Wprime` = anaerobic work capacity above CP [20000, 10k–30k, J]
-> - `pPmax` = max PCr power above CP [300, W]
-> - `fP` = PCr share of Wprime [0.35, 0.30–0.45]
-> - `tauP` = PCr recovery time constant [22, 15–35, s]
-> - `tauG` = glycolytic recovery time constant [360, 240–600, s]
-> - `lt1Frac` = fraction of CP below which glycolytic refills [0.80, 0.70–0.85]
-> - `eta` = PCr recovery efficiency [0.80, 0.60–1.0]
-> - `fatK` = fatigue slowing of PCr recovery [0.75, 0–1.5]
+> - `CP` = critical power [250, from test, W]
+> - `Wprime` = anaerobic work capacity above CP (W′) [20000, 10k–30k, J]
+> - `pPmax` = fast-reserve peak power above CP, full tank [300, ≈ best 1 s power − CP, W]
+> - `fP` = fast-reserve share of W′ [0.25, 0.20–0.25] — **assumed**, weakly identifiable
+> - `tauP` = fast-reserve recovery constant [27, 20–40, s] — a **W′-recovery** constant, not muscle PCr
+> - `tauG` = slow-reserve recovery constant [470, 300–600, s]
+> - `lt1Frac` = LT1 as a fraction of CP; anchors the recovery-rate band [0.80, 0.65–0.85]
+> - `eta` = **deprecated** identity — leave at 1.0
+> - `fatK` = slows fast-reserve recovery as the slow reserve empties [0.75, 0–1.5]
+> - `gFat` = **optional** glycolytic flux-fatigue exponent, **off by default** [0.0, 0–1.5]
 > - `tauAer` = aerobic onset time constant [25, 15–40, s]
+> - `tauOn` = glycolytic activation time constant [6, ~6, s] — literature-set, not power-identifiable
 >
 > **How to estimate each:**
-> - `CP`, `Wprime`: from maximal efforts spanning ~2–12 min (linear model `W = CP·t + Wprime`), or
->   from intervals.icu's CP/W′. A single maximal effort can set *only* these two.
-> - `pPmax`: best ~5 s sprint power minus CP (or a modelled Pmax − CP).
-> - `fP`, `tauP`, `eta`: need **repeated** near-maximal efforts with recovery between; anchor the
->   moments I was maximal/cracked (final sprint, the attack I couldn't follow, getting dropped).
-> - `tauG`, `fatK`: **only** identifiable from a workout that actually **depleted glycolytic** —
->   repeated hard 1–3 min efforts on short rest (or short sprints on very short rest). If no session
->   emptied glycolytic, keep the defaults.
+> - `CP`, `Wprime`: from maximal efforts spanning ~2–12 min (`W = CP·t + Wprime`), or intervals.icu CP/W′.
+>   A single maximal effort obeys `t_lim = Wprime/(P − CP)` and sets *only* these two.
+> - `pPmax`: best ~1–5 s sprint power minus CP (upper bound).
+> - `fP`: **assumed ~0.25; not a routine fit target** — power can't identify the split. Keep the default
+>   unless I have repeated all-out efforts with early recovery sampling.
+> - `tauP`: a W′-recovery constant (~27 s); do **not** recalibrate it toward muscle-PCr biopsy values.
+> - `tauG`, `fatK`: **only** identifiable from a workout that actually **depleted the slow reserve** —
+>   repeated hard 1–3 min efforts on short rest. If none did, keep the defaults.
 > - `lt1Frac`: from a lactate/threshold test or intervals.icu LT1 (≈ LT1 ÷ CP).
-> - `tauAer`: aerobic onset; leave near default unless you have onset kinetics.
+> - `eta`: deprecated — leave 1.0. `gFat`: leave 0 for normal use. `tauAer`, `tauOn`: leave near default.
 >
 > **Model rules to respect when reasoning about my rides:**
-> - Below CP the aerobic system covers demand → **no PCr draw below CP**. Above CP: PCr supplies
->   first (capped at `pPmax`), glycolytic covers any overflow.
-> - Glycolytic drains while PCr is still full **only** when power exceeds ~`CP + pPmax`; otherwise
->   PCr carries the load until it empties, then glycolytic takes over.
-> - A single all-out effort obeys `t_lim = Wprime/(P − CP)` → gives only `CP` and `Wprime`.
+> - **Below CP:** no anaerobic draw. The fast reserve refills with `tauP` but **gated by oxidative
+>   headroom** `(CP − P)/CP` — ~27 s stopped, but 100–500 s while pedalling. The slow reserve and the
+>   deficit recover whenever `P < CP` at an **intensity-dependent rate** (fast at low power, slowing through
+>   the tempo band; `lt1Frac` anchors the band) — **not** a hard on/off at LT1.
+> - **Above CP:** both systems draw **in parallel**. Glycolysis **ramps in** over ~`tauOn` s, so at onset
+>   the fast reserve covers almost everything. The **share** is **capacity-weighted**, so on a steady hard
+>   effort both reserves empty together at exhaustion. A separate **rate ceiling** (fast-reserve ceiling
+>   tapers with fullness) governs **maximal** efforts. Unmet demand banks as a deficit.
+> - If I completed an effort the params call impossible (a reserve goes deeply negative), raise `Wprime` or
+>   speed recovery; if I was maximal but the model shows lots left, lower them.
 >
 > **Iterating over time:** each time I share new workouts, tell me which parameters the new data
-> constrains, revise those, leave the rest. If I completed an effort the current params say is
-> impossible (reserve would go negative), raise `Wprime` or speed recovery; if I was maximal but the
-> model shows lots left, lower them.
+> constrains, revise those, leave the rest at default.
 >
-> **Output:** the 10 settings ready to paste into the field, marking which are well-constrained vs
-> still default/uncertain.
+> **Output:** the twelve settings ready to paste into the field, marking which are well-constrained vs
+> still default/uncertain (note `eta` deprecated at 1.0, `gFat` optional at 0).
 
 </details>
 
 ### Method 2 — The Shiny calibration app
 
 `tools/calibrate/` is an R Shiny app that reads your `.FIT` files and estimates the same parameters
-(`CP`, `W′`, `pPmax`, and — where the data allows — `fP`, `tauP`, `tauG`, `eta`), flagging anything
+(`CP`, `W′`, `pPmax`, and — where the data allows — `fP`, `tauP`, `tauG`), flagging anything
 weakly constrained. It exports the settings as JSON/YAML and a PDF report and tracks your values
 over time. Good for **initial** parameters, or if you'd rather not work with an LLM. See
 [`tools/calibrate/README.md`](tools/calibrate/README.md).
@@ -163,7 +178,8 @@ cd connectiq
 ```
 
 See [`connectiq/README.md`](connectiq/README.md) for the developer-key steps, settings
-(`CP`, `Wprime`, `fP`, τ's, `fatK`, `tauAer`), simulator testing, and per-layout screenshots.
+(`CP`, `Wprime`, `fP`, `pPmax`, the τ's incl. `tauOn`, `lt1Frac`, `fatK`, optional `gFat`, `tauAer`;
+`eta` deprecated), simulator testing, and per-layout screenshots.
 
 ---
 
@@ -173,6 +189,8 @@ See [`connectiq/README.md`](connectiq/README.md) for the developer-key steps, se
 |---|---|
 | [Literature review](docs/literature-review-anaerobic-models.md) | Survey of anaerobic-metabolism models (CP/W′bal, Margaria–Morton hydraulic, bioenergetic ODEs) with an annotated, DOI/PMID-linked bibliography |
 | [White paper](docs/white-paper-dual-tank-anaerobic-model.md) | The reduced dual-tank model: state, depletion & restoration laws, on-device implementation, validation strategy, limitations |
+| [Journal manuscript](docs/dual-tank-anaerobic-model-journal.tex) | Standalone, journal-formatted LaTeX rebuild of the white paper (Vancouver citations, cross-linked); compile with `pdflatex` (×3) |
+| [LLM calibration context](docs/llm-calibration-context.md) | Paste-to-an-LLM brief for setting/refining the field's parameters from your FIT files |
 | [Connect IQ spec](docs/connectiq-app-spec-and-prompt.md) | Field/UI/FIT specification and a copy-paste build prompt |
 
 PDF renderings of each sit alongside the Markdown in `docs/`.
