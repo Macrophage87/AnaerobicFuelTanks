@@ -34,8 +34,8 @@ when your data constrains them.
 |---|---|---|---|---|
 | `CP` | critical power | 250 | from test | W |
 | `Wprime` | anaerobic work capacity above CP (W′) | 20000 | 10k–30k | J |
-| `pPmax` | fast-reserve peak power above CP, at a full tank | 300 | — | W; ≈ best 1 s power − CP |
 | `fP` | fast-reserve share of W′ | 0.25 | 0.20–0.25 | **assumed**, weakly identifiable |
+| `pPmax` | fast-reserve peak power above CP, at a full tank | 300 | — | W; ≈ best 1 s power − CP |
 | `tauP` | fast-reserve recovery time constant | 27 | 20–40 | s; a **W′-recovery** constant, not muscle PCr |
 | `tauG` | slow-reserve recovery time constant | 470 | 300–600 | s |
 | `lt1Frac` | LT1 as a fraction of CP; sets the recovery-rate band | 0.80 | 0.65–0.85 | prefer a measured LT1 |
@@ -55,11 +55,11 @@ falls out of these and is equally assumed.
 - **`CP`, `Wprime`** — from maximal efforts spanning ~2–12 min (linear model `W = CP·t + Wprime`), or from
   intervals.icu's CP/W′. A single maximal effort obeys `t_lim = Wprime/(P − CP)` and can set **only** these
   two.
-- **`pPmax`** — best ~1–5 s sprint power minus CP (read as an upper bound: at 1 s glycolysis is already
-  ~15% active).
 - **`fP`** — **assumed ~0.25 (band 0.20–0.25); not a routine fit target.** Power cannot identify the
   depletion split; only repeated all-out efforts with *early* recovery sampling constrain it, and even then
   weakly. Keep the default unless you have that kind of data.
+- **`pPmax`** — best ~1–5 s sprint power minus CP (read as an upper bound: at 1 s glycolysis is already
+  ~15% active).
 - **`tauP`** — a **W′-recovery** constant, set from the W′-reconstitution curve (~27 s), *not* from muscle
   PCr. Do not "recalibrate to Bogdanis": W′ and muscle PCr do not share a time constant.
 - **`tauG`, `fatK`** — identifiable **only** from a workout that actually **depleted the slow reserve** —

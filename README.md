@@ -101,8 +101,8 @@ recovery rules), so keep sharing that file rather than the summary below.
 > **Parameters — key = meaning [default, typical range, unit]:**
 > - `CP` = critical power [250, from test, W]
 > - `Wprime` = anaerobic work capacity above CP (W′) [20000, 10k–30k, J]
-> - `pPmax` = fast-reserve peak power above CP, full tank [300, ≈ best 1 s power − CP, W]
 > - `fP` = fast-reserve share of W′ [0.25, 0.20–0.25] — **assumed**, weakly identifiable
+> - `pPmax` = fast-reserve peak power above CP, full tank [300, ≈ best 1 s power − CP, W]
 > - `tauP` = fast-reserve recovery constant [27, 20–40, s] — a **W′-recovery** constant, not muscle PCr
 > - `tauG` = slow-reserve recovery constant [470, 300–600, s]
 > - `lt1Frac` = LT1 as a fraction of CP; anchors the recovery-rate band [0.80, 0.65–0.85]
@@ -115,9 +115,9 @@ recovery rules), so keep sharing that file rather than the summary below.
 > **How to estimate each:**
 > - `CP`, `Wprime`: from maximal efforts spanning ~2–12 min (`W = CP·t + Wprime`), or intervals.icu CP/W′.
 >   A single maximal effort obeys `t_lim = Wprime/(P − CP)` and sets *only* these two.
-> - `pPmax`: best ~1–5 s sprint power minus CP (upper bound).
 > - `fP`: **assumed ~0.25; not a routine fit target** — power can't identify the split. Keep the default
 >   unless I have repeated all-out efforts with early recovery sampling.
+> - `pPmax`: best ~1–5 s sprint power minus CP (upper bound).
 > - `tauP`: a W′-recovery constant (~27 s); do **not** recalibrate it toward muscle-PCr biopsy values.
 > - `tauG`, `fatK`: **only** identifiable from a workout that actually **depleted the slow reserve** —
 >   repeated hard 1–3 min efforts on short rest. If none did, keep the defaults.
