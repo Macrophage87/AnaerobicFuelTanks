@@ -163,10 +163,10 @@ A custom **data field** (`connectiq/`) that reads `Activity.Info.currentPower` o
 
 - runs the dual-tank model (aerobic ramp, fatigue-slowed PCr recovery, pause/resume rest recovery);
 - draws two tanks — **dull** when idle, **bright** when draining, **red flash** when spent — labelled
-  with the **raw reserve in kJ** (divide by tank capacity for %); the bar fill still shows the fraction;
-- **records to the FIT file**: per-second `PCr_pct` / `GLY_pct` reserve streams (+ live consumption),
-  and per-ride `PCr_depleted_kJ` / `GLY_depleted_kJ` session totals, which sync to Garmin Connect →
-  intervals.icu / Strava;
+  on-screen with the reserve **%**;
+- **records to the FIT file**: per-second `PCr_J` / `GLY_J` reserve streams **in joules** (raw energy
+  remaining — divide by tank capacity for %) plus live consumption, and per-ride `PCr_depleted_kJ` /
+  `GLY_depleted_kJ` session totals, which sync to Garmin Connect → intervals.icu / Strava;
 - **adapts its layout** to the data-field cell — **vertical tanks are the standard look on most layouts**:
   - large single field → vertical tanks + a depletion & fatigue summary,
   - any field tall enough → two vertical tanks side by side (the default),

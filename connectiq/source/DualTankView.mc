@@ -44,8 +44,9 @@ using Toybox.Lang;
 //   short & wide strip (w>=2h): two HORIZONTAL bars SIDE BY SIDE;
 //   short strip: two HORIZONTAL bars STACKED.
 //   The large single field's summary panel shows per-system depleted kJ and a fatigue level.
-// Tank value labels show the RAW reserve in kJ (divide by capacity for %).
-//   Foreground color adapts to background luminance, so it reads on light and dark themes.
+// On-screen tank labels show reserve % ; the raw reserve in JOULES is written to the FIT
+//   file (PCr_J / GLY_J record streams). Foreground color adapts to background luminance,
+//   so it reads on light and dark themes.
 //
 // Implements the model in docs/white-paper-dual-tank-anaerobic-model.md.
 //
@@ -66,8 +67,8 @@ class DualTankView extends WatchUi.DataField {
     const COL_RED        = 0xFF0000;  // depleted, flashing
 
     // ---- FIT field ids ----
-    const FID_PCR_PCT  = 0;
-    const FID_GLY_PCT  = 1;
+    const FID_PCR_J  = 0;
+    const FID_GLY_J  = 1;
     const FID_PCR_CONS = 2;
     const FID_GLY_CONS = 3;
     const FID_PCR_KJ   = 4;
@@ -104,7 +105,7 @@ class DualTankView extends WatchUi.DataField {
     hidden var mPaused;         // timer paused/stopped
     hidden var mPauseAt;        // unix seconds when the pause began
     // ---- FIT fields ----
-    hidden var mFPcrPct, mFGlyPct, mFPcrCons, mFGlyCons, mFPcrKj, mFGlyKj;
+    hidden var mFPcrJ, mFGlyJ, mFPcrCons, mFGlyCons, mFPcrKj, mFGlyKj;
     // ---- Draw resources ----
     hidden var mFontLabel, mFontValue, mFontSmall;
 
@@ -134,10 +135,11 @@ class DualTankView extends WatchUi.DataField {
         mFontSmall = Graphics.FONT_XTINY;
 
         // Per-second record streams
-        mFPcrPct  = createField("PCr_pct",  FID_PCR_PCT,  FitContributor.DATA_TYPE_FLOAT,
-            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "%" });
-        mFGlyPct  = createField("GLY_pct",  FID_GLY_PCT,  FitContributor.DATA_TYPE_FLOAT,
-            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "%" });
+        // Reserve energy remaining per tank, in joules (raw; divide by tank capacity for %)
+        mFPcrJ  = createField("PCr_J",  FID_PCR_J,  FitContributor.DATA_TYPE_FLOAT,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "J" });
+        mFGlyJ  = createField("GLY_J",  FID_GLY_J,  FitContributor.DATA_TYPE_FLOAT,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "J" });
         mFPcrCons = createField("PCr_cons", FID_PCR_CONS, FitContributor.DATA_TYPE_SINT16,
             { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "W" });
         mFGlyCons = createField("GLY_cons", FID_GLY_CONS, FitContributor.DATA_TYPE_SINT16,
@@ -148,8 +150,8 @@ class DualTankView extends WatchUi.DataField {
         mFGlyKj   = createField("GLY_depleted_kJ", FID_GLY_KJ, FitContributor.DATA_TYPE_FLOAT,
             { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "kJ" });
 
-        mFPcrPct.setData(100.0);
-        mFGlyPct.setData(100.0);
+        mFPcrJ.setData(mRP);
+        mFGlyJ.setData(mRG);
         mFPcrCons.setData(0);
         mFGlyCons.setData(0);
         mFPcrKj.setData(0.0);
@@ -330,8 +332,8 @@ class DualTankView extends WatchUi.DataField {
         if (mPaused) {
             mConsP = 0.0;
             mConsG = 0.0;
-            mFPcrPct.setData(100.0 * mRP / mCapP);
-            mFGlyPct.setData(100.0 * mRG / mCapG);
+            mFPcrJ.setData(mRP);
+            mFGlyJ.setData(mRG);
             mFPcrCons.setData(0);
             mFGlyCons.setData(0);
             return 100.0 * mRP / mCapP;
@@ -482,9 +484,9 @@ class DualTankView extends WatchUi.DataField {
 
         var pctP = 100.0 * mRP / mCapP;
 
-        // FIT: per-second reserve streams + live consumption
-        mFPcrPct.setData(pctP);
-        mFGlyPct.setData(100.0 * mRG / mCapG);
+        // FIT: per-second reserve streams (joules remaining) + live consumption
+        mFPcrJ.setData(mRP);
+        mFGlyJ.setData(mRG);
         mFPcrCons.setData(mConsP.toNumber());
         mFGlyCons.setData(mConsG.toNumber());
         // FIT: running session totals (kJ) — SDK keeps last value as summary
@@ -573,11 +575,11 @@ class DualTankView extends WatchUi.DataField {
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
         dc.drawText(pad, y + barH / 2, mFontLabel, "PCr",
             Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.drawText(halfW, y + barH / 2, mFontValue, fmtJ(mRP),
+        dc.drawText(halfW, y + barH / 2, mFontValue, fmtPct(pctP),
             Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
         dc.drawText(rx, y + barH / 2, mFontLabel, "GLY",
             Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.drawText(w - pad, y + barH / 2, mFontValue, fmtJ(mRG),
+        dc.drawText(w - pad, y + barH / 2, mFontValue, fmtPct(pctG),
             Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
     }
 
@@ -603,9 +605,9 @@ class DualTankView extends WatchUi.DataField {
             Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
         dc.drawText(pad, yBot + barH / 2, mFontLabel, "GLY",
             Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.drawText(w - pad, yTop + barH / 2, mFontValue, fmtJ(mRP),
+        dc.drawText(w - pad, yTop + barH / 2, mFontValue, fmtPct(pctP),
             Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.drawText(w - pad, yBot + barH / 2, mFontValue, fmtJ(mRG),
+        dc.drawText(w - pad, yBot + barH / 2, mFontValue, fmtPct(pctG),
             Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
     }
 
@@ -630,8 +632,8 @@ class DualTankView extends WatchUi.DataField {
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
         dc.drawText(lx + colW / 2, y0 + pad, mFontLabel, "PCr", Graphics.TEXT_JUSTIFY_CENTER);
         dc.drawText(rx + colW / 2, y0 + pad, mFontLabel, "GLY", Graphics.TEXT_JUSTIFY_CENTER);
-        dc.drawText(lx + colW / 2, barBot, mFontValue, fmtJ(mRP), Graphics.TEXT_JUSTIFY_CENTER);
-        dc.drawText(rx + colW / 2, barBot, mFontValue, fmtJ(mRG), Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(lx + colW / 2, barBot, mFontValue, fmtPct(pctP), Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(rx + colW / 2, barBot, mFontValue, fmtPct(pctG), Graphics.TEXT_JUSTIFY_CENTER);
     }
 
     // --- square/tall slot: two vertical bars filling the whole field ---
@@ -676,12 +678,10 @@ class DualTankView extends WatchUi.DataField {
             "Fatigue " + fatiguePct().toNumber().toString() + "%", ctr);
     }
 
-    // Tank value label: RAW reserve energy in kilojoules (not %). Divide by the tank
-    // capacity (C_p / C_g) to get the fill fraction; the bar itself still shows that
-    // fraction, while the number gives the underlying joules.
-    hidden function fmtJ(v) {
-        if (v < 0.0) { v = 0.0; }
-        return (v / 1000.0).format("%.1f") + "kJ";
+    // Tank value label shown on-screen: reserve as a percentage of tank capacity.
+    // (The raw reserve in joules is written to the FIT file — PCr_J / GLY_J.)
+    hidden function fmtPct(v) {
+        return v.toNumber().toString() + "%";
     }
 
     // pick fill color by state; returns null when the depleted "off" flash frame

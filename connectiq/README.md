@@ -6,10 +6,10 @@ anaerobic energy systems live from cycling power:
 - **PCr (phosphocreatine / alactic)** — purple bar, "how much punch is left"
 - **GLY (glycolytic / lactic)** — green bar, "how much sustained dig is left"
 
-Each tank fills with the reserve fraction and is labelled with the **raw reserve in kJ** (divide by
-the tank's capacity for %); it is **dull** when idle/recovering, **bright** when that system is
-actively being drained, and turns **solid red and flashes** when the tank empties. The bars have
-rounded, tank-like ends.
+Each tank fills with the reserve fraction and is labelled on-screen with the reserve **%**; it is
+**dull** when idle/recovering, **bright** when that system is actively being drained, and turns
+**solid red and flashes** when the tank empties. The bars have rounded, tank-like ends. (The raw
+reserve in joules is written to the FIT file — see below.)
 It implements the reduced dual-tank model in
 [`../docs/white-paper-dual-tank-anaerobic-model.md`](../docs/white-paper-dual-tank-anaerobic-model.md);
 the full field/UI/FIT spec is in
@@ -17,7 +17,7 @@ the full field/UI/FIT spec is in
 
 ## What it records to the FIT file
 
-- **Per second (record stream):** `PCr_pct`, `GLY_pct` (reserve %), plus `PCr_cons`, `GLY_cons` (live W).
+- **Per second (record stream):** `PCr_J`, `GLY_J` (reserve energy remaining, **joules**), plus `PCr_cons`, `GLY_cons` (live W).
 - **Per ride (session summary):** `PCr_depleted_kJ`, `GLY_depleted_kJ` — total energy drawn from each
   system over the ride. These sync to Garmin Connect and flow on to intervals.icu / Strava.
 
