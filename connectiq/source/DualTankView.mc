@@ -37,12 +37,14 @@ using Toybox.Lang;
 //   in closed form for the entire elapsed pause (rest recovery), with no depletion
 //   accumulated during the pause.
 //
-// RENDERING: the layout adapts to the field's aspect ratio —
-//   very wide (w >= 3h): two HORIZONTAL bars SIDE BY SIDE (half width each);
-//   wide/short (1.5h <= w < 3h): two HORIZONTAL bars STACKED;
-//   large portrait single field (w>=200 & h>=240): VERTICAL tanks on top + a summary
-//     panel below (per-system depleted kJ and a fatigue level);
-//   otherwise square/tall (e.g. a 1x2 cell): two VERTICAL bars SIDE BY SIDE.
+// RENDERING: VERTICAL tanks are the standard look; the layout only falls back to
+//   horizontal bars for a short strip too thin for a legible vertical bar —
+//   large single field (w>=200 & h>=240): VERTICAL tanks on top + a summary;
+//   any field tall enough (h>=74): two VERTICAL tanks side by side (the default);
+//   short & wide strip (w>=2h): two HORIZONTAL bars SIDE BY SIDE;
+//   short strip: two HORIZONTAL bars STACKED.
+//   The large single field's summary panel shows per-system depleted kJ and a fatigue level.
+// Tank value labels show the RAW reserve in kJ (divide by capacity for %).
 //   Foreground color adapts to background luminance, so it reads on light and dark themes.
 //
 // Implements the model in docs/white-paper-dual-tank-anaerobic-model.md.
@@ -528,19 +530,20 @@ class DualTankView extends WatchUi.DataField {
         var pctP = 100.0 * mRP / mCapP;
         var pctG = 100.0 * mRG / mCapG;
 
-        // Layout by aspect ratio / size:
-        //   very wide (w >= 3h): two horizontal bars SIDE BY SIDE (half width each)
-        //   wide/short (1.5h <= w < 3h): two horizontal bars STACKED
-        //   large portrait single field (w>=200, h>=240): vertical tanks + summary stats
-        //   otherwise square/tall (e.g. a 1x2 cell): two VERTICAL bars side by side
-        if (w >= h * 3) {
-            drawHorizontalPair(dc, w, h, fg, pctP, pctG);
-        } else if (w * 2 >= h * 3) {
-            drawHorizontal(dc, w, h, fg, pctP, pctG);
-        } else if (w >= 200 && h >= 240) {
+        // VERTICAL tanks are the standard look on most layouts; only a genuinely short
+        // strip (too short for a legible vertical bar) falls back to horizontal bars:
+        //   large single field (w>=200, h>=240): vertical tanks on top + summary stats
+        //   any field tall enough (h>=74): two VERTICAL tanks side by side  <-- default
+        //   short & wide strip (w>=2h): two HORIZONTAL bars side by side
+        //   short strip: two HORIZONTAL bars stacked
+        if (w >= 200 && h >= 240) {
             drawFull(dc, w, h, fg, pctP, pctG);
-        } else {
+        } else if (h >= 74) {
             drawVertical(dc, w, h, fg, pctP, pctG);
+        } else if (w >= h * 2) {
+            drawHorizontalPair(dc, w, h, fg, pctP, pctG);
+        } else {
+            drawHorizontal(dc, w, h, fg, pctP, pctG);
         }
     }
 
@@ -570,11 +573,11 @@ class DualTankView extends WatchUi.DataField {
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
         dc.drawText(pad, y + barH / 2, mFontLabel, "PCr",
             Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.drawText(halfW, y + barH / 2, mFontValue, fmtPct(pctP),
+        dc.drawText(halfW, y + barH / 2, mFontValue, fmtJ(mRP),
             Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
         dc.drawText(rx, y + barH / 2, mFontLabel, "GLY",
             Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.drawText(w - pad, y + barH / 2, mFontValue, fmtPct(pctG),
+        dc.drawText(w - pad, y + barH / 2, mFontValue, fmtJ(mRG),
             Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
     }
 
@@ -600,9 +603,9 @@ class DualTankView extends WatchUi.DataField {
             Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
         dc.drawText(pad, yBot + barH / 2, mFontLabel, "GLY",
             Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.drawText(w - pad, yTop + barH / 2, mFontValue, fmtPct(pctP),
+        dc.drawText(w - pad, yTop + barH / 2, mFontValue, fmtJ(mRP),
             Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.drawText(w - pad, yBot + barH / 2, mFontValue, fmtPct(pctG),
+        dc.drawText(w - pad, yBot + barH / 2, mFontValue, fmtJ(mRG),
             Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
     }
 
@@ -627,8 +630,8 @@ class DualTankView extends WatchUi.DataField {
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
         dc.drawText(lx + colW / 2, y0 + pad, mFontLabel, "PCr", Graphics.TEXT_JUSTIFY_CENTER);
         dc.drawText(rx + colW / 2, y0 + pad, mFontLabel, "GLY", Graphics.TEXT_JUSTIFY_CENTER);
-        dc.drawText(lx + colW / 2, barBot, mFontValue, fmtPct(pctP), Graphics.TEXT_JUSTIFY_CENTER);
-        dc.drawText(rx + colW / 2, barBot, mFontValue, fmtPct(pctG), Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(lx + colW / 2, barBot, mFontValue, fmtJ(mRP), Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(rx + colW / 2, barBot, mFontValue, fmtJ(mRG), Graphics.TEXT_JUSTIFY_CENTER);
     }
 
     // --- square/tall slot: two vertical bars filling the whole field ---
@@ -673,8 +676,12 @@ class DualTankView extends WatchUi.DataField {
             "Fatigue " + fatiguePct().toNumber().toString() + "%", ctr);
     }
 
-    hidden function fmtPct(v) {
-        return v.toNumber().toString() + "%";
+    // Tank value label: RAW reserve energy in kilojoules (not %). Divide by the tank
+    // capacity (C_p / C_g) to get the fill fraction; the bar itself still shows that
+    // fraction, while the number gives the underlying joules.
+    hidden function fmtJ(v) {
+        if (v < 0.0) { v = 0.0; }
+        return (v / 1000.0).format("%.1f") + "kJ";
     }
 
     // pick fill color by state; returns null when the depleted "off" flash frame

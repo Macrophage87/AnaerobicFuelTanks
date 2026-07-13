@@ -6,8 +6,10 @@ anaerobic energy systems live from cycling power:
 - **PCr (phosphocreatine / alactic)** — purple bar, "how much punch is left"
 - **GLY (glycolytic / lactic)** — green bar, "how much sustained dig is left"
 
-Each bar fills left→right with the reserve %, is **dull** when idle/recovering, **bright** when
-that system is actively being drained, and turns **solid red and flashes** when the tank empties. The bars have rounded, tank-like ends.
+Each tank fills with the reserve fraction and is labelled with the **raw reserve in kJ** (divide by
+the tank's capacity for %); it is **dull** when idle/recovering, **bright** when that system is
+actively being drained, and turns **solid red and flashes** when the tank empties. The bars have
+rounded, tank-like ends.
 It implements the reduced dual-tank model in
 [`../docs/white-paper-dual-tank-anaerobic-model.md`](../docs/white-paper-dual-tank-anaerobic-model.md);
 the full field/UI/FIT spec is in
@@ -66,12 +68,14 @@ connectiq/
 
 ### Layout
 
-The field **adapts to the data-field cell's aspect ratio**:
-- **very wide** (`w ≥ 3h`) → two horizontal bars **side by side** (PCr | GLY);
-- **wide/short** (`1.5h ≤ w < 3h`) → two horizontal bars **stacked**;
-- **large portrait single field** (`w ≥ 200 & h ≥ 240`) → vertical tanks on top + a **summary
-  panel** (per-system depleted kJ and a fatigue level);
-- **square/tall** (`w < 1.5h`, e.g. a **1×2** cell) → two vertical bars **side by side**.
+The field **adapts to the data-field cell**, with **vertical tanks as the standard look**; it only
+falls back to horizontal bars for a strip too short for a legible vertical bar:
+- **large single field** (`w ≥ 200 & h ≥ 240`) → vertical tanks on top + a **summary panel**
+  (per-system depleted kJ and a fatigue level);
+- **any field tall enough** (`h ≥ 74`) → two vertical tanks **side by side** — the default, covering
+  full-screen, half-screen, 1×2, and 2×2 cells;
+- **short & wide strip** (`w ≥ 2h`) → two horizontal bars **side by side** (PCr | GLY);
+- **short strip** → two horizontal bars **stacked**.
 
 Text/outline color also adapts to the background luminance (light & dark themes).
 
