@@ -197,6 +197,7 @@ See [`connectiq/README.md`](connectiq/README.md) for the developer-key steps, se
 | [White paper](docs/white-paper-dual-tank-anaerobic-model.md) | The reduced dual-tank model: state, depletion & restoration laws, on-device implementation, validation strategy, limitations |
 | [Journal manuscript](docs/dual-tank-anaerobic-model-journal.tex) | Standalone, journal-formatted LaTeX rebuild of the white paper (Vancouver citations, cross-linked); compile with `pdflatex` (×3) |
 | [LLM calibration context](docs/llm-calibration-context.md) | Paste-to-an-LLM brief for setting/refining the field's parameters from your FIT files |
+| [Calibration-session checklist](docs/calibration-session-checklist.md) | Hand to a coach when planning a max-effort day: which effort confirms which parameter |
 | [Connect IQ spec](docs/connectiq-app-spec-and-prompt.md) | Field/UI/FIT specification and a copy-paste build prompt |
 
 PDF renderings of each sit alongside the Markdown in `docs/`.
