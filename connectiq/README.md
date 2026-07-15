@@ -20,6 +20,10 @@ the full field/UI/FIT spec is in
 - **Per second (record stream):** `PCr_J`, `GLY_J` (reserve energy remaining, **joules**), plus `PCr_cons`, `GLY_cons` (live W).
 - **Per ride (session summary):** `PCr_depleted_kJ`, `GLY_depleted_kJ` — total energy drawn from each
   system over the ride. These sync to Garmin Connect and flow on to intervals.icu / Strava.
+- **Config parameters (session summary):** the settings the ride actually ran with —
+  `CP`, `Wprime`, `fP`, `pPmax`, `tauP`, `tauG`, `lt1Frac`, `eta`, `fatK`, `gFat`, `tauAer`, `tauOn` —
+  written once to the session message so a post-ride tool can pull them out, review, and adjust
+  (field names match the settings keys).
 
 ## Project layout
 

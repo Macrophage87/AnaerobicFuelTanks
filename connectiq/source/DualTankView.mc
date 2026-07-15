@@ -73,6 +73,20 @@ class DualTankView extends WatchUi.DataField {
     const FID_GLY_CONS = 3;
     const FID_PCR_KJ   = 4;
     const FID_GLY_KJ   = 5;
+    // Config parameters written to the FIT session message (so the settings the ride
+    // ran with can be pulled back out and adjusted). IDs 6..17.
+    const FID_CFG_CP      = 6;
+    const FID_CFG_WPRIME  = 7;
+    const FID_CFG_FP      = 8;
+    const FID_CFG_PPMAX   = 9;
+    const FID_CFG_TAUP    = 10;
+    const FID_CFG_TAUG    = 11;
+    const FID_CFG_LT1FRAC = 12;
+    const FID_CFG_ETA     = 13;
+    const FID_CFG_FATK    = 14;
+    const FID_CFG_GFAT    = 15;
+    const FID_CFG_TAUAER  = 16;
+    const FID_CFG_TAUON   = 17;
 
     // Guard: cap a single pause's recovery to 24 h of rest (clock-change safety).
     const MAX_PAUSE_SEC = 86400;
@@ -106,6 +120,7 @@ class DualTankView extends WatchUi.DataField {
     hidden var mPauseAt;        // unix seconds when the pause began
     // ---- FIT fields ----
     hidden var mFPcrJ, mFGlyJ, mFPcrCons, mFGlyCons, mFPcrKj, mFGlyKj;
+    hidden var mCfgFields;   // retained config session fields (CP, W', taus, ...)
     // ---- Draw resources ----
     hidden var mFontLabel, mFontValue, mFontSmall;
 
@@ -150,12 +165,40 @@ class DualTankView extends WatchUi.DataField {
         mFGlyKj   = createField("GLY_depleted_kJ", FID_GLY_KJ, FitContributor.DATA_TYPE_FLOAT,
             { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "kJ" });
 
+        // Config parameters -> FIT session message. Written once (settings are fixed for
+        // the ride); the values reflect exactly what the model ran with, so a post-ride
+        // tool can read them back and adjust. Field names match the settings keys.
+        mCfgFields = [
+            cfgField("CP",      FID_CFG_CP,      mCP,      "W"),
+            cfgField("Wprime",  FID_CFG_WPRIME,  mWprime,  "J"),
+            cfgField("fP",      FID_CFG_FP,      mFP,      null),
+            cfgField("pPmax",   FID_CFG_PPMAX,   mPPmax,   "W"),
+            cfgField("tauP",    FID_CFG_TAUP,    mTauP,    "s"),
+            cfgField("tauG",    FID_CFG_TAUG,    mTauG,    "s"),
+            cfgField("lt1Frac", FID_CFG_LT1FRAC, mLt1Frac, null),
+            cfgField("eta",     FID_CFG_ETA,     mEta,     null),
+            cfgField("fatK",    FID_CFG_FATK,    mFatK,    null),
+            cfgField("gFat",    FID_CFG_GFAT,    mGFat,    null),
+            cfgField("tauAer",  FID_CFG_TAUAER,  mTauAer,  "s"),
+            cfgField("tauOn",   FID_CFG_TAUON,   mTauOn,   "s")
+        ];
+
         mFPcrJ.setData(mRP);
         mFGlyJ.setData(mRG);
         mFPcrCons.setData(0);
         mFGlyCons.setData(0);
         mFPcrKj.setData(0.0);
         mFGlyKj.setData(0.0);
+    }
+
+    // Create a SESSION field for a config parameter and write its current value.
+    // units may be null for dimensionless parameters (fP, eta, ...).
+    hidden function cfgField(name, id, value, units) {
+        var opts = { :mesgType => FitContributor.MESG_TYPE_SESSION };
+        if (units != null) { opts[:units] = units; }
+        var f = createField(name, id, FitContributor.DATA_TYPE_FLOAT, opts);
+        f.setData(value);   // value is a settings Float (propFloat); FLOAT field
+        return f;
     }
 
     // Read a numeric property, coerced to Float; dflt if unset/non-numeric.
