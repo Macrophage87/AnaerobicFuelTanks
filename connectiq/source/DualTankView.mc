@@ -97,6 +97,43 @@ class DualTankView extends WatchUi.DataField {
     // system, so glycolysis is rate-capped below it (a modeling assumption; ~0.5).
     const GLY_RATE_FRAC = 0.5;
 
+    // ---- State persistence (survives reboot / battery swap / CIQ reload mid-ride) ----
+    const STATE_KEY      = "state";  // Application.Storage key for the snapshot blob
+    const STATE_VERSION  = 2;        // schema version; bump on layout change (v2 adds sessId)
+    const SAVE_EVERY_SEC = 10;       // min seconds between throttled compute() writes
+    // Restore staleness cap, matched to MAX_PAUSE_SEC (24 h): a mid-activity pause that
+    // outlives a reload still hands off to exitPause() (which itself caps recovery at
+    // MAX_PAUSE_SEC and floors negative elapsed), so restoring mPaused/mPauseAt credits
+    // closed-form recovery over the whole wall-clock off-gap without new exposure beyond
+    // what MAX_PAUSE_SEC already guards. Secondary defense only — the primary guard against
+    // a stale/foreign snapshot is the activity-identity (sessId) match in restoreState().
+    const MAX_RESTORE_AGE_SEC = 86400;
+    // Only a change of at least this many joules in any reserve/deficit/total marks the
+    // state dirty. Without it, the sub-CP restoration branch drifts mRG/mDeficit by a
+    // fraction of a joule every second, keeping the field permanently dirty and writing
+    // every SAVE_EVERY_SEC for the rest of a ride that ever touched the glycolytic tank.
+    const STATE_EPS_J = 25.0;
+    // Fixed-order snapshot Array layout (lower alloc/serialize cost than a Dictionary).
+    // sessId (the activity's start-time, unix s) keys the snapshot to ONE activity so a
+    // previous ride's blob can't bleed into a new one within the staleness window.
+    // Both saveState() and restoreState() index EXCLUSIVELY via these SLOT_* constants,
+    // so the writer and reader can't silently desync. TO ADD A FIELD: append a new SLOT_*
+    // before STATE_LEN, bump STATE_LEN and STATE_VERSION, and set/read it in both methods.
+    const SLOT_VERSION = 0;
+    const SLOT_SAVEDAT = 1;
+    const SLOT_SESS    = 2;
+    const SLOT_RP      = 3;
+    const SLOT_RG      = 4;
+    const SLOT_DEPP    = 5;
+    const SLOT_DEPG    = 6;
+    const SLOT_AER     = 7;
+    const SLOT_G       = 8;
+    const SLOT_DEFICIT = 9;
+    const SLOT_PAUSED  = 10;
+    const SLOT_PAUSEAT = 11;
+    const SLOT_STARTED = 12;
+    const STATE_LEN    = 13;
+
     // ---- Settings ----
     hidden var mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta;
     hidden var mFatK;    // PCr recovery fatigue-slowing coefficient (0 = disabled)
@@ -118,6 +155,12 @@ class DualTankView extends WatchUi.DataField {
     hidden var mStarted;
     hidden var mPaused;         // timer paused/stopped
     hidden var mPauseAt;        // unix seconds when the pause began
+    // ---- Persistence bookkeeping (never serialized) ----
+    hidden var mLastSaveSec;    // unix seconds of the last successful save (never null after initialize)
+    hidden var mDirty;          // true when model state materially changed since the last save
+    // Reserve/deficit/total values as of the last save (or baseline), for the epsilon
+    // dirty-check — a change smaller than STATE_EPS_J is not worth a flash write.
+    hidden var mSavRP, mSavRG, mSavDepP, mSavDepG, mSavDeficit;
     // ---- FIT fields ----
     hidden var mFPcrJ, mFGlyJ, mFPcrCons, mFGlyCons, mFPcrKj, mFGlyKj;
     hidden var mCfgFields;   // retained config session fields (CP, W', taus, ...)
@@ -128,21 +171,35 @@ class DualTankView extends WatchUi.DataField {
         DataField.initialize();
         reloadSettings();
 
-        mRP = mCapP;
-        mRG = mCapG;
-        mDepP = 0.0;
-        mDepG = 0.0;
+        // Persistence bookkeeping must be non-null on EVERY path below (including the
+        // corrupt/missing-blob fallback), or the first throttle check in compute() would
+        // do arithmetic on null and crash. Set them before attempting a restore.
+        mLastSaveSec = nowSec();
+        mDirty = false;
+
+        // Restore a mid-ride snapshot if one exists and is valid; otherwise fall back to
+        // full-tank defaults. restoreState() REPLACES the default block (it doesn't run
+        // after it) so an accepted restore isn't clobbered by the defaults.
+        if (!restoreState()) {
+            mRP = mCapP;
+            mRG = mCapG;
+            mDepP = 0.0;
+            mDepG = 0.0;
+            mAer = 0.0;
+            mG = 0.0;
+            mDeficit = 0.0;
+            mStarted = false;
+            mPaused = false;
+            mPauseAt = 0;
+        }
+        // Derived / live / visual state is always reset regardless of which path ran —
+        // it is recomputed each second and is never persisted.
         mConsP = 0.0;
         mConsG = 0.0;
-        mAer = 0.0;
-        mG = 0.0;
-        mDeficit = 0.0;
         mExhausted = false;
         mRateLimited = false;
         mFlashOn = false;
-        mStarted = false;
-        mPaused = false;
-        mPauseAt = 0;
+        markSaved();   // seed the epsilon baseline so a restore doesn't read as dirty
 
         // Fonts (also set in onLayout; initialized here so onUpdate is always safe).
         mFontLabel = Graphics.FONT_XTINY;
@@ -183,12 +240,14 @@ class DualTankView extends WatchUi.DataField {
             cfgField("tauOn",   FID_CFG_TAUON,   mTauOn,   "s")
         ];
 
+        // Seed from current (possibly RESTORED) state so the session-total kJ fields
+        // resume from the running total rather than restarting at 0 after a reload.
         mFPcrJ.setData(mRP);
         mFGlyJ.setData(mRG);
         mFPcrCons.setData(0);
         mFGlyCons.setData(0);
-        mFPcrKj.setData(0.0);
-        mFGlyKj.setData(0.0);
+        mFPcrKj.setData(mDepP / 1000.0);
+        mFGlyKj.setData(mDepG / 1000.0);
     }
 
     // Create a SESSION field for a config parameter and write its current value.
@@ -269,11 +328,141 @@ class DualTankView extends WatchUi.DataField {
         return Time.now().value();
     }
 
+    // Stable per-activity identity: the recording activity's start time (unix seconds),
+    // or null if no activity is recording yet. A reload/reboot of the SAME activity keeps
+    // this value (the system persists the in-progress activity); a brand-new activity gets
+    // a different start time. Used to key a snapshot to one ride.
+    hidden function sessIdNow() {
+        var info = Activity.getActivityInfo();
+        if (info != null && info.startTime != null) {
+            return info.startTime.value();
+        }
+        return null;
+    }
+
+    // Snapshot the current reserve/total/deficit values as the epsilon-dirty baseline.
+    hidden function markSaved() {
+        mSavRP = mRP;
+        mSavRG = mRG;
+        mSavDepP = mDepP;
+        mSavDepG = mDepG;
+        mSavDeficit = mDeficit;
+    }
+
+    hidden function absf(x) {
+        return (x < 0.0) ? -x : x;
+    }
+
+    // Clamp both reserves into [0, capacity]. Shared by compute() and restoreState();
+    // both are called only when mRP/mRG are non-null. (reloadSettings() keeps its own
+    // null-guarded upper clamp, since it also runs on the first init before reserves exist.)
+    hidden function clampReserves() {
+        if (mRP < 0.0)   { mRP = 0.0; }
+        if (mRP > mCapP) { mRP = mCapP; }
+        if (mRG < 0.0)   { mRG = 0.0; }
+        if (mRG > mCapG) { mRG = mCapG; }
+    }
+
+    // Restore a persisted snapshot into the model state. Returns true only on an
+    // accepted restore; on a missing/corrupt/stale/pre-start blob (or any exception)
+    // returns false so initialize() falls back to full-tank defaults. Any partial
+    // assignment before a thrown error is harmless: the default block overwrites every
+    // persisted field.
+    hidden function restoreState() {
+        try {
+            var blob = Application.Storage.getValue(STATE_KEY);
+            if (!(blob instanceof Lang.Array))       { return false; }
+            if (blob.size() != STATE_LEN)            { return false; }
+            if (blob[SLOT_VERSION] != STATE_VERSION) { return false; }
+            var savedAt   = blob[SLOT_SAVEDAT];
+            var savedSess = blob[SLOT_SESS];
+            var started   = blob[SLOT_STARTED];
+            if (started != true)                            { return false; }  // never ran -> don't restore
+            if ((nowSec() - savedAt) > MAX_RESTORE_AGE_SEC) { return false; }  // stale (secondary guard)
+            // Activity-identity gate (PRIMARY guard). Only resume a snapshot that belongs to
+            // the currently recording activity. A previous ride the user never reset would
+            // otherwise bleed into a new one inside the staleness window: restored
+            // mStarted=true makes onTimerStart take the resume branch and skip resetSession(),
+            // so the new ride runs on the old depleted tanks. Requiring both ids known and
+            // equal fails safe to full tanks when the activity can't be identified.
+            var liveSess = sessIdNow();
+            if (savedSess == null || liveSess == null || savedSess != liveSess) { return false; }
+
+            mRP      = blob[SLOT_RP];
+            mRG      = blob[SLOT_RG];
+            mDepP    = blob[SLOT_DEPP];
+            mDepG    = blob[SLOT_DEPG];
+            mAer     = blob[SLOT_AER];
+            mG       = blob[SLOT_G];
+            mDeficit = blob[SLOT_DEFICIT];
+            mPaused  = blob[SLOT_PAUSED];
+            mPauseAt = blob[SLOT_PAUSEAT];
+            mStarted = started;
+
+            // Re-clamp reserves to current capacities in case settings (CP/W'/fP)
+            // changed between sessions.
+            clampReserves();
+
+            // DELIBERATE LIMITATION: a reload/reboot while UNPAUSED (mPaused==false) — e.g. a
+            // dead-battery crash mid-effort, the feature's primary case — resumes the tanks at
+            // their pre-crash depleted level. No rest recovery is credited for the unrecorded
+            // off-gap here: exitPause() is mPaused-guarded, and crediting it would be a model
+            // change beyond this issue's "persist state only" scope. The error is conservative
+            // (understates reserve, never overstates). A reload while PAUSED still recovers
+            // correctly — restored mPaused/mPauseAt hand off to exitPause() on the next resume.
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Persist the model state. Coalesced: writes only when dirty, so it drops to zero
+    // writes on steady full-tank riding and to at most one per SAVE_EVERY_SEC while a
+    // depleted tank is actively recovering (genuine >= STATE_EPS_J changes). Public so
+    // DualTankApp.onStop can force a final flush. Resets the throttle/dirty bookkeeping on
+    // a successful write so a following periodic compute() write isn't double-fired.
+    function saveState() {
+        if (!mDirty) { return; }
+        try {
+            var blob = new [STATE_LEN];   // indexed via SLOT_* so writer/reader can't desync
+            blob[SLOT_VERSION] = STATE_VERSION;
+            blob[SLOT_SAVEDAT] = nowSec();
+            blob[SLOT_SESS]    = sessIdNow();
+            blob[SLOT_RP]      = mRP;
+            blob[SLOT_RG]      = mRG;
+            blob[SLOT_DEPP]    = mDepP;
+            blob[SLOT_DEPG]    = mDepG;
+            blob[SLOT_AER]     = mAer;
+            blob[SLOT_G]       = mG;
+            blob[SLOT_DEFICIT] = mDeficit;
+            blob[SLOT_PAUSED]  = mPaused;
+            blob[SLOT_PAUSEAT] = mPauseAt;
+            blob[SLOT_STARTED] = mStarted;
+            Application.Storage.setValue(STATE_KEY, blob);
+            mLastSaveSec = nowSec();
+            mDirty = false;
+            markSaved();   // reset the epsilon baseline to what we just persisted
+        } catch (e) {
+            // Storage full or unavailable: keep running; retry on the next flush.
+        }
+    }
+
+    // Drop any persisted snapshot (fresh ride) so the next activity starts full.
+    hidden function clearState() {
+        try {
+            Application.Storage.deleteValue(STATE_KEY);
+        } catch (e) {
+        }
+        mDirty = false;
+        markSaved();   // caller has reset the model; re-baseline so it isn't re-dirtied
+    }
+
     // On pause/stop: freeze depletion, remember when the pause started.
     hidden function enterPause() {
         if (!mPaused) {
             mPaused = true;
             mPauseAt = nowSec();
+            mDirty = true;
         }
     }
 
@@ -289,6 +478,7 @@ class DualTankView extends WatchUi.DataField {
             mG = 0.0;           // glycolytic activation has relaxed during the pause
             mDeficit = 0.0;     // debt repaid over the pause
             mPaused = false;
+            mDirty = true;
         }
     }
 
@@ -340,24 +530,30 @@ class DualTankView extends WatchUi.DataField {
         } else {
             exitPause();   // resume from a stopped (but not reset) timer
         }
+        mDirty = true;
+        saveState();       // flush immediately so a reboot right after start restores mStarted
     }
 
     function onTimerResume() {
-        exitPause();
+        exitPause();       // sets mDirty when it actually resumes
+        saveState();
     }
 
     function onTimerPause() {
-        enterPause();
+        enterPause();      // sets mDirty when it actually pauses
+        saveState();
     }
 
     function onTimerStop() {
         enterPause();
+        saveState();
     }
 
     function onTimerReset() {
         resetSession();
         mStarted = false;
         mPaused = false;
+        clearState();      // fresh ride -> drop the snapshot so the next activity starts full
     }
 
     function onLayout(dc) {
@@ -520,10 +716,7 @@ class DualTankView extends WatchUi.DataField {
         }
 
         // Clamp
-        if (mRP < 0.0) { mRP = 0.0; }
-        if (mRP > mCapP) { mRP = mCapP; }
-        if (mRG < 0.0) { mRG = 0.0; }
-        if (mRG > mCapG) { mRG = mCapG; }
+        clampReserves();
 
         var pctP = 100.0 * mRP / mCapP;
 
@@ -535,6 +728,29 @@ class DualTankView extends WatchUi.DataField {
         // FIT: running session totals (kJ) — SDK keeps last value as summary
         mFPcrKj.setData(mDepP / 1000.0);
         mFGlyKj.setData(mDepG / 1000.0);
+
+        // Epsilon dirty-check: flag dirty only on a MATERIAL change (>= STATE_EPS_J in any
+        // reserve / session total / deficit) since the last save. Without this, the sub-CP
+        // restoration branch drifts mRG/mDeficit by a fraction of a joule every second and
+        // keeps the field permanently dirty on any ride that ever used the glycolytic tank.
+        // (Pause/resume/start still set mDirty explicitly — those aren't reserve changes.)
+        if (!mDirty) {
+            if (absf(mRP - mSavRP) >= STATE_EPS_J ||
+                absf(mRG - mSavRG) >= STATE_EPS_J ||
+                absf(mDepP - mSavDepP) >= STATE_EPS_J ||
+                absf(mDepG - mSavDepG) >= STATE_EPS_J ||
+                absf(mDeficit - mSavDeficit) >= STATE_EPS_J) {
+                mDirty = true;
+            }
+        }
+
+        // Persist the model state, throttled AND dirty-checked (flash-wear safe): at most
+        // once per SAVE_EVERY_SEC, and only when state materially changed. Sits after the
+        // mPaused early-return above, so paused seconds don't write. saveState() re-checks
+        // mDirty and resets the throttle + epsilon baseline on a successful write.
+        if (mDirty && (nowSec() - mLastSaveSec >= SAVE_EVERY_SEC)) {
+            saveState();
+        }
 
         // Drive the depleted-bar blink (toggles at 1 Hz -> ~0.5 Hz visible).
         mFlashOn = !mFlashOn;
