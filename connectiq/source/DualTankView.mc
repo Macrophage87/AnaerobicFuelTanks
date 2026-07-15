@@ -97,6 +97,20 @@ class DualTankView extends WatchUi.DataField {
     // system, so glycolysis is rate-capped below it (a modeling assumption; ~0.5).
     const GLY_RATE_FRAC = 0.5;
 
+    // ---- State persistence (survives reboot / battery swap / CIQ reload mid-ride) ----
+    const STATE_KEY      = "state";  // Application.Storage key for the snapshot blob
+    const STATE_VERSION  = 1;        // schema version; bump on layout change
+    const SAVE_EVERY_SEC = 10;       // min seconds between throttled compute() writes
+    // Restore staleness cap, matched to MAX_PAUSE_SEC (24 h): a mid-activity pause that
+    // outlives a reload still hands off to exitPause() (which itself caps recovery at
+    // MAX_PAUSE_SEC and floors negative elapsed), so restoring mPaused/mPauseAt credits
+    // closed-form recovery over the whole wall-clock off-gap without new exposure beyond
+    // what MAX_PAUSE_SEC already guards. A snapshot older than this is a different ride.
+    const MAX_RESTORE_AGE_SEC = 86400;
+    // Fixed-order snapshot Array layout (lower alloc/serialize cost than a Dictionary):
+    //   [version, savedAt, mRP, mRG, mDepP, mDepG, mAer, mG, mDeficit, mPaused, mPauseAt, mStarted]
+    const STATE_LEN = 12;
+
     // ---- Settings ----
     hidden var mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta;
     hidden var mFatK;    // PCr recovery fatigue-slowing coefficient (0 = disabled)
@@ -118,6 +132,9 @@ class DualTankView extends WatchUi.DataField {
     hidden var mStarted;
     hidden var mPaused;         // timer paused/stopped
     hidden var mPauseAt;        // unix seconds when the pause began
+    // ---- Persistence bookkeeping (never serialized) ----
+    hidden var mLastSaveSec;    // unix seconds of the last successful save (never null after initialize)
+    hidden var mDirty;          // true when model state changed since the last save
     // ---- FIT fields ----
     hidden var mFPcrJ, mFGlyJ, mFPcrCons, mFGlyCons, mFPcrKj, mFGlyKj;
     hidden var mCfgFields;   // retained config session fields (CP, W', taus, ...)
@@ -128,21 +145,34 @@ class DualTankView extends WatchUi.DataField {
         DataField.initialize();
         reloadSettings();
 
-        mRP = mCapP;
-        mRG = mCapG;
-        mDepP = 0.0;
-        mDepG = 0.0;
+        // Persistence bookkeeping must be non-null on EVERY path below (including the
+        // corrupt/missing-blob fallback), or the first throttle check in compute() would
+        // do arithmetic on null and crash. Set them before attempting a restore.
+        mLastSaveSec = nowSec();
+        mDirty = false;
+
+        // Restore a mid-ride snapshot if one exists and is valid; otherwise fall back to
+        // full-tank defaults. restoreState() REPLACES the default block (it doesn't run
+        // after it) so an accepted restore isn't clobbered by the defaults.
+        if (!restoreState()) {
+            mRP = mCapP;
+            mRG = mCapG;
+            mDepP = 0.0;
+            mDepG = 0.0;
+            mAer = 0.0;
+            mG = 0.0;
+            mDeficit = 0.0;
+            mStarted = false;
+            mPaused = false;
+            mPauseAt = 0;
+        }
+        // Derived / live / visual state is always reset regardless of which path ran —
+        // it is recomputed each second and is never persisted.
         mConsP = 0.0;
         mConsG = 0.0;
-        mAer = 0.0;
-        mG = 0.0;
-        mDeficit = 0.0;
         mExhausted = false;
         mRateLimited = false;
         mFlashOn = false;
-        mStarted = false;
-        mPaused = false;
-        mPauseAt = 0;
 
         // Fonts (also set in onLayout; initialized here so onUpdate is always safe).
         mFontLabel = Graphics.FONT_XTINY;
@@ -183,12 +213,14 @@ class DualTankView extends WatchUi.DataField {
             cfgField("tauOn",   FID_CFG_TAUON,   mTauOn,   "s")
         ];
 
+        // Seed from current (possibly RESTORED) state so the session-total kJ fields
+        // resume from the running total rather than restarting at 0 after a reload.
         mFPcrJ.setData(mRP);
         mFGlyJ.setData(mRG);
         mFPcrCons.setData(0);
         mFGlyCons.setData(0);
-        mFPcrKj.setData(0.0);
-        mFGlyKj.setData(0.0);
+        mFPcrKj.setData(mDepP / 1000.0);
+        mFGlyKj.setData(mDepG / 1000.0);
     }
 
     // Create a SESSION field for a config parameter and write its current value.
@@ -269,11 +301,80 @@ class DualTankView extends WatchUi.DataField {
         return Time.now().value();
     }
 
+    // Restore a persisted snapshot into the model state. Returns true only on an
+    // accepted restore; on a missing/corrupt/stale/pre-start blob (or any exception)
+    // returns false so initialize() falls back to full-tank defaults. Any partial
+    // assignment before a thrown error is harmless: the default block overwrites every
+    // persisted field.
+    hidden function restoreState() {
+        try {
+            var blob = Application.Storage.getValue(STATE_KEY);
+            if (!(blob instanceof Lang.Array)) { return false; }
+            if (blob.size() != STATE_LEN)      { return false; }
+            if (blob[0] != STATE_VERSION)      { return false; }
+            var savedAt = blob[1];
+            var started = blob[11];
+            if (started != true)                        { return false; }  // never ran -> don't restore
+            if ((nowSec() - savedAt) > MAX_RESTORE_AGE_SEC) { return false; }  // stale -> different ride
+
+            mRP      = blob[2];
+            mRG      = blob[3];
+            mDepP    = blob[4];
+            mDepG    = blob[5];
+            mAer     = blob[6];
+            mG       = blob[7];
+            mDeficit = blob[8];
+            mPaused  = blob[9];
+            mPauseAt = blob[10];
+            mStarted = started;
+
+            // Re-clamp reserves to current capacities in case settings (CP/W'/fP)
+            // changed between sessions (same idiom as reloadSettings()/compute()).
+            if (mRP > mCapP) { mRP = mCapP; }
+            if (mRP < 0.0)   { mRP = 0.0; }
+            if (mRG > mCapG) { mRG = mCapG; }
+            if (mRG < 0.0)   { mRG = 0.0; }
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Persist the model state. Coalesced: writes only when dirty, so a steady ride at
+    // full tanks produces no redundant flash writes. Public so DualTankApp.onStop can
+    // force a final flush. Resets the throttle/dirty bookkeeping on a successful write
+    // so a following periodic compute() write isn't double-fired.
+    function saveState() {
+        if (!mDirty) { return; }
+        try {
+            var blob = [
+                STATE_VERSION, nowSec(),
+                mRP, mRG, mDepP, mDepG, mAer, mG, mDeficit,
+                mPaused, mPauseAt, mStarted
+            ];
+            Application.Storage.setValue(STATE_KEY, blob);
+            mLastSaveSec = nowSec();
+            mDirty = false;
+        } catch (e) {
+            // Storage full or unavailable: keep running; retry on the next flush.
+        }
+    }
+
+    // Drop any persisted snapshot (fresh ride) so the next activity starts full.
+    hidden function clearState() {
+        try {
+            Application.Storage.deleteValue(STATE_KEY);
+        } catch (e) {
+        }
+        mDirty = false;
+    }
+
     // On pause/stop: freeze depletion, remember when the pause started.
     hidden function enterPause() {
         if (!mPaused) {
             mPaused = true;
             mPauseAt = nowSec();
+            mDirty = true;
         }
     }
 
@@ -289,6 +390,7 @@ class DualTankView extends WatchUi.DataField {
             mG = 0.0;           // glycolytic activation has relaxed during the pause
             mDeficit = 0.0;     // debt repaid over the pause
             mPaused = false;
+            mDirty = true;
         }
     }
 
@@ -340,24 +442,30 @@ class DualTankView extends WatchUi.DataField {
         } else {
             exitPause();   // resume from a stopped (but not reset) timer
         }
+        mDirty = true;
+        saveState();       // flush immediately so a reboot right after start restores mStarted
     }
 
     function onTimerResume() {
-        exitPause();
+        exitPause();       // sets mDirty when it actually resumes
+        saveState();
     }
 
     function onTimerPause() {
-        enterPause();
+        enterPause();      // sets mDirty when it actually pauses
+        saveState();
     }
 
     function onTimerStop() {
         enterPause();
+        saveState();
     }
 
     function onTimerReset() {
         resetSession();
         mStarted = false;
         mPaused = false;
+        clearState();      // fresh ride -> drop the snapshot so the next activity starts full
     }
 
     function onLayout(dc) {
@@ -483,6 +591,7 @@ class DualTankView extends WatchUi.DataField {
             mRateLimited = (unmet > 0.0);
             mConsP = takeP / dt;
             mConsG = takeG / dt;
+            mDirty = true;   // reserves / session totals / deficit changed this second
         } else {
             // RESTORATION — PCr with fatigue-slowed tau; glycolytic gated below LT1.
             var kOff = (mTauOn > 0.0) ? (1.0 - Math.pow(Math.E, -dt / mTauOn)) : 1.0;
@@ -517,6 +626,9 @@ class DualTankView extends WatchUi.DataField {
             mConsG = 0.0;
             mExhausted = ((mRP + mRG) <= 1.0);
             mRateLimited = false;
+            // Only dirty when something is actually recovering. A steady ride at full
+            // tanks with no debt leaves state unchanged -> no redundant flash writes.
+            if (mRP < mCapP || mRG < mCapG || mDeficit > 0.0) { mDirty = true; }
         }
 
         // Clamp
@@ -535,6 +647,14 @@ class DualTankView extends WatchUi.DataField {
         // FIT: running session totals (kJ) — SDK keeps last value as summary
         mFPcrKj.setData(mDepP / 1000.0);
         mFGlyKj.setData(mDepG / 1000.0);
+
+        // Persist the model state, throttled AND dirty-checked (flash-wear safe): at most
+        // once per SAVE_EVERY_SEC, and only when state actually changed. Sits after the
+        // mPaused early-return above, so paused seconds don't write. saveState() re-checks
+        // mDirty and resets the throttle on a successful write.
+        if (mDirty && (nowSec() - mLastSaveSec >= SAVE_EVERY_SEC)) {
+            saveState();
+        }
 
         // Drive the depleted-bar blink (toggles at 1 Hz -> ~0.5 Hz visible).
         mFlashOn = !mFlashOn;

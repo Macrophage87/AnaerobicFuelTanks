@@ -14,6 +14,11 @@ class DualTankApp extends Application.AppBase {
     }
 
     function onStop(state) {
+        // Flush the model state so a reload/reboot can resume mid-ride (null-guarded,
+        // mirroring onSettingsChanged). saveState() is a no-op when nothing changed.
+        if (mView != null) {
+            mView.saveState();
+        }
     }
 
     // A data field returns its view (and optional delegate) here.
