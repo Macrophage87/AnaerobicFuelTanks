@@ -115,9 +115,24 @@ class DualTankView extends WatchUi.DataField {
     const STATE_EPS_J = 25.0;
     // Fixed-order snapshot Array layout (lower alloc/serialize cost than a Dictionary).
     // sessId (the activity's start-time, unix s) keys the snapshot to ONE activity so a
-    // previous ride's blob can't bleed into a new one within the staleness window:
-    //   [version, savedAt, sessId, mRP, mRG, mDepP, mDepG, mAer, mG, mDeficit, mPaused, mPauseAt, mStarted]
-    const STATE_LEN = 13;
+    // previous ride's blob can't bleed into a new one within the staleness window.
+    // Both saveState() and restoreState() index EXCLUSIVELY via these SLOT_* constants,
+    // so the writer and reader can't silently desync. TO ADD A FIELD: append a new SLOT_*
+    // before STATE_LEN, bump STATE_LEN and STATE_VERSION, and set/read it in both methods.
+    const SLOT_VERSION = 0;
+    const SLOT_SAVEDAT = 1;
+    const SLOT_SESS    = 2;
+    const SLOT_RP      = 3;
+    const SLOT_RG      = 4;
+    const SLOT_DEPP    = 5;
+    const SLOT_DEPG    = 6;
+    const SLOT_AER     = 7;
+    const SLOT_G       = 8;
+    const SLOT_DEFICIT = 9;
+    const SLOT_PAUSED  = 10;
+    const SLOT_PAUSEAT = 11;
+    const SLOT_STARTED = 12;
+    const STATE_LEN    = 13;
 
     // ---- Settings ----
     hidden var mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta;
@@ -338,6 +353,16 @@ class DualTankView extends WatchUi.DataField {
         return (x < 0.0) ? -x : x;
     }
 
+    // Clamp both reserves into [0, capacity]. Shared by compute() and restoreState();
+    // both are called only when mRP/mRG are non-null. (reloadSettings() keeps its own
+    // null-guarded upper clamp, since it also runs on the first init before reserves exist.)
+    hidden function clampReserves() {
+        if (mRP < 0.0)   { mRP = 0.0; }
+        if (mRP > mCapP) { mRP = mCapP; }
+        if (mRG < 0.0)   { mRG = 0.0; }
+        if (mRG > mCapG) { mRG = mCapG; }
+    }
+
     // Restore a persisted snapshot into the model state. Returns true only on an
     // accepted restore; on a missing/corrupt/stale/pre-start blob (or any exception)
     // returns false so initialize() falls back to full-tank defaults. Any partial
@@ -346,12 +371,12 @@ class DualTankView extends WatchUi.DataField {
     hidden function restoreState() {
         try {
             var blob = Application.Storage.getValue(STATE_KEY);
-            if (!(blob instanceof Lang.Array)) { return false; }
-            if (blob.size() != STATE_LEN)      { return false; }
-            if (blob[0] != STATE_VERSION)      { return false; }
-            var savedAt   = blob[1];
-            var savedSess = blob[2];
-            var started   = blob[12];
+            if (!(blob instanceof Lang.Array))       { return false; }
+            if (blob.size() != STATE_LEN)            { return false; }
+            if (blob[SLOT_VERSION] != STATE_VERSION) { return false; }
+            var savedAt   = blob[SLOT_SAVEDAT];
+            var savedSess = blob[SLOT_SESS];
+            var started   = blob[SLOT_STARTED];
             if (started != true)                            { return false; }  // never ran -> don't restore
             if ((nowSec() - savedAt) > MAX_RESTORE_AGE_SEC) { return false; }  // stale (secondary guard)
             // Activity-identity gate (PRIMARY guard). Only resume a snapshot that belongs to
@@ -363,23 +388,20 @@ class DualTankView extends WatchUi.DataField {
             var liveSess = sessIdNow();
             if (savedSess == null || liveSess == null || savedSess != liveSess) { return false; }
 
-            mRP      = blob[3];
-            mRG      = blob[4];
-            mDepP    = blob[5];
-            mDepG    = blob[6];
-            mAer     = blob[7];
-            mG       = blob[8];
-            mDeficit = blob[9];
-            mPaused  = blob[10];
-            mPauseAt = blob[11];
+            mRP      = blob[SLOT_RP];
+            mRG      = blob[SLOT_RG];
+            mDepP    = blob[SLOT_DEPP];
+            mDepG    = blob[SLOT_DEPG];
+            mAer     = blob[SLOT_AER];
+            mG       = blob[SLOT_G];
+            mDeficit = blob[SLOT_DEFICIT];
+            mPaused  = blob[SLOT_PAUSED];
+            mPauseAt = blob[SLOT_PAUSEAT];
             mStarted = started;
 
             // Re-clamp reserves to current capacities in case settings (CP/W'/fP)
-            // changed between sessions (same idiom as reloadSettings()/compute()).
-            if (mRP > mCapP) { mRP = mCapP; }
-            if (mRP < 0.0)   { mRP = 0.0; }
-            if (mRG > mCapG) { mRG = mCapG; }
-            if (mRG < 0.0)   { mRG = 0.0; }
+            // changed between sessions.
+            clampReserves();
 
             // DELIBERATE LIMITATION: a reload/reboot while UNPAUSED (mPaused==false) — e.g. a
             // dead-battery crash mid-effort, the feature's primary case — resumes the tanks at
@@ -394,18 +416,28 @@ class DualTankView extends WatchUi.DataField {
         }
     }
 
-    // Persist the model state. Coalesced: writes only when dirty, so a steady ride at
-    // full tanks produces no redundant flash writes. Public so DualTankApp.onStop can
-    // force a final flush. Resets the throttle/dirty bookkeeping on a successful write
-    // so a following periodic compute() write isn't double-fired.
+    // Persist the model state. Coalesced: writes only when dirty, so it drops to zero
+    // writes on steady full-tank riding and to at most one per SAVE_EVERY_SEC while a
+    // depleted tank is actively recovering (genuine >= STATE_EPS_J changes). Public so
+    // DualTankApp.onStop can force a final flush. Resets the throttle/dirty bookkeeping on
+    // a successful write so a following periodic compute() write isn't double-fired.
     function saveState() {
         if (!mDirty) { return; }
         try {
-            var blob = [
-                STATE_VERSION, nowSec(), sessIdNow(),
-                mRP, mRG, mDepP, mDepG, mAer, mG, mDeficit,
-                mPaused, mPauseAt, mStarted
-            ];
+            var blob = new [STATE_LEN];   // indexed via SLOT_* so writer/reader can't desync
+            blob[SLOT_VERSION] = STATE_VERSION;
+            blob[SLOT_SAVEDAT] = nowSec();
+            blob[SLOT_SESS]    = sessIdNow();
+            blob[SLOT_RP]      = mRP;
+            blob[SLOT_RG]      = mRG;
+            blob[SLOT_DEPP]    = mDepP;
+            blob[SLOT_DEPG]    = mDepG;
+            blob[SLOT_AER]     = mAer;
+            blob[SLOT_G]       = mG;
+            blob[SLOT_DEFICIT] = mDeficit;
+            blob[SLOT_PAUSED]  = mPaused;
+            blob[SLOT_PAUSEAT] = mPauseAt;
+            blob[SLOT_STARTED] = mStarted;
             Application.Storage.setValue(STATE_KEY, blob);
             mLastSaveSec = nowSec();
             mDirty = false;
@@ -684,10 +716,7 @@ class DualTankView extends WatchUi.DataField {
         }
 
         // Clamp
-        if (mRP < 0.0) { mRP = 0.0; }
-        if (mRP > mCapP) { mRP = mCapP; }
-        if (mRG < 0.0) { mRG = 0.0; }
-        if (mRG > mCapG) { mRG = mCapG; }
+        clampReserves();
 
         var pctP = 100.0 * mRP / mCapP;
 
