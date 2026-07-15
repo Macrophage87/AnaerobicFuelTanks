@@ -1,8 +1,9 @@
 using Toybox.Test;
 
-// Placeholder smoke test so the CI "Run No Evil" (:test) harness has something to
-// execute and the compile + unit-test gate is exercised end-to-end on every device
-// in the matrix. (:test) functions are excluded from release builds, so this adds
+// Placeholder (:test) so the CI compile gate builds the unit-test sources too
+// (monkeyc -t) on every device in the matrix. CI currently COMPILES this but does
+// not execute it — running (:test) needs the headless simulator, which is wired up
+// in issue #27. (:test) functions are excluded from release builds, so this adds
 // nothing to the shipped data field.
 //
 // Real numerical-model regression tests (the W = CP*t + W' fit, per-second model
