@@ -61,6 +61,164 @@ jobs:
           echo "Compiled ${{ matrix.device }} OK"
 
   # ------------------------------------------------------------------
+  # Headless (:test) EXECUTION — the crux #28 deferred and #27 stage 3 solves.
+  #
+  # The compile `test` job above builds with -t but does NOT run the (:test)
+  # functions. Here we actually EXECUTE them under a virtual framebuffer.
+  #
+  # Why not just call the image's tester.sh: tester.sh launches xvfb internally
+  # and is the exact path observed to hang ("BUILD SUCCESSFUL, then Running
+  # tests... stalls 25 min"). Instead we drive the pieces manually:
+  #   1. xvfb-run provides a display;
+  #   2. launch the `connectiq` simulator in the BACKGROUND;
+  #   3. WAIT for its shell socket to listen (poll the port, not a fixed sleep);
+  #   4. monkeydo the -t build and tee stdout to a log;
+  #   5. kill the simulator.
+  # The whole run is under `timeout` so a hang fails fast instead of stalling to
+  # the job timeout. monkeydo can exit 0 even on test failure, so the gate is the
+  # PARSED log: require the Run-No-Evil PASSED summary AND no FAILED/ERROR line.
+  #
+  # BEST-EFFORT and NOT in ci-required. The job is GREEN unless a (:test) genuinely runs
+  # and FAILS; it SKIPS green when the headless simulator can't come up (the known crash
+  # below), so it doesn't put a spurious red on the board for infra we can't yet fix.
+  # Enforced two-implementation equality is provided by the REQUIRED `model-parity`
+  # numeric guard — a Python mirror of TankModel cross-checked against the R reference
+  # fixtures (issue #27 part C). Runs on ONE device (edge1050); the two-device compile
+  # matrix above stays the fast crash gate.
+  #
+  # KNOWN STATE (headless bring-up, verified from CI logs — remaining work in #61):
+  #   ✓ shell pinned to bash (image default is dash: the `/dev/tcp` socket probe needs bash)
+  #   ✓ run logic inlined into `bash -c` (an exported function is dropped across the
+  #     xvfb-run -> timeout -> bash exec chain)
+  #   ✓ HOME repointed at the SDK device data (Actions forces HOME=/github/home, so the
+  #     sim otherwise can't load Devices/edge1050/compiler.json and monkeydo hangs)
+  #   ✓ simulator launches, its shell socket connects in ~2 s, monkeydo deploys
+  #   ✗ the Qt `simulator` binary then SEGFAULTS ~13 s in, right after "SetLayout":
+  #       /connectiq/bin/connectiq: Segmentation fault (core dumped) "$MB_HOME"/simulator
+  #     Forcing software GL (LIBGL_ALWAYS_SOFTWARE / llvmpipe / QT_OPENGL=software) did NOT
+  #     change it, so it is not the GL path (those env vars were removed as ineffective).
+  #     This is a native Qt-under-Xvfb crash in this image that needs a core-dump backtrace /
+  #     Qt platform-plugin investigation in the actual container (not fixable by blind CI
+  #     iteration). Until then the suite is enforced numerically by `model-parity`. Root-cause
+  #     + the promotion checklist (harden the log gate, then add to ci-required.needs) are
+  #     tracked in #61.
+  # ------------------------------------------------------------------
+  ciq-test:
+    name: CIQ (:test) headless (best-effort)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: ghcr.io/matco/connectiq-tester@sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
+      - name: Build -t test PRG (edge1050)
+        working-directory: connectiq
+        run: |
+          set -eux
+          openssl genrsa -out /tmp/ci_key.pem 4096
+          openssl pkcs8 -topk8 -inform PEM -outform DER -in /tmp/ci_key.pem -out /tmp/ci_key.der -nocrypt
+          mkdir -p bin
+          monkeyc -f monkey.jungle -d edge1050 -o bin/app-test.prg -y /tmp/ci_key.der -t -l 1
+      - name: Run (:test) headless under xvfb
+        working-directory: connectiq
+        # The image's default shell is dash (sh); this step uses the bash `/dev/tcp` socket
+        # probe below, so pin bash explicitly.
+        shell: bash
+        env:
+          DEVICE: edge1050
+          SIM_PORT: "1234"      # Connect IQ simulator shell port monkeydo connects to
+          RUN_TIMEOUT: "300"
+        run: |
+          set -eux
+          LOG=/tmp/ciq-test.log
+          : > "$LOG"
+
+          # GitHub Actions forces HOME=/github/home for container steps, but the simulator
+          # looks for device data under $HOME/.Garmin/ConnectIQ/Devices — which the image
+          # installs under the build user's ORIGINAL home. Without this the sim logs
+          # "Failed to load .../Devices/edge1050/compiler.json" and monkeydo hangs. Point
+          # HOME at wherever edge1050's compiler.json actually lives. (monkeyc in the compile
+          # job is unaffected — it resolves devices via the SDK path, not $HOME.)
+          DEV_JSON="$(find / -path '*/.Garmin/ConnectIQ/Devices/edge1050/compiler.json' 2>/dev/null | head -1 || true)"
+          if [ -n "$DEV_JSON" ]; then
+            export HOME="${DEV_JSON%%/.Garmin/*}"
+            echo "using HOME=$HOME (device data at $DEV_JSON)"
+          else
+            echo "WARNING: edge1050 device data not found under any /.Garmin; sim will likely fail" >&2
+          fi
+
+          # The simulator-run logic is passed INLINE to `bash -c` (not as an exported
+          # function): export -f + `bash -c funcname` does not survive the
+          # xvfb-run -> timeout -> bash exec chain (BASH_FUNC_* is dropped), so the
+          # function came back "command not found". DEVICE/SIM_PORT reach the inner
+          # bash via the exported `env:` vars; LOG is a fixed path.
+          xvfb-run -a -s "-screen 0 1280x1024x24" \
+            timeout "${RUN_TIMEOUT}" bash -c '
+              set -eux
+              # Launch the simulator in the background under the xvfb display.
+              connectiq >/tmp/sim.log 2>&1 &
+              SIM_PID=$!
+              # Wait (bounded) for the sim shell socket to listen — not a fixed sleep.
+              SOCK_UP=0
+              for i in $(seq 1 60); do
+                if (exec 3<>"/dev/tcp/127.0.0.1/${SIM_PORT}") 2>/dev/null; then
+                  exec 3>&- 3<&- || true
+                  echo "simulator socket up after ${i}s"
+                  SOCK_UP=1
+                  break
+                fi
+                if ! kill -0 "$SIM_PID" 2>/dev/null; then
+                  echo "simulator process exited before opening a socket" >&2
+                  cat /tmp/sim.log >&2 || true
+                  exit 1
+                fi
+                sleep 1
+              done
+              # Socket-exhaustion bail: never listened within the window — do not hand a dead
+              # port to monkeydo (which would then block until the outer timeout).
+              if [ "$SOCK_UP" != "1" ]; then
+                echo "simulator socket never came up within the wait window" >&2
+                cat /tmp/sim.log >&2 || true
+                kill "$SIM_PID" 2>/dev/null || true
+                exit 1
+              fi
+              # Deploy + run the (:test) build; -t runs the test harness.
+              monkeydo bin/app-test.prg "${DEVICE}" -t 2>&1 | tee /tmp/ciq-test.log
+              kill "$SIM_PID" 2>/dev/null || true
+              wait "$SIM_PID" 2>/dev/null || true
+            ' || echo "run_tests exited non-zero (timeout or sim error)"
+
+          echo "----- captured test log -----"
+          cat "$LOG" || true
+          echo "----- simulator log -----"
+          cat /tmp/sim.log 2>/dev/null || true
+          echo "-----------------------------"
+
+          # Three outcomes, distinguished so this best-effort job is GREEN unless a test
+          # genuinely fails (monkeydo exits 0 even on failure, so parse the log, not $?):
+          #   1. PASSED + no FAILED/ERROR   -> success (the suite ran and passed).
+          #   2. the suite actually ran and reported FAILED/ERROR -> real failure, exit 1.
+          #   3. the sim never produced test output (headless segfault / launch failure /
+          #      hang) -> SKIP, exit 0. This is the known, documented headless-sim crash
+          #      (see job header); failing the board on infra we can't yet fix would be
+          #      noise. Equality is still enforced by the required `model-parity` job.
+          # FAILED/ERROR are matched case-sensitively and word-bounded so benign summary text
+          # (e.g. "Errors: 0") can't false-fail. TODO(#61): before promoting this into
+          # ci-required, anchor the PASS check on the terminal Run-No-Evil summary line /
+          # expected test count (a per-test "PASSED" can survive a mid-suite crash) and verify
+          # the real markers against actual captured output.
+          if grep -Eq "PASSED" "$LOG" && ! grep -Eq "\b(FAILED|ERROR)\b" "$LOG"; then
+            echo "CIQ (:test) suite passed headless"
+            exit 0
+          fi
+          if grep -Eq "\b(FAILED|ERROR)\b" "$LOG"; then
+            echo "::error::(:test) reported FAILED/ERROR — a test genuinely failed"
+            exit 1
+          fi
+          echo "::warning::headless simulator did not run the (:test) suite (known Qt segfault under Xvfb; see job header). Skipping — model equality is enforced by the required model-parity job."
+          exit 0
+
+  # ------------------------------------------------------------------
   # R Shiny calibration tool — syntax gate (parse) + advisory lint.
   # parse() needs no packages (unlike source(), which would try to load FITfileR
   # / shiny), so it runs clean on a stock R install.
@@ -110,6 +268,39 @@ jobs:
           sudo apt-get install -y --no-install-recommends r-base-core r-cran-testthat
       - name: Run model unit tests
         run: Rscript tools/calibrate/tests/run_tests.R
+      - name: Cross-check fixtures are fresh (regenerate from R; expect no diff)
+        # Freshness gate for the model-parity guard: the committed reference fixtures must
+        # match what the CURRENT R model produces. Regenerate and fail if anything changed —
+        # otherwise an R-side model edit with stale fixtures would let model-parity false-pass.
+        run: |
+          set -eux
+          Rscript tools/crosscheck/gen_fixtures.R
+          git diff --exit-code -- tools/crosscheck/fixtures \
+            || { echo "::error::tools/crosscheck/fixtures is stale — re-run 'Rscript tools/crosscheck/gen_fixtures.R' and commit"; exit 1; }
+
+  # ------------------------------------------------------------------
+  # R <-> Python-mirror model cross-check (issue #27, part C) — the REQUIRED numeric guard.
+  #
+  # The two implementations of the physiology model (R simulate_tanks and Monkey C
+  # TankModel.stepModel) must stay numerically equal. A Python line-for-line mirror of the
+  # Monkey C step is driven through the same power traces the R reference was frozen on
+  # (tools/crosscheck/fixtures/) and asserted equal per second within 0.1 J (~9 orders above
+  # the ~1e-11 J float-noise floor; catches sub-percent coefficient drift). This directly
+  # guards R == the mirror; Monkey C is guarded TRANSITIVELY (the mirror is a faithful port —
+  # the residual mirror<->compiled-Monkey-C gap is tracked in #61). Runs with NO Connect IQ
+  # SDK / simulator, so it is deterministic and fast — which is why it, not the best-effort
+  # on-device `ciq-test`, is the enforced equality gate (in ci-required). Pure stdlib Python;
+  # no pip install. Fixture freshness is enforced by the r-test job (regenerate-and-diff), so
+  # an R-side model change with stale fixtures fails loudly instead of false-passing here.
+  # ------------------------------------------------------------------
+  model-parity:
+    name: Model parity (R vs Python mirror)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
+      - name: Cross-check the Python mirror against the R reference fixtures
+        run: python3 tools/crosscheck/test_parity.py
 
   # ------------------------------------------------------------------
   # Manifest app-id sanity — catches placeholder / malformed ids (a packaging
@@ -132,6 +323,6 @@ jobs:
     name: ci-required
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [ test, r-lint, r-test, manifest-lint ]
+    needs: [ test, r-lint, r-test, manifest-lint, model-parity ]
     steps:
       - run: echo "required checks passed"
