@@ -57,6 +57,47 @@ using Toybox.Lang;
 //   - 8x(20 s @ 400 / 40 s @ 120): PCr sawtooths; GLY trends down across the set.
 //   - 20 min @ 150 W: both stay ~full; GLY slowly tops off since P < LT1.
 //======================================================================
+// ---- Module-scope persistence constants ----------------------------------
+// At MODULE scope (not class members) so the pure `static` DualTankView.validateBlob()
+// can reference them — a static method has no `self`, so class-level consts are not
+// visible to it. Instance methods resolve these by bare name via module scope too.
+// ---- State persistence (survives reboot / battery swap / CIQ reload mid-ride) ----
+const STATE_KEY      = "state";  // Application.Storage key for the snapshot blob
+const STATE_VERSION  = 2;        // schema version; bump on layout change (v2 adds sessId)
+const SAVE_EVERY_SEC = 10;       // min seconds between throttled compute() writes
+// Restore staleness cap, matched to MAX_PAUSE_SEC (24 h): a mid-activity pause that
+// outlives a reload still hands off to exitPause() (which itself caps recovery at
+// MAX_PAUSE_SEC and floors negative elapsed), so restoring mPaused/mPauseAt credits
+// closed-form recovery over the whole wall-clock off-gap without new exposure beyond
+// what MAX_PAUSE_SEC already guards. Secondary defense only — the primary guard against
+// a stale/foreign snapshot is the activity-identity (sessId) match in restoreState().
+const MAX_RESTORE_AGE_SEC = 86400;
+// Only a change of at least this many joules in any reserve/deficit/total marks the
+// state dirty. Without it, the sub-CP restoration branch drifts mRG/mDeficit by a
+// fraction of a joule every second, keeping the field permanently dirty and writing
+// every SAVE_EVERY_SEC for the rest of a ride that ever touched the glycolytic tank.
+const STATE_EPS_J = 25.0;
+// Fixed-order snapshot Array layout (lower alloc/serialize cost than a Dictionary).
+// sessId (the activity's start-time, unix s) keys the snapshot to ONE activity so a
+// previous ride's blob can't bleed into a new one within the staleness window.
+// Both saveState() and restoreState() index EXCLUSIVELY via these SLOT_* constants,
+// so the writer and reader can't silently desync. TO ADD A FIELD: append a new SLOT_*
+// before STATE_LEN, bump STATE_LEN and STATE_VERSION, and set/read it in both methods.
+const SLOT_VERSION = 0;
+const SLOT_SAVEDAT = 1;
+const SLOT_SESS    = 2;
+const SLOT_RP      = 3;
+const SLOT_RG      = 4;
+const SLOT_DEPP    = 5;
+const SLOT_DEPG    = 6;
+const SLOT_AER     = 7;
+const SLOT_G       = 8;
+const SLOT_DEFICIT = 9;
+const SLOT_PAUSED  = 10;
+const SLOT_PAUSEAT = 11;
+const SLOT_STARTED = 12;
+const STATE_LEN    = 13;
+
 class DualTankView extends WatchUi.DataField {
 
     // ---- Colors (hue = system, brightness = draining now, red = empty) ----
@@ -90,67 +131,13 @@ class DualTankView extends WatchUi.DataField {
 
     // Guard: cap a single pause's recovery to 24 h of rest (clock-change safety).
     const MAX_PAUSE_SEC = 86400;
-    // Aerobic off-kinetics are slower than on-kinetics -> a "sticky" aerobic supply
-    // so brief eases/coasts don't force a re-ramp. Off tau = tauAer * AER_FALL.
-    const AER_FALL = 6.0;
-    // Glycolytic peak rate as a fraction of PCr peak rate. PCr is the higher-power
-    // system, so glycolysis is rate-capped below it (a modeling assumption; ~0.5).
-    const GLY_RATE_FRAC = 0.5;
 
-    // ---- State persistence (survives reboot / battery swap / CIQ reload mid-ride) ----
-    const STATE_KEY      = "state";  // Application.Storage key for the snapshot blob
-    const STATE_VERSION  = 2;        // schema version; bump on layout change (v2 adds sessId)
-    const SAVE_EVERY_SEC = 10;       // min seconds between throttled compute() writes
-    // Restore staleness cap, matched to MAX_PAUSE_SEC (24 h): a mid-activity pause that
-    // outlives a reload still hands off to exitPause() (which itself caps recovery at
-    // MAX_PAUSE_SEC and floors negative elapsed), so restoring mPaused/mPauseAt credits
-    // closed-form recovery over the whole wall-clock off-gap without new exposure beyond
-    // what MAX_PAUSE_SEC already guards. Secondary defense only — the primary guard against
-    // a stale/foreign snapshot is the activity-identity (sessId) match in restoreState().
-    const MAX_RESTORE_AGE_SEC = 86400;
-    // Only a change of at least this many joules in any reserve/deficit/total marks the
-    // state dirty. Without it, the sub-CP restoration branch drifts mRG/mDeficit by a
-    // fraction of a joule every second, keeping the field permanently dirty and writing
-    // every SAVE_EVERY_SEC for the rest of a ride that ever touched the glycolytic tank.
-    const STATE_EPS_J = 25.0;
-    // Fixed-order snapshot Array layout (lower alloc/serialize cost than a Dictionary).
-    // sessId (the activity's start-time, unix s) keys the snapshot to ONE activity so a
-    // previous ride's blob can't bleed into a new one within the staleness window.
-    // Both saveState() and restoreState() index EXCLUSIVELY via these SLOT_* constants,
-    // so the writer and reader can't silently desync. TO ADD A FIELD: append a new SLOT_*
-    // before STATE_LEN, bump STATE_LEN and STATE_VERSION, and set/read it in both methods.
-    const SLOT_VERSION = 0;
-    const SLOT_SAVEDAT = 1;
-    const SLOT_SESS    = 2;
-    const SLOT_RP      = 3;
-    const SLOT_RG      = 4;
-    const SLOT_DEPP    = 5;
-    const SLOT_DEPG    = 6;
-    const SLOT_AER     = 7;
-    const SLOT_G       = 8;
-    const SLOT_DEFICIT = 9;
-    const SLOT_PAUSED  = 10;
-    const SLOT_PAUSEAT = 11;
-    const SLOT_STARTED = 12;
-    const STATE_LEN    = 13;
 
-    // ---- Settings ----
-    hidden var mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta;
-    hidden var mFatK;    // PCr recovery fatigue-slowing coefficient (0 = disabled)
-    hidden var mGFat;    // glycolytic flux fatigue exponent, rate_g *= (rG/cG)^gFat (0 = off)
-    hidden var mTauAer;  // aerobic ramp time constant, s (0 = disabled -> hard CP)
-    hidden var mTauOn;   // glycolytic activation time constant, s (~6, Parolin 1999)
-    // ---- Derived capacities ----
-    hidden var mCapP, mCapG;
-    // ---- State ----
-    hidden var mRP, mRG;        // reserves (J)
-    hidden var mDepP, mDepG;    // session totals depleted per system (J)
-    hidden var mConsP, mConsG;  // live draw (W)
-    hidden var mAer;            // aerobic supply (W), when ramp enabled
-    hidden var mG;              // glycolytic activation (0..1): ramps in over tauOn
-    hidden var mDeficit;        // energy debt (J): supra-CP work the rate caps couldn't place
-    hidden var mExhausted;      // genuine exhaustion: both reserves at/near zero (drives red flash)
-    hidden var mRateLimited;    // producing power beyond the tanks' flux (unmet > 0) — usually a stale P1s
+    // ---- Physiology model (settings + derived capacities + reserve/deficit state +
+    //      the per-second physics step). All numeric model concerns live here; the view
+    //      delegates to it and keeps only DataField / FIT / rendering / persistence /
+    //      lifecycle. Constructed in initialize() before reloadSettings(). ----
+    hidden var mModel;
     hidden var mFlashOn;
     hidden var mStarted;
     hidden var mPaused;         // timer paused/stopped
@@ -169,6 +156,7 @@ class DualTankView extends WatchUi.DataField {
 
     function initialize() {
         DataField.initialize();
+        mModel = new TankModel();   // must exist before reloadSettings() calls configure()
         reloadSettings();
 
         // Persistence bookkeeping must be non-null on EVERY path below (including the
@@ -181,23 +169,23 @@ class DualTankView extends WatchUi.DataField {
         // full-tank defaults. restoreState() REPLACES the default block (it doesn't run
         // after it) so an accepted restore isn't clobbered by the defaults.
         if (!restoreState()) {
-            mRP = mCapP;
-            mRG = mCapG;
-            mDepP = 0.0;
-            mDepG = 0.0;
-            mAer = 0.0;
-            mG = 0.0;
-            mDeficit = 0.0;
+            mModel.mRP = mModel.mCapP;
+            mModel.mRG = mModel.mCapG;
+            mModel.mDepP = 0.0;
+            mModel.mDepG = 0.0;
+            mModel.mAer = 0.0;
+            mModel.mG = 0.0;
+            mModel.mDeficit = 0.0;
             mStarted = false;
             mPaused = false;
             mPauseAt = 0;
         }
         // Derived / live / visual state is always reset regardless of which path ran —
         // it is recomputed each second and is never persisted.
-        mConsP = 0.0;
-        mConsG = 0.0;
-        mExhausted = false;
-        mRateLimited = false;
+        mModel.mConsP = 0.0;
+        mModel.mConsG = 0.0;
+        mModel.mExhausted = false;
+        mModel.mRateLimited = false;
         mFlashOn = false;
         markSaved();   // seed the epsilon baseline so a restore doesn't read as dirty
 
@@ -226,28 +214,28 @@ class DualTankView extends WatchUi.DataField {
         // the ride); the values reflect exactly what the model ran with, so a post-ride
         // tool can read them back and adjust. Field names match the settings keys.
         mCfgFields = [
-            cfgField("CP",      FID_CFG_CP,      mCP,      "W"),
-            cfgField("Wprime",  FID_CFG_WPRIME,  mWprime,  "J"),
-            cfgField("fP",      FID_CFG_FP,      mFP,      null),
-            cfgField("pPmax",   FID_CFG_PPMAX,   mPPmax,   "W"),
-            cfgField("tauP",    FID_CFG_TAUP,    mTauP,    "s"),
-            cfgField("tauG",    FID_CFG_TAUG,    mTauG,    "s"),
-            cfgField("lt1Frac", FID_CFG_LT1FRAC, mLt1Frac, null),
-            cfgField("eta",     FID_CFG_ETA,     mEta,     null),
-            cfgField("fatK",    FID_CFG_FATK,    mFatK,    null),
-            cfgField("gFat",    FID_CFG_GFAT,    mGFat,    null),
-            cfgField("tauAer",  FID_CFG_TAUAER,  mTauAer,  "s"),
-            cfgField("tauOn",   FID_CFG_TAUON,   mTauOn,   "s")
+            cfgField("CP",      FID_CFG_CP,      mModel.mCP,      "W"),
+            cfgField("Wprime",  FID_CFG_WPRIME,  mModel.mWprime,  "J"),
+            cfgField("fP",      FID_CFG_FP,      mModel.mFP,      null),
+            cfgField("pPmax",   FID_CFG_PPMAX,   mModel.mPPmax,   "W"),
+            cfgField("tauP",    FID_CFG_TAUP,    mModel.mTauP,    "s"),
+            cfgField("tauG",    FID_CFG_TAUG,    mModel.mTauG,    "s"),
+            cfgField("lt1Frac", FID_CFG_LT1FRAC, mModel.mLt1Frac, null),
+            cfgField("eta",     FID_CFG_ETA,     mModel.mEta,     null),
+            cfgField("fatK",    FID_CFG_FATK,    mModel.mFatK,    null),
+            cfgField("gFat",    FID_CFG_GFAT,    mModel.mGFat,    null),
+            cfgField("tauAer",  FID_CFG_TAUAER,  mModel.mTauAer,  "s"),
+            cfgField("tauOn",   FID_CFG_TAUON,   mModel.mTauOn,   "s")
         ];
 
         // Seed from current (possibly RESTORED) state so the session-total kJ fields
         // resume from the running total rather than restarting at 0 after a reload.
-        mFPcrJ.setData(mRP);
-        mFGlyJ.setData(mRG);
+        mFPcrJ.setData(mModel.mRP);
+        mFGlyJ.setData(mModel.mRG);
         mFPcrCons.setData(0);
         mFGlyCons.setData(0);
-        mFPcrKj.setData(mDepP / 1000.0);
-        mFGlyKj.setData(mDepG / 1000.0);
+        mFPcrKj.setData(mModel.mDepP / 1000.0);
+        mFGlyKj.setData(mModel.mDepG / 1000.0);
     }
 
     // Create a SESSION field for a config parameter and write its current value.
@@ -272,56 +260,37 @@ class DualTankView extends WatchUi.DataField {
 
     // Public so the app can push live settings changes.
     function reloadSettings() {
-        mCP      = propFloat("CP", 250.0);
-        mWprime  = propFloat("Wprime", 20000.0);
-        mFP      = propFloat("fP", 0.25);
-        mPPmax   = propFloat("pPmax", 300.0);
-        mTauP    = propFloat("tauP", 22.0);
-        mTauG    = propFloat("tauG", 360.0);
-        mLt1Frac = propFloat("lt1Frac", 0.80);
-        mEta     = propFloat("eta", 0.80);
-        mFatK    = propFloat("fatK", 0.75);
-        mGFat    = propFloat("gFat", 0.0);
-        mTauAer  = propFloat("tauAer", 25.0);
-        mTauOn   = propFloat("tauOn", 6.0);
+        var cp      = propFloat("CP", 250.0);
+        var wprime  = propFloat("Wprime", 20000.0);
+        var fP      = propFloat("fP", 0.25);
+        var pPmax   = propFloat("pPmax", 300.0);
+        var tauP    = propFloat("tauP", 22.0);
+        var tauG    = propFloat("tauG", 360.0);
+        var lt1Frac = propFloat("lt1Frac", 0.80);
+        var eta     = propFloat("eta", 0.80);
+        var fatK    = propFloat("fatK", 0.75);
+        var gFat    = propFloat("gFat", 0.0);
+        var tauAer  = propFloat("tauAer", 25.0);
+        var tauOn   = propFloat("tauOn", 6.0);
 
-        if (mCP < 1.0)     { mCP = 1.0; }
-        if (mWprime < 1.0) { mWprime = 1.0; }
-        if (mFP < 0.0)     { mFP = 0.0; }
-        if (mFP > 1.0)     { mFP = 1.0; }
-        if (mTauP < 1.0)   { mTauP = 1.0; }
-        if (mTauG < 1.0)   { mTauG = 1.0; }
-        if (mFatK < 0.0)   { mFatK = 0.0; }
-        if (mGFat < 0.0)   { mGFat = 0.0; }
-        if (mTauAer < 0.0) { mTauAer = 0.0; }
-        if (mTauOn < 0.0)  { mTauOn = 0.0; }
+        if (cp < 1.0)     { cp = 1.0; }
+        if (wprime < 1.0) { wprime = 1.0; }
+        if (fP < 0.0)     { fP = 0.0; }
+        if (fP > 1.0)     { fP = 1.0; }
+        if (tauP < 1.0)   { tauP = 1.0; }
+        if (tauG < 1.0)   { tauG = 1.0; }
+        if (fatK < 0.0)   { fatK = 0.0; }
+        if (gFat < 0.0)   { gFat = 0.0; }
+        if (tauAer < 0.0) { tauAer = 0.0; }
+        if (tauOn < 0.0)  { tauOn = 0.0; }
 
-        mCapP = mFP * mWprime;
-        mCapG = (1.0 - mFP) * mWprime;
-        if (mCapP < 1.0) { mCapP = 1.0; }
-        if (mCapG < 1.0) { mCapG = 1.0; }
-
-        // Re-clamp existing reserves to any new capacities (locals for null-narrowing;
-        // mRP/mRG are null on the first call, made from initialize()).
-        var rp = mRP;
-        if (rp != null && rp > mCapP) { mRP = mCapP; }
-        var rg = mRG;
-        if (rg != null && rg > mCapG) { mRG = mCapG; }
+        // Capacity derivation + reserve re-clamp live in the model now.
+        mModel.configure([cp, wprime, fP, pPmax, tauP, tauG, lt1Frac, eta, fatK, gFat, tauAer, tauOn]);
     }
 
     // Fresh-ride initialization: full tanks, zeroed session totals.
     hidden function resetSession() {
-        mRP = mCapP;
-        mRG = mCapG;
-        mDepP = 0.0;
-        mDepG = 0.0;
-        mConsP = 0.0;
-        mConsG = 0.0;
-        mAer = 0.0;
-        mG = 0.0;
-        mDeficit = 0.0;
-        mExhausted = false;
-        mRateLimited = false;
+        mModel.resetTanks();
     }
 
     hidden function nowSec() {
@@ -342,25 +311,35 @@ class DualTankView extends WatchUi.DataField {
 
     // Snapshot the current reserve/total/deficit values as the epsilon-dirty baseline.
     hidden function markSaved() {
-        mSavRP = mRP;
-        mSavRG = mRG;
-        mSavDepP = mDepP;
-        mSavDepG = mDepG;
-        mSavDeficit = mDeficit;
+        mSavRP = mModel.mRP;
+        mSavRG = mModel.mRG;
+        mSavDepP = mModel.mDepP;
+        mSavDepG = mModel.mDepG;
+        mSavDeficit = mModel.mDeficit;
     }
 
     hidden function absf(x) {
         return (x < 0.0) ? -x : x;
     }
 
-    // Clamp both reserves into [0, capacity]. Shared by compute() and restoreState();
-    // both are called only when mRP/mRG are non-null. (reloadSettings() keeps its own
-    // null-guarded upper clamp, since it also runs on the first init before reserves exist.)
-    hidden function clampReserves() {
-        if (mRP < 0.0)   { mRP = 0.0; }
-        if (mRP > mCapP) { mRP = mCapP; }
-        if (mRG < 0.0)   { mRG = 0.0; }
-        if (mRG > mCapG) { mRG = mCapG; }
+    // Pure acceptance gate for a persisted snapshot, extracted so the persistence rules
+    // can be exercised from a (:test) with no Storage/Activity context. Returns true only
+    // when the blob is a well-formed, current-version, started, non-stale snapshot that
+    // belongs to the currently recording activity. Callers pass the wall clock (nowSec)
+    // and the live activity identity (liveSess) in — this touches no Storage/Activity/model
+    // state, so it is deterministic given its arguments.
+    static function validateBlob(blob, nowSec, liveSess) {
+        if (!(blob instanceof Lang.Array))       { return false; }
+        if (blob.size() != STATE_LEN)            { return false; }
+        if (blob[SLOT_VERSION] != STATE_VERSION) { return false; }
+        var savedAt   = blob[SLOT_SAVEDAT];
+        var savedSess = blob[SLOT_SESS];
+        var started   = blob[SLOT_STARTED];
+        if (started != true)                            { return false; }  // never ran -> don't restore
+        if ((nowSec - savedAt) > MAX_RESTORE_AGE_SEC)   { return false; }  // stale (secondary guard)
+        // Activity-identity gate (PRIMARY guard): both ids must be known and equal.
+        if (savedSess == null || liveSess == null || savedSess != liveSess) { return false; }
+        return true;
     }
 
     // Restore a persisted snapshot into the model state. Returns true only on an
@@ -371,37 +350,29 @@ class DualTankView extends WatchUi.DataField {
     hidden function restoreState() {
         try {
             var blob = Application.Storage.getValue(STATE_KEY);
-            if (!(blob instanceof Lang.Array))       { return false; }
-            if (blob.size() != STATE_LEN)            { return false; }
-            if (blob[SLOT_VERSION] != STATE_VERSION) { return false; }
-            var savedAt   = blob[SLOT_SAVEDAT];
-            var savedSess = blob[SLOT_SESS];
-            var started   = blob[SLOT_STARTED];
-            if (started != true)                            { return false; }  // never ran -> don't restore
-            if ((nowSec() - savedAt) > MAX_RESTORE_AGE_SEC) { return false; }  // stale (secondary guard)
-            // Activity-identity gate (PRIMARY guard). Only resume a snapshot that belongs to
-            // the currently recording activity. A previous ride the user never reset would
-            // otherwise bleed into a new one inside the staleness window: restored
+            // Activity-identity gate (PRIMARY guard) + version/size/started/staleness checks
+            // are the pure validateBlob() seam. Only resume a snapshot that belongs to the
+            // currently recording activity: a previous ride the user never reset would
+            // otherwise bleed into a new one inside the staleness window (restored
             // mStarted=true makes onTimerStart take the resume branch and skip resetSession(),
-            // so the new ride runs on the old depleted tanks. Requiring both ids known and
-            // equal fails safe to full tanks when the activity can't be identified.
-            var liveSess = sessIdNow();
-            if (savedSess == null || liveSess == null || savedSess != liveSess) { return false; }
+            // so the new ride runs on the old depleted tanks). Fails safe to full tanks when
+            // the activity can't be identified.
+            if (!validateBlob(blob, nowSec(), sessIdNow())) { return false; }
 
-            mRP      = blob[SLOT_RP];
-            mRG      = blob[SLOT_RG];
-            mDepP    = blob[SLOT_DEPP];
-            mDepG    = blob[SLOT_DEPG];
-            mAer     = blob[SLOT_AER];
-            mG       = blob[SLOT_G];
-            mDeficit = blob[SLOT_DEFICIT];
+            mModel.mRP      = blob[SLOT_RP];
+            mModel.mRG      = blob[SLOT_RG];
+            mModel.mDepP    = blob[SLOT_DEPP];
+            mModel.mDepG    = blob[SLOT_DEPG];
+            mModel.mAer     = blob[SLOT_AER];
+            mModel.mG       = blob[SLOT_G];
+            mModel.mDeficit = blob[SLOT_DEFICIT];
             mPaused  = blob[SLOT_PAUSED];
             mPauseAt = blob[SLOT_PAUSEAT];
-            mStarted = started;
+            mStarted = blob[SLOT_STARTED];
 
             // Re-clamp reserves to current capacities in case settings (CP/W'/fP)
             // changed between sessions.
-            clampReserves();
+            mModel.clampReserves();
 
             // DELIBERATE LIMITATION: a reload/reboot while UNPAUSED (mPaused==false) — e.g. a
             // dead-battery crash mid-effort, the feature's primary case — resumes the tanks at
@@ -428,13 +399,13 @@ class DualTankView extends WatchUi.DataField {
             blob[SLOT_VERSION] = STATE_VERSION;
             blob[SLOT_SAVEDAT] = nowSec();
             blob[SLOT_SESS]    = sessIdNow();
-            blob[SLOT_RP]      = mRP;
-            blob[SLOT_RG]      = mRG;
-            blob[SLOT_DEPP]    = mDepP;
-            blob[SLOT_DEPG]    = mDepG;
-            blob[SLOT_AER]     = mAer;
-            blob[SLOT_G]       = mG;
-            blob[SLOT_DEFICIT] = mDeficit;
+            blob[SLOT_RP]      = mModel.mRP;
+            blob[SLOT_RG]      = mModel.mRG;
+            blob[SLOT_DEPP]    = mModel.mDepP;
+            blob[SLOT_DEPG]    = mModel.mDepG;
+            blob[SLOT_AER]     = mModel.mAer;
+            blob[SLOT_G]       = mModel.mG;
+            blob[SLOT_DEFICIT] = mModel.mDeficit;
             blob[SLOT_PAUSED]  = mPaused;
             blob[SLOT_PAUSEAT] = mPauseAt;
             blob[SLOT_STARTED] = mStarted;
@@ -473,53 +444,13 @@ class DualTankView extends WatchUi.DataField {
             var el = nowSec() - mPauseAt;
             if (el < 0) { el = 0; }
             if (el > MAX_PAUSE_SEC) { el = MAX_PAUSE_SEC; }
-            applyRestRecovery(el);
-            mAer = 0.0;         // aerobic supply has decayed to rest during the pause
-            mG = 0.0;           // glycolytic activation has relaxed during the pause
-            mDeficit = 0.0;     // debt repaid over the pause
+            mModel.applyRestRecovery(el);
+            mModel.mAer = 0.0;         // aerobic supply has decayed to rest during the pause
+            mModel.mG = 0.0;           // glycolytic activation has relaxed during the pause
+            mModel.mDeficit = 0.0;     // debt repaid over the pause
             mPaused = false;
             mDirty = true;
         }
-    }
-
-    // Closed-form recovery over `secs` seconds at rest (power = 0), i.e. the
-    // per-second exponential recovery applied N times without a loop:
-    //   cap - R_N = (cap - R_0) * (1 - a)^N
-    hidden function applyRestRecovery(secs) {
-        if (secs <= 0) { return; }
-        // Glycolytic at rest (P = 0): Skiba rate at CP-0, anchored to Ferguson at 20 W,
-        // matching the live-loop recovery law. b = (1 - e^(-1/tauG)) * f(0).
-        var tauW0 = 546.0 * Math.pow(Math.E, -0.01 * mCP) + 316.0;
-        var tauWa = 546.0 * Math.pow(Math.E, -0.01 * (mCP - 20.0)) + 316.0;
-        var g20 = (mCP > 0.0) ? (mLt1Frac * mCP - 20.0) / (mLt1Frac * mCP) : 1.0;
-        var f0 = g20 * tauWa / tauW0;
-        if (f0 < 0.0) { f0 = 0.0; }
-        var bG = (1.0 - Math.pow(Math.E, -1.0 / mTauG)) * f0;
-        if (bG < 0.0) { bG = 0.0; }
-        if (bG > 1.0) { bG = 1.0; }
-        mRG = mCapG - (mCapG - mRG) * Math.pow(1.0 - bG, secs);
-        if (mRG < 0.0) { mRG = 0.0; }
-        if (mRG > mCapG) { mRG = mCapG; }
-        // PCr with fatigue-slowed tau, evaluated at the (now largely recovered)
-        // glycolytic fill: a = eta * (1 - e^(-1/tauPeff))
-        var tauPeff = pcrTau();
-        var aP = mEta * (1.0 - Math.pow(Math.E, -1.0 / tauPeff));
-        if (aP < 0.0) { aP = 0.0; }
-        if (aP > 1.0) { aP = 1.0; }
-        mRP = mCapP - (mCapP - mRP) * Math.pow(1.0 - aP, secs);
-        if (mRP < 0.0) { mRP = 0.0; }
-        if (mRP > mCapP) { mRP = mCapP; }
-    }
-
-    // Fatigue-slowed PCr recovery time constant:
-    //   tauPeff = tauP * (1 + fatK * (1 - rG/cG))   (slows as glycolytic empties)
-    hidden function pcrTau() {
-        var fillG = mRG / mCapG;
-        if (fillG < 0.0) { fillG = 0.0; }
-        if (fillG > 1.0) { fillG = 1.0; }
-        var t = mTauP * (1.0 + mFatK * (1.0 - fillG));
-        if (t < 1.0) { t = 1.0; }
-        return t;
     }
 
     function onTimerStart() {
@@ -569,13 +500,13 @@ class DualTankView extends WatchUi.DataField {
         // While paused/stopped: freeze depletion (no accumulation). Recovery for
         // the pause is applied in one shot on resume (see exitPause()).
         if (mPaused) {
-            mConsP = 0.0;
-            mConsG = 0.0;
-            mFPcrJ.setData(mRP);
-            mFGlyJ.setData(mRG);
+            mModel.mConsP = 0.0;
+            mModel.mConsG = 0.0;
+            mFPcrJ.setData(mModel.mRP);
+            mFGlyJ.setData(mModel.mRG);
             mFPcrCons.setData(0);
             mFGlyCons.setData(0);
-            return 100.0 * mRP / mCapP;
+            return 100.0 * mModel.mRP / mModel.mCapP;
         }
 
         var p = 0.0;
@@ -584,150 +515,17 @@ class DualTankView extends WatchUi.DataField {
             if (cp != null) { p = cp.toFloat(); }
         }
 
-        var dt = 1.0;
-
-        // Aerobic supply.
-        //   Below CP: the aerobic system covers demand (supply = P) -> no anaerobic
-        //     draw, so PCr does NOT deplete while you ride below CP.
-        //   Above CP: a sticky, floored aerobic tracker ramps toward CP with tauAer,
-        //     so the ONSET of a hard effort incurs an oxygen deficit the tanks cover,
-        //     tapering to (P - CP) as aerobic catches up. Off-kinetics are slower
-        //     (AER_FALL) so brief eases don't reset the ramp and churn PCr.
-        //   tauAer <= 0 disables the ramp (hard CP boundary).
-        var supply = mCP;
-        if (mTauAer > 0.0) {
-            var tgt = (p < mCP) ? p : mCP;
-            var kA = (tgt > mAer)
-                ? (1.0 - Math.pow(Math.E, -dt / mTauAer))
-                : (1.0 - Math.pow(Math.E, -dt / (mTauAer * AER_FALL)));
-            mAer += (tgt - mAer) * kA;
-            var floorA = 0.5 * mCP;
-            if (mAer < floorA) { mAer = floorA; }
-            if (mAer > mCP) { mAer = mCP; }
-            supply = (p > mCP) ? mAer : p;
-        } else {
-            mAer = mCP;
-        }
-
-        var delta = p - supply;
-        var takeP = 0.0;
-        var takeG = 0.0;
-
-        if (delta > 0.0) {
-            // DEPLETION — PARALLEL draw. Glycolysis has activation inertia (Parolin
-            // 1999), so PCr — the immediate buffer — covers almost everything at onset
-            // and both drain together as mG -> 1. TWO distinct roles, decoupled: the
-            // SHARE of submaximal demand is capacity-proportional (wP=cP, wG=cG*g) so at
-            // steady state both tanks track W'bal and empty together at exhaustion; the
-            // RATE CEILING is the peak-flux cap, tapered with fullness (PCr flux falls as
-            // the store depletes). The ceiling governs MAXIMAL efforts (PCr dominance
-            // emerges there) without distorting submaximal sharing. Residual demand the
-            // tanks cannot place is banked as a DEFICIT so combined W'bal is conserved.
-            var need = delta * dt;
-            var kOn = (mTauOn > 0.0) ? (1.0 - Math.pow(Math.E, -dt / mTauOn)) : 1.0;
-            mG += (1.0 - mG) * kOn;
-
-            var rateP = mPPmax * (mRP / mCapP);      // rate ceiling (tapered)
-            var rateG = GLY_RATE_FRAC * mPPmax * mG;
-            // Optional glycolytic flux fatigue (mGFat > 0): acidosis inhibits phosphorylase
-            // /PFK, so glycolytic flux falls across repeated maximal sprints. Off (0) by
-            // default — it shifts the depletion split, so headline behaviour is unchanged
-            // unless enabled. See white paper §6.10.
-            if (mGFat > 0.0 && mCapG > 0.0) {
-                var fillG2 = mRG / mCapG;
-                if (fillG2 < 0.0) { fillG2 = 0.0; }
-                rateG *= Math.pow(fillG2, mGFat);
-            }
-            var pcap = rateP * dt;
-            var gcap = rateG * dt;
-            var wP = mCapP;                           // share weight (capacity-proportional)
-            var wG = mCapG * mG;
-            var totW = wP + wG;
-            var pShare = (totW > 1e-9) ? need * (wP / totW) : need;
-            var gShare = need - pShare;
-
-            takeP = pShare;
-            if (takeP > mRP) { takeP = mRP; }
-            if (takeP > pcap) { takeP = pcap; }
-            takeG = gShare;
-            if (takeG > mRG) { takeG = mRG; }
-            if (takeG > gcap) { takeG = gcap; }
-
-            var unmet = need - takeP - takeG;
-            if (unmet > 0.0) {                       // glycolytic soaks up PCr's shortfall (rate-capped)
-                var addG = unmet;
-                if (addG > mRG - takeG) { addG = mRG - takeG; }
-                if (addG > gcap - takeG) { addG = gcap - takeG; }
-                takeG += addG; unmet -= addG;
-            }
-            if (unmet > 0.0) {                       // then PCr soaks up glycolytic's, up to its (tapered) cap
-                var addP = unmet;
-                if (addP > mRP - takeP) { addP = mRP - takeP; }
-                if (addP > pcap - takeP) { addP = pcap - takeP; }
-                takeP += addP; unmet -= addP;
-            }
-
-            mRP -= takeP;
-            mRG -= takeG;
-            mDeficit += unmet;                       // bank the debt (energy conservation)
-            mDepP += takeP;
-            mDepG += takeG;
-            // Two distinct states: genuine exhaustion (tanks empty) drives the red flash;
-            // rate-limited (unmet>0 with tanks non-empty) means "power beyond my flux caps",
-            // usually a stale P1s rather than a spent rider.
-            mExhausted = ((mRP + mRG) <= 1.0);
-            mRateLimited = (unmet > 0.0);
-            mConsP = takeP / dt;
-            mConsG = takeG / dt;
-        } else {
-            // RESTORATION — PCr with fatigue-slowed tau; glycolytic gated below LT1.
-            var kOff = (mTauOn > 0.0) ? (1.0 - Math.pow(Math.E, -dt / mTauOn)) : 1.0;
-            mG -= mG * kOff;                          // glycolytic deactivation during recovery
-            // PCr resynthesis is OXIDATIVE: it needs aerobic ATP above what the ride itself
-            // consumes, so it is gated by the oxidative headroom (CP - P) — near-arrested at
-            // CP, full at rest. Without this the "punch" bar refills while still under load.
-            var gateP = (mCP - p) / mCP;
-            if (gateP < 0.0) { gateP = 0.0; }
-            var tauPeff = pcrTau();
-            mRP += gateP * mEta * (mCapP - mRP) * (1.0 - Math.pow(Math.E, -dt / tauPeff));
-            // Glycolytic tank AND the deficit recover whenever P < CP, at Skiba's
-            // intensity-dependent W'bal rate tau_W'(CP-P) = 546*e^(-0.01*(CP-P)) + 316,
-            // its amplitude re-anchored so the 20 W passive rate reproduces Ferguson 2010
-            // (as v0.6 did). This REPLACES the old linear (LT1-P)/LT1 gate, whose rate went
-            // to zero at LT1 (recovery -> infinity), which made the model unable to complete
-            // a standard 4x4. Skiba's form is bounded and was fitted across recovery powers.
-            if (p < mCP && mCP > 0.0) {
-                var dcp = mCP - p;
-                var tauW = 546.0 * Math.pow(Math.E, -0.01 * dcp) + 316.0;
-                var tauWanchor = 546.0 * Math.pow(Math.E, -0.01 * (mCP - 20.0)) + 316.0;
-                var gate20 = (mLt1Frac * mCP - 20.0) / (mLt1Frac * mCP);
-                var fG = gate20 * tauWanchor / tauW;
-                if (fG < 0.0) { fG = 0.0; }
-                var kG = (1.0 - Math.pow(Math.E, -dt / mTauG)) * fG;
-                if (kG < 0.0) { kG = 0.0; }
-                if (kG > 1.0) { kG = 1.0; }
-                mRG += (mCapG - mRG) * kG;
-                mDeficit -= mDeficit * kG;
-            }
-            mConsP = 0.0;
-            mConsG = 0.0;
-            mExhausted = ((mRP + mRG) <= 1.0);
-            mRateLimited = false;
-        }
-
-        // Clamp
-        clampReserves();
-
-        var pctP = 100.0 * mRP / mCapP;
+        // Delegate the entire per-second physics step to the model (pure, testable).
+        var pctP = mModel.stepModel(p);
 
         // FIT: per-second reserve streams (joules remaining) + live consumption
-        mFPcrJ.setData(mRP);
-        mFGlyJ.setData(mRG);
-        mFPcrCons.setData(mConsP.toNumber());
-        mFGlyCons.setData(mConsG.toNumber());
+        mFPcrJ.setData(mModel.mRP);
+        mFGlyJ.setData(mModel.mRG);
+        mFPcrCons.setData(mModel.mConsP.toNumber());
+        mFGlyCons.setData(mModel.mConsG.toNumber());
         // FIT: running session totals (kJ) — SDK keeps last value as summary
-        mFPcrKj.setData(mDepP / 1000.0);
-        mFGlyKj.setData(mDepG / 1000.0);
+        mFPcrKj.setData(mModel.mDepP / 1000.0);
+        mFGlyKj.setData(mModel.mDepG / 1000.0);
 
         // Epsilon dirty-check: flag dirty only on a MATERIAL change (>= STATE_EPS_J in any
         // reserve / session total / deficit) since the last save. Without this, the sub-CP
@@ -735,11 +533,11 @@ class DualTankView extends WatchUi.DataField {
         // keeps the field permanently dirty on any ride that ever used the glycolytic tank.
         // (Pause/resume/start still set mDirty explicitly — those aren't reserve changes.)
         if (!mDirty) {
-            if (absf(mRP - mSavRP) >= STATE_EPS_J ||
-                absf(mRG - mSavRG) >= STATE_EPS_J ||
-                absf(mDepP - mSavDepP) >= STATE_EPS_J ||
-                absf(mDepG - mSavDepG) >= STATE_EPS_J ||
-                absf(mDeficit - mSavDeficit) >= STATE_EPS_J) {
+            if (absf(mModel.mRP - mSavRP) >= STATE_EPS_J ||
+                absf(mModel.mRG - mSavRG) >= STATE_EPS_J ||
+                absf(mModel.mDepP - mSavDepP) >= STATE_EPS_J ||
+                absf(mModel.mDepG - mSavDepG) >= STATE_EPS_J ||
+                absf(mModel.mDeficit - mSavDeficit) >= STATE_EPS_J) {
                 mDirty = true;
             }
         }
@@ -781,15 +579,15 @@ class DualTankView extends WatchUi.DataField {
         var w = dc.getWidth();
         var h = dc.getHeight();
 
-        if (mCP <= 0.0 || mWprime <= 0.0) {
+        if (mModel.mCP <= 0.0 || mModel.mWprime <= 0.0) {
             dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
             dc.drawText(w / 2, h / 2, mFontValue, "SET CP/W'",
                 Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
             return;
         }
 
-        var pctP = 100.0 * mRP / mCapP;
-        var pctG = 100.0 * mRG / mCapG;
+        var pctP = 100.0 * mModel.mRP / mModel.mCapP;
+        var pctG = 100.0 * mModel.mRG / mModel.mCapG;
 
         // VERTICAL tanks are the standard look on most layouts; only a genuinely short
         // strip (too short for a legible vertical bar) falls back to horizontal bars:
@@ -903,10 +701,10 @@ class DualTankView extends WatchUi.DataField {
     // Current fatigue level (%): how much PCr recovery is slowed right now, driven
     // by glycolytic depletion — tauPeff/tauP - 1 = fatK*(1 - rG/cG).
     hidden function fatiguePct() {
-        var fillG = mRG / mCapG;
+        var fillG = mModel.mRG / mModel.mCapG;
         if (fillG < 0.0) { fillG = 0.0; }
         if (fillG > 1.0) { fillG = 1.0; }
-        var f = mFatK * (1.0 - fillG) * 100.0;
+        var f = mModel.mFatK * (1.0 - fillG) * 100.0;
         if (f < 0.0) { f = 0.0; }
         return f;
     }
@@ -930,9 +728,9 @@ class DualTankView extends WatchUi.DataField {
 
         dc.drawText(w / 2, yHdr, mFontSmall, "DEPLETED (kJ)", ctr);
         dc.drawText(half / 2, yKj, mFontValue,
-            "PCr " + (mDepP / 1000.0).format("%.1f"), ctr);
+            "PCr " + (mModel.mDepP / 1000.0).format("%.1f"), ctr);
         dc.drawText(half + half / 2, yKj, mFontValue,
-            "GLY " + (mDepG / 1000.0).format("%.1f"), ctr);
+            "GLY " + (mModel.mDepG / 1000.0).format("%.1f"), ctr);
         dc.drawText(w / 2, yFat, mFontValue,
             "Fatigue " + fatiguePct().toNumber().toString() + "%", ctr);
     }
@@ -972,7 +770,7 @@ class DualTankView extends WatchUi.DataField {
         dc.drawRoundedRectangle(x, y, bw, bh, r);
 
         var depleted = (pct <= 3.0);
-        var draining = isPcr ? (mConsP > 0.0) : (mConsG > 0.0);
+        var draining = isPcr ? (mModel.mConsP > 0.0) : (mModel.mConsG > 0.0);
         var col = fillColor(isPcr, depleted, draining);
         if (col == null) { return; }
 
@@ -987,7 +785,7 @@ class DualTankView extends WatchUi.DataField {
         fillTank(dc, col, x + 1, y + 1, fillW, bh - 2, r);
 
         if (draining && !depleted) {
-            var wtxt = "-" + (isPcr ? mConsP : mConsG).toNumber().toString() + "W";
+            var wtxt = "-" + (isPcr ? mModel.mConsP : mModel.mConsG).toNumber().toString() + "W";
             dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
             dc.drawText(x + bw - 3, y + bh / 2, mFontSmall, wtxt,
                 Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
@@ -1001,7 +799,7 @@ class DualTankView extends WatchUi.DataField {
         dc.drawRoundedRectangle(x, y, bw, bh, r);
 
         var depleted = (pct <= 3.0);
-        var draining = isPcr ? (mConsP > 0.0) : (mConsG > 0.0);
+        var draining = isPcr ? (mModel.mConsP > 0.0) : (mModel.mConsG > 0.0);
         var col = fillColor(isPcr, depleted, draining);
         if (col == null) { return; }
 
@@ -1016,7 +814,7 @@ class DualTankView extends WatchUi.DataField {
         fillTank(dc, col, x + 1, y + bh - 1 - fillH, bw - 2, fillH, r);
 
         if (draining && !depleted) {
-            var wtxt = "-" + (isPcr ? mConsP : mConsG).toNumber().toString() + "W";
+            var wtxt = "-" + (isPcr ? mModel.mConsP : mModel.mConsG).toNumber().toString() + "W";
             dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
             dc.drawText(x + bw / 2, y + 2, mFontSmall, wtxt, Graphics.TEXT_JUSTIFY_CENTER);
         }
