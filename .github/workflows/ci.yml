@@ -118,6 +118,20 @@ jobs:
           LOG=/tmp/ciq-test.log
           : > "$LOG"
 
+          # GitHub Actions forces HOME=/github/home for container steps, but the simulator
+          # looks for device data under $HOME/.Garmin/ConnectIQ/Devices — which the image
+          # installs under the build user's ORIGINAL home. Without this the sim logs
+          # "Failed to load .../Devices/edge1050/compiler.json" and monkeydo hangs. Point
+          # HOME at wherever edge1050's compiler.json actually lives. (monkeyc in the compile
+          # job is unaffected — it resolves devices via the SDK path, not $HOME.)
+          DEV_JSON="$(find / -path '*/.Garmin/ConnectIQ/Devices/edge1050/compiler.json' 2>/dev/null | head -1 || true)"
+          if [ -n "$DEV_JSON" ]; then
+            export HOME="${DEV_JSON%%/.Garmin/*}"
+            echo "using HOME=$HOME (device data at $DEV_JSON)"
+          else
+            echo "WARNING: edge1050 device data not found under any /.Garmin; sim will likely fail" >&2
+          fi
+
           # The simulator-run logic is passed INLINE to `bash -c` (not as an exported
           # function): export -f + `bash -c funcname` does not survive the
           # xvfb-run -> timeout -> bash exec chain (BASH_FUNC_* is dropped), so the
