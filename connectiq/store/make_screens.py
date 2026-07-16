@@ -2,12 +2,24 @@
 """Render in-app screenshots of the Dual-Tank data field (horizontal bars),
 mirroring DualTankView.drawBar, at several depletion states; plus a palettized
 8-bit device-icon fallback."""
-import os
+import os, sys
 from PIL import Image, ImageDraw, ImageFont
 
-OUT = "/home/user/AnaerobicFuelTanks/connectiq/store"
+OUT = os.path.dirname(os.path.abspath(__file__))
 os.makedirs(OUT, exist_ok=True)
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+# Scalable-font candidates tried in order (cross-platform). font() resolves one once and
+# caches it; if none is a scalable TrueType it raises loudly rather than falling back to a
+# bitmap font (which would silently emit wrong-sized text).
+FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Debian/Ubuntu
+    "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",              # Arch/others
+    "/Library/Fonts/Arial Bold.ttf",                         # macOS
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",     # macOS
+    "C:\\Windows\\Fonts\\arialbd.ttf",                        # Windows
+    "DejaVuSans-Bold.ttf", "Arial Bold.ttf", "Arialbd.ttf",  # let PIL resolve by name
+]
+_FONT_PATH = None  # resolved once, then cached
 
 # palette identical to the Monkey C constants
 PCR_DULL   = (0x5A, 0x3A, 0x6E)
@@ -19,8 +31,27 @@ BLACK      = (0, 0, 0)
 WHITE      = (255, 255, 255)
 
 def font(sz):
-    try: return ImageFont.truetype(FONT, sz)
-    except: return ImageFont.load_default()
+    """Always return a scalable FreeTypeFont at size `sz`; never a bitmap fallback.
+
+    Output text metrics are now font-dependent — Linux resolves DejaVu, macOS/Windows
+    resolve Arial — so caption sizing (and thus the committed PNGs) can differ across
+    machines. Generate on a box with fonts-dejavu-core (CI pins it) for byte-stable assets.
+    This rewrite also incidentally closes the bare-`except:` tracked in #45.
+    """
+    global _FONT_PATH
+    if _FONT_PATH is not None:
+        return ImageFont.truetype(_FONT_PATH, sz)
+    for cand in FONT_CANDIDATES:
+        try:
+            f = ImageFont.truetype(cand, sz)   # raises if missing / not scalable
+            _FONT_PATH = cand
+            return f
+        except (OSError, IOError):
+            continue
+    raise RuntimeError(
+        "No scalable TrueType font found. Install one (e.g. "
+        "`apt-get install fonts-dejavu-core`) or add a path to FONT_CANDIDATES. Tried: "
+        + ", ".join(FONT_CANDIDATES))
 
 def contrast(bg):
     r, g, b = bg
@@ -216,9 +247,11 @@ def device_frame(field, caption):
     # chin line 1: brand (left)
     d.text((bez, bez+fh+12), "GARMIN  EDGE", font=font(18), fill=(140,145,155))
     # chin line 2: caption (centered), shrunk to fit
-    cf = font(26)
-    while cf.size > 12 and d.textbbox((0,0), caption, font=cf)[2] > W - 2*bez:
-        cf = font(cf.size - 2)
+    cs = 26
+    cf = font(cs)
+    while cs > 12 and d.textbbox((0,0), caption, font=cf)[2] > W - 2*bez:
+        cs -= 2
+        cf = font(cs)
     tb = d.textbbox((0,0), caption, font=cf)
     d.text((W//2 - (tb[2]-tb[0])//2, bez+fh+44), caption, font=cf, fill=(228,231,238))
     return body
@@ -306,12 +339,21 @@ def make_screens():
     print("full:", fp, os.path.getsize(fp)//1024, "KB")
 
 def make_palette_icon():
-    src = Image.open(os.path.join(OUT, "device_icon_128_24bit.png")).convert("RGB")
+    src_path = os.path.join(OUT, "device_icon_128_24bit.png")
+    if not os.path.exists(src_path):
+        print("skip palette icon: {} not found — run make_assets.py first "
+              "(its make_icons() generates it).".format(src_path))
+        return
+    src = Image.open(src_path).convert("RGB")
     pal = src.convert("P", palette=Image.ADAPTIVE, colors=256)
     p = os.path.join(OUT, "device_icon_128_8bit_palette.png")
     pal.save(p, "PNG")
     print("palette icon:", p, os.path.getsize(p)//1024, "KB")
 
 if __name__ == "__main__":
-    make_screens()
-    make_palette_icon()
+    try:
+        make_screens()
+        make_palette_icon()
+    except Exception as e:
+        print("ERROR: {}".format(e), file=sys.stderr)
+        sys.exit(1)

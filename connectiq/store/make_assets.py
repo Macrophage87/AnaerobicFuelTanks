@@ -1,12 +1,24 @@
 #!/usr/bin/env python3
 """Generate Connect IQ store assets for the Dual-Tank Anaerobic app.
 Two glossy fuel tanks: purple = PCr (phosphocreatine), green = GLY (glycolytic)."""
-import os, zlib, struct
+import os, sys, zlib, struct
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-OUT = "/home/user/AnaerobicFuelTanks/connectiq/store"
+OUT = os.path.dirname(os.path.abspath(__file__))
 os.makedirs(OUT, exist_ok=True)
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+# Scalable-font candidates tried in order (cross-platform). font() resolves one once and
+# caches it; if none is a scalable TrueType it raises loudly rather than falling back to a
+# bitmap font (which would silently emit wrong-sized text).
+FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Debian/Ubuntu
+    "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",              # Arch/others
+    "/Library/Fonts/Arial Bold.ttf",                         # macOS
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",     # macOS
+    "C:\\Windows\\Fonts\\arialbd.ttf",                        # Windows
+    "DejaVuSans-Bold.ttf", "Arial Bold.ttf", "Arialbd.ttf",  # let PIL resolve by name
+]
+_FONT_PATH = None  # resolved once, then cached
 
 # ---- brand palette (matches the data field) ----
 PURPLE_BRIGHT = (180, 77, 255)
@@ -18,8 +30,28 @@ GREEN_EMPTY   = (40, 66, 48)
 WHITE = (255, 255, 255)
 
 def font(sz):
-    try: return ImageFont.truetype(FONT, sz)
-    except: return ImageFont.load_default()
+    """Always return a scalable FreeTypeFont at size `sz`; never a bitmap fallback.
+
+    Output text metrics are now font-dependent — Linux resolves DejaVu, macOS/Windows
+    resolve Arial — so text sizing (and thus the committed PNGs) can differ across
+    machines. Generate on a box with fonts-dejavu-core (CI pins it) for byte-stable assets.
+    This rewrite also incidentally closes the bare-`except:` tracked in #45. (make_hero's
+    fitfont already tracks size in a local int, so no font `.size` read exists here.)
+    """
+    global _FONT_PATH
+    if _FONT_PATH is not None:
+        return ImageFont.truetype(_FONT_PATH, sz)
+    for cand in FONT_CANDIDATES:
+        try:
+            f = ImageFont.truetype(cand, sz)   # raises if missing / not scalable
+            _FONT_PATH = cand
+            return f
+        except (OSError, IOError):
+            continue
+    raise RuntimeError(
+        "No scalable TrueType font found. Install one (e.g. "
+        "`apt-get install fonts-dejavu-core`) or add a path to FONT_CANDIDATES. Tried: "
+        + ", ".join(FONT_CANDIDATES))
 
 def lerp(a, b, t):
     return tuple(int(round(a[i] + (b[i] - a[i]) * t)) for i in range(3))
@@ -264,8 +296,12 @@ def make_icons():
     return p24, p64
 
 if __name__ == "__main__":
-    h = make_hero(); print("hero:", h, os.path.getsize(h)//1024, "KB")
-    c = make_cover(); print("cover:", c, os.path.getsize(c)//1024, "KB")
-    a, b = make_icons()
-    print("icon24:", a, os.path.getsize(a)//1024, "KB")
-    print("icon64:", b, os.path.getsize(b)//1024, "KB")
+    try:
+        h = make_hero(); print("hero:", h, os.path.getsize(h)//1024, "KB")
+        c = make_cover(); print("cover:", c, os.path.getsize(c)//1024, "KB")
+        a, b = make_icons()
+        print("icon24:", a, os.path.getsize(a)//1024, "KB")
+        print("icon64:", b, os.path.getsize(b)//1024, "KB")
+    except Exception as e:
+        print("ERROR: {}".format(e), file=sys.stderr)
+        sys.exit(1)
