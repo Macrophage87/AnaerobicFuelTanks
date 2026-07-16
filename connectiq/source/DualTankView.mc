@@ -57,6 +57,47 @@ using Toybox.Lang;
 //   - 8x(20 s @ 400 / 40 s @ 120): PCr sawtooths; GLY trends down across the set.
 //   - 20 min @ 150 W: both stay ~full; GLY slowly tops off since P < LT1.
 //======================================================================
+// ---- Module-scope persistence constants ----------------------------------
+// At MODULE scope (not class members) so the pure `static` DualTankView.validateBlob()
+// can reference them — a static method has no `self`, so class-level consts are not
+// visible to it. Instance methods resolve these by bare name via module scope too.
+// ---- State persistence (survives reboot / battery swap / CIQ reload mid-ride) ----
+const STATE_KEY      = "state";  // Application.Storage key for the snapshot blob
+const STATE_VERSION  = 2;        // schema version; bump on layout change (v2 adds sessId)
+const SAVE_EVERY_SEC = 10;       // min seconds between throttled compute() writes
+// Restore staleness cap, matched to MAX_PAUSE_SEC (24 h): a mid-activity pause that
+// outlives a reload still hands off to exitPause() (which itself caps recovery at
+// MAX_PAUSE_SEC and floors negative elapsed), so restoring mPaused/mPauseAt credits
+// closed-form recovery over the whole wall-clock off-gap without new exposure beyond
+// what MAX_PAUSE_SEC already guards. Secondary defense only — the primary guard against
+// a stale/foreign snapshot is the activity-identity (sessId) match in restoreState().
+const MAX_RESTORE_AGE_SEC = 86400;
+// Only a change of at least this many joules in any reserve/deficit/total marks the
+// state dirty. Without it, the sub-CP restoration branch drifts mRG/mDeficit by a
+// fraction of a joule every second, keeping the field permanently dirty and writing
+// every SAVE_EVERY_SEC for the rest of a ride that ever touched the glycolytic tank.
+const STATE_EPS_J = 25.0;
+// Fixed-order snapshot Array layout (lower alloc/serialize cost than a Dictionary).
+// sessId (the activity's start-time, unix s) keys the snapshot to ONE activity so a
+// previous ride's blob can't bleed into a new one within the staleness window.
+// Both saveState() and restoreState() index EXCLUSIVELY via these SLOT_* constants,
+// so the writer and reader can't silently desync. TO ADD A FIELD: append a new SLOT_*
+// before STATE_LEN, bump STATE_LEN and STATE_VERSION, and set/read it in both methods.
+const SLOT_VERSION = 0;
+const SLOT_SAVEDAT = 1;
+const SLOT_SESS    = 2;
+const SLOT_RP      = 3;
+const SLOT_RG      = 4;
+const SLOT_DEPP    = 5;
+const SLOT_DEPG    = 6;
+const SLOT_AER     = 7;
+const SLOT_G       = 8;
+const SLOT_DEFICIT = 9;
+const SLOT_PAUSED  = 10;
+const SLOT_PAUSEAT = 11;
+const SLOT_STARTED = 12;
+const STATE_LEN    = 13;
+
 class DualTankView extends WatchUi.DataField {
 
     // ---- Colors (hue = system, brightness = draining now, red = empty) ----
@@ -91,42 +132,6 @@ class DualTankView extends WatchUi.DataField {
     // Guard: cap a single pause's recovery to 24 h of rest (clock-change safety).
     const MAX_PAUSE_SEC = 86400;
 
-    // ---- State persistence (survives reboot / battery swap / CIQ reload mid-ride) ----
-    const STATE_KEY      = "state";  // Application.Storage key for the snapshot blob
-    const STATE_VERSION  = 2;        // schema version; bump on layout change (v2 adds sessId)
-    const SAVE_EVERY_SEC = 10;       // min seconds between throttled compute() writes
-    // Restore staleness cap, matched to MAX_PAUSE_SEC (24 h): a mid-activity pause that
-    // outlives a reload still hands off to exitPause() (which itself caps recovery at
-    // MAX_PAUSE_SEC and floors negative elapsed), so restoring mPaused/mPauseAt credits
-    // closed-form recovery over the whole wall-clock off-gap without new exposure beyond
-    // what MAX_PAUSE_SEC already guards. Secondary defense only — the primary guard against
-    // a stale/foreign snapshot is the activity-identity (sessId) match in restoreState().
-    const MAX_RESTORE_AGE_SEC = 86400;
-    // Only a change of at least this many joules in any reserve/deficit/total marks the
-    // state dirty. Without it, the sub-CP restoration branch drifts mRG/mDeficit by a
-    // fraction of a joule every second, keeping the field permanently dirty and writing
-    // every SAVE_EVERY_SEC for the rest of a ride that ever touched the glycolytic tank.
-    const STATE_EPS_J = 25.0;
-    // Fixed-order snapshot Array layout (lower alloc/serialize cost than a Dictionary).
-    // sessId (the activity's start-time, unix s) keys the snapshot to ONE activity so a
-    // previous ride's blob can't bleed into a new one within the staleness window.
-    // Both saveState() and restoreState() index EXCLUSIVELY via these SLOT_* constants,
-    // so the writer and reader can't silently desync. TO ADD A FIELD: append a new SLOT_*
-    // before STATE_LEN, bump STATE_LEN and STATE_VERSION, and set/read it in both methods.
-    const SLOT_VERSION = 0;
-    const SLOT_SAVEDAT = 1;
-    const SLOT_SESS    = 2;
-    const SLOT_RP      = 3;
-    const SLOT_RG      = 4;
-    const SLOT_DEPP    = 5;
-    const SLOT_DEPG    = 6;
-    const SLOT_AER     = 7;
-    const SLOT_G       = 8;
-    const SLOT_DEFICIT = 9;
-    const SLOT_PAUSED  = 10;
-    const SLOT_PAUSEAT = 11;
-    const SLOT_STARTED = 12;
-    const STATE_LEN    = 13;
 
     // ---- Physiology model (settings + derived capacities + reserve/deficit state +
     //      the per-second physics step). All numeric model concerns live here; the view
