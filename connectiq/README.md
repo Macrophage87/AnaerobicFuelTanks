@@ -48,11 +48,12 @@ connectiq/
 | `Wprime` | total work above CP (J) | 20000 |
 | `fP` | PCr share of W′ (0–1) — weakly identified | 0.25 |
 | `pPmax` | PCr peak power above CP (W), immediate rate cap (~1 s peak − CP) | 300 |
-| `tauP` | PCr recovery time constant (s) | 22 |
-| `tauG` | glycolytic recovery time constant (s) | 360 |
+| `tauP` | PCr recovery time constant (s) | 27 |
+| `tauG` | glycolytic recovery time constant (s) | 470 |
 | `lt1Frac` | LT1 as a fraction of CP — **set from a measured LT1**, not left at default | 0.80 |
-| `eta` | PCr recovery-rate efficiency (rescales τ_p; degenerate with tauP) | 0.80 |
+| `eta` | PCr recovery efficiency — fraction of recovery energy stored as usable PCr (0–1); **effectively deprecated/neutral**: at the default 1.00 it applies no rescaling and is degenerate with tauP | 1.00 |
 | `fatK` | fatigue slowing of PCr recovery (0 disables) | 0.75 |
+| `gFat` | glycolytic fatigue (optional) — lowers glycolytic flux as its reserve empties (repeated-sprint realism); 0 disables | 0.00 |
 | `tauAer` | aerobic ramp time constant, s (0 = hard CP edge) | 25 |
 | `tauOn` | glycolytic activation time constant, s (how fast glycolysis ramps in) | 6 |
 

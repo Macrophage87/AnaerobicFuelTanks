@@ -20,6 +20,7 @@ DURATIONS <- c(1,5,10,15,20,30,45,60,90,120,180,240,300,420,600,720,900,1200,180
 DEFAULTS  <- list(fP = 0.25, pPmax = 300, tauP = 27, tauG = 470,
                   lt1Frac = 0.80, eta = 1.00, fatK = 0.75, gFat = 0.00, tauAer = 25, tauOn = 6)
 GLY_RATE_FRAC <- 0.5   # glycolytic peak rate as a fraction of PCr peak rate (PCr is the higher-power system)
+CP_FLOOR_W <- 50       # CP below this is physically implausible for the tool's use; below 0 it is impossible
 PARAMS <- c("CP","Wprime","pPmax","fP","tauP","tauG","eta")   # the tracked "sprint values"
 
 cv <- function(x) { x <- x[is.finite(x)]; if (length(x) > 1 && mean(x) != 0) sd(x)/abs(mean(x)) else NA_real_ }
@@ -163,18 +164,31 @@ mmp_curve <- function(power_list, durations = DURATIONS)
 fit_cp <- function(dur, pw, tmin, tmax) {
   keep <- which(dur >= tmin & dur <= tmax & is.finite(pw)); if (length(keep) < 2) return(NULL)
   t <- dur[keep]; W <- pw[keep] * t; f <- lm(W ~ t)
-  CP <- unname(coef(f)[2])
+  CP <- unname(coef(f)[2]); Wprime <- unname(coef(f)[1])
   # Sanity: the CP asymptote must sit below every finite-duration power in the
   # window (you can't sustain forever more than you held for 12 min). If it doesn't,
   # the power-duration curve is corrupt (bad file parse, scrambled timeline) or the
   # window is too narrow -- flag it rather than reporting an impossible CP.
   minP <- min(pw[keep])
-  list(CP = CP, Wprime = unname(coef(f)[1]), r2 = summary(f)$r.squared,
+  # Non-physical vs implausible (two tiers). A corrupt/scrambled MMP can yield a
+  # downward (or super-linear increasing) work-time fit -> CP <= 0 and/or W' <= 0,
+  # which break the downstream math (div-by-zero, sign flip). Flag those as
+  # `nonphysical`. A positive-but-suspiciously-low CP is merely `implausible` -- worth
+  # warning about but harmless to export. Do NOT clamp/rewrite the returned CP/W':
+  # keep them truthful so the user can diagnose the bad source data.
+  nonphysical <- !is.finite(CP) || !is.finite(Wprime) || CP <= 0 || Wprime <= 0
+  implausible <- is.finite(CP) && CP > 0 && CP < CP_FLOOR_W
+  list(CP = CP, Wprime = Wprime, r2 = summary(f)$r.squared,
        n = length(keep), rng = max(t)/min(t), t = t, W = W,
-       impossible = is.finite(CP) && is.finite(minP) && CP >= minP)
+       impossible = is.finite(CP) && is.finite(minP) && CP >= minP,
+       nonphysical = nonphysical, implausible = implausible)
 }
 simulate_tanks <- function(power, cp, par) {
-  n <- length(power); cP <- par$fP * par$Wprime; cG <- (1 - par$fP) * par$Wprime
+  n <- length(power)
+  # Defensive: a non-physical CP scalar (<=0, NaN, Inf) must never reach the below-CP
+  # recovery gates (which divide by cp) or flip signs. Floor it to a tiny positive.
+  if (!is.finite(cp) || cp < 1e-6) cp <- 1e-6
+  cP <- par$fP * par$Wprime; cG <- (1 - par$fP) * par$Wprime
   if (cP < 1e-6) cP <- 1e-6; if (cG < 1e-6) cG <- 1e-6   # guard f_p at 0/1 (rate taper divides by cP)
   rP <- cP; rG <- cG; aer <- cp; g <- 0; D <- 0; resTot <- numeric(n); deficit <- numeric(n)
   rPv <- numeric(n); rGv <- numeric(n)   # per-tank reserve series (for the Monkey C cross-check)
@@ -256,6 +270,7 @@ ride_diag <- function(power, cp, base) {
   r <- rle(power > cp); ends <- cumsum(r$lengths); starts <- ends - r$lengths + 1L
   bouts <- which(r$values & r$lengths >= 5); nb <- length(bouts); mean_rec <- NA_real_; refill <- NA_real_
   tot <- simulate_tanks(power, cp, base)$total; Wp <- base$Wprime
+  if (!is.finite(Wp) || Wp <= 0) Wp <- 1e-6      # defensive: a non-physical W' must not sign-flip the margin/refill ratios
   margin <- min(tot) / Wp                        # lowest reserve reached, as share of W'
   if (nb >= 2) {
     gaps <- numeric(nb-1); rf <- numeric(nb-1)

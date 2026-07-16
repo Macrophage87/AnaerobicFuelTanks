@@ -213,3 +213,9 @@ PDF renderings of each sit alongside the Markdown in `docs/`.
 - **Research sourcing.** Literature was retrieved via PubMed / PubMed Central; some typeset equations
   were image-embedded, so a few closed forms are the standard published forms cross-checked against
   the surrounding text — verify exact coefficients against the publisher PDFs before hard-coding.
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE).

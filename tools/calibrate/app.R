@@ -230,7 +230,12 @@ server <- function(input, output, session) {
     # pPmax is the PCr immediate rate cap: at the very first instant glycolysis is
     # inactive (g=0), so the instantaneous ceiling is CP + pPmax -> use best 1 s power.
     p1 <- m$power[m$duration == 1]; pPmax <- if (is.finite(p1)) max(50, round(p1 - f$CP)) else DEFAULTS$pPmax
-    cpWhy <- paste(c(if (isTRUE(f$impossible)) "CP above longest effort - check file/window", if (f$r2 < 0.95) "low R2", if (f$n < 3) "few efforts", if (f$rng < 5) "narrow durations"), collapse = ", ")
+    cpWhy <- paste(c(
+      if (isTRUE(f$nonphysical)) "non-physical CP/W' (<= 0) - fit is corrupt, check files/window",
+      if (isTRUE(f$implausible)) sprintf("CP implausibly low (< %d W) - verify files/window", CP_FLOOR_W),
+      if (isTRUE(f$impossible))  "CP above longest effort - check file/window",
+      if (f$r2 < 0.95) "low R2", if (f$n < 3) "few efforts", if (f$rng < 5) "narrow durations"),
+      collapse = ", ")
     recU <- is.null(a) || !a$constrained
     spread <- function(k) !is.null(a) && a$constrained && is.finite(a$cv[[k]]) && a$cv[[k]] > 0.3
     recWhy <- if (is.null(a)) "not fit (defaults)" else "rest too long / few bouts"
@@ -292,6 +297,8 @@ server <- function(input, output, session) {
   output$cp_txt   <- renderText({ f <- cpfit(); req(f)
     paste0(
       sprintf("CP = %.0f W   W' = %.0f J   R^2 = %.3f (n = %d efforts, %.1fx duration range)", f$CP, f$Wprime, f$r2, f$n, f$rng),
+      if (isTRUE(f$nonphysical)) "\n⚠ CP/W' are non-physical (<= 0) -- the power-duration fit is corrupt (bad FIT parse / scrambled MMP) or the window is wrong. Export to device is blocked. Check the files or widen the CP window." else "",
+      if (isTRUE(f$implausible)) sprintf("\n⚠ CP is implausibly low (< %d W) -- verify the files and CP window.", CP_FLOOR_W) else "",
       if (isTRUE(f$impossible)) "\n⚠ CP is at/above the power you held for the longest effort in the window -- physically impossible. Usually a corrupt power-duration curve (odd FIT parse) or too narrow a fit window; widen the CP window or check the file." else "") })
 
   # ---- anchor editor ----
@@ -346,6 +353,14 @@ server <- function(input, output, session) {
   output$dl_ciq <- downloadHandler(
     filename = function() paste0("dualtank_ciq_settings_", Sys.Date(), ".json"),
     content = function(file) {
+      # Never write a non-physical CP/W' to a real device. validate(need(...)) inside a
+      # downloadHandler raises a silent condition (no output slot renders it), so pair the
+      # block with a visible showNotification before aborting the write.
+      f <- cpfit()
+      if (isTRUE(f$nonphysical))
+        showNotification("Connect IQ export blocked: CP/W' are non-physical (<= 0). The power-duration fit is corrupt - check the source files or widen the CP fit window.", type = "error", duration = NULL)
+      validate(need(!isTRUE(f$nonphysical),
+        "Cannot export Connect IQ settings: CP/W' are non-physical (<= 0). The power-duration fit is corrupt - check the source files or widen the CP fit window."))
       et <- est_table(); v <- setNames(et$value, et$param)
       keys <- c("CP","Wprime","fP","pPmax","tauP","tauG","lt1Frac","eta","fatK","gFat","tauAer","tauOn")   # match properties.xml
       body <- paste(vapply(keys, function(k) sprintf('  "%s": %s', k, format(v[[k]], trim = TRUE)), character(1)), collapse = ",\n")
@@ -357,6 +372,9 @@ server <- function(input, output, session) {
     content = function(file) {
       cur <- current_reading(); et <- est_table()
       newr <- as.list(cur); newr$flags <- et$param[et$uncertain]
+      # Record the hard non-physical condition explicitly so it round-trips through history
+      # (change to est_table already puts CP/Wprime in flags when non-physical).
+      if (isTRUE(cpfit()$nonphysical)) newr$flags <- union(newr$flags, "nonphysical")
       readings <- c(history_data(), list(newr))
       yaml::write_yaml(list(readings = readings), file) })
 
