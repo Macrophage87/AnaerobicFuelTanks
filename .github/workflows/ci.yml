@@ -113,6 +113,13 @@ jobs:
           DEVICE: edge1050
           SIM_PORT: "1234"      # Connect IQ simulator shell port monkeydo connects to
           RUN_TIMEOUT: "300"
+          # The Qt simulator segfaults under Xvfb when it tries hardware GL (no GPU on the
+          # runner). Force software rendering (Mesa llvmpipe) so it can start headless.
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: llvmpipe
+          QT_OPENGL: software
+          QT_QUICK_BACKEND: software
+          QT_XCB_GL_INTEGRATION: none
         run: |
           set -eux
           LOG=/tmp/ciq-test.log
