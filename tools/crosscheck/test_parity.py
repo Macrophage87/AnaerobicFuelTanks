@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""R <-> Monkey C model cross-check (issue #27, part C).
+"""R <-> Python-mirror model cross-check (issue #27, part C).
 
 Drives the Python mirror of the Monkey C `TankModel` (tank_model.py) through the same power
 traces the R reference (`simulate_tanks`) was frozen on, and asserts the two agree per second.
+This directly guards R == the mirror; the mirror is a line-for-line port of the Monkey C step,
+so Monkey C is guarded TRANSITIVELY (the residual mirror<->compiled-Monkey-C gap is tracked in
+#61, to be closed by the on-device (:test) run once the headless simulator works).
 
 Design decisions locked in from the part-C review:
   * IDENTICAL EXPLICIT CONFIG on both sides — the two codebases embed different fallback
@@ -15,10 +18,13 @@ Design decisions locked in from the part-C review:
   * WARM aerobic start + FULL state init on the mirror side (see tank_model.py) so the
     integrators are comparable from t=0.
 
-Tolerance: |Δreserve| <= 2% of W' (J), the documented contract band. In practice the mirror is
-a line-for-line port of the same arithmetic, so the observed max difference is ~float epsilon;
-the band exists to absorb float order-of-operations, not to hide a real divergence. If it is
-ever exceeded, treat it as a genuine model divergence and localize it — do NOT loosen the band.
+Tolerance: |Δreserve| <= 0.1 J. The mirror is a line-for-line port of the same arithmetic, so
+the observed max difference is ~1e-11 J (float order-of-operations only). 0.1 J sits ~9 orders
+above that noise floor — enough to absorb float epsilon while catching sub-percent coefficient
+drift: fault injection shows tauP +0.1% -> ~0.49 J, +1% -> ~4.8 J, +10% -> ~46 J, all far
+above 0.1 J. The earlier 2%-of-W' (400 J) band was self-refuting as a divergence guard — it let
+a 10% coefficient drift pass silently. If this band is ever exceeded, treat it as a genuine
+model divergence and localize it — do NOT loosen the band.
 
 Run directly (no pytest needed):  python3 tools/crosscheck/test_parity.py
 Exit code 0 = parity holds, 1 = divergence (or missing fixtures — regenerate with
@@ -81,12 +87,12 @@ def main():
 
     cfg = load_config()
     wprime = cfg["Wprime"]
-    tol_J = 0.02 * wprime                    # reserve tolerance: 2% of W'
+    tol_J = 0.1                              # reserve tolerance (J) — see module docstring
     tol_pct = 100.0 * tol_J / (cfg["fP"] * wprime)   # same band expressed in pctP points
 
     print("config: " + ", ".join("%s=%g" % (k, v) for k, v in sorted(cfg.items())))
-    print("tolerance: reserves +/- %.1f J (2%% of W'=%.0f), pctP +/- %.2f pts\n"
-          % (tol_J, wprime, tol_pct))
+    print("tolerance: reserves +/- %.3f J, pctP +/- %.4f pts (noise floor ~1e-11 J)\n"
+          % (tol_J, tol_pct))
 
     ok = True
     for name in TRACES:
@@ -99,19 +105,16 @@ def main():
 
         got = run_trace(cfg, rows)
         max_dP = max_dG = max_dPct = 0.0
-        worst_sec = -1
+        worst_sec = -1                       # 1-based second with the largest reserve delta
         for i, (row, (rP, rG, pctP)) in enumerate(zip(rows, got)):
             dP = abs(rP - row["rP"])
             dG = abs(rG - row["rG"])
             dPct = abs(pctP - row["pctP"])
-            if dP > max_dP:
-                max_dP = dP
-            if dG > max_dG:
-                max_dG = dG
-            if max(dP, dG) == max(max_dP, max_dG):
+            if max(dP, dG) > max(max_dP, max_dG):
                 worst_sec = i + 1
-            if dPct > max_dPct:
-                max_dPct = dPct
+            max_dP = max(max_dP, dP)
+            max_dG = max(max_dG, dG)
+            max_dPct = max(max_dPct, dPct)
 
         passed = max_dP <= tol_J and max_dG <= tol_J and max_dPct <= tol_pct
         ok = ok and passed
@@ -119,7 +122,7 @@ def main():
               % (name, len(rows), max_dP, max_dG, max_dPct, worst_sec,
                  "OK" if passed else "DIVERGENCE"))
 
-    print("\n%s" % ("PASSED — R and Monkey C models agree" if ok
+    print("\n%s" % ("PASSED — R and the Python mirror agree (Monkey C guarded transitively)" if ok
                     else "FAILED — model divergence exceeds tolerance"))
     return 0 if ok else 1
 
