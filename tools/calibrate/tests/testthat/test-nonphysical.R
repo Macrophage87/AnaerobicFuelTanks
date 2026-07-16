@@ -40,9 +40,20 @@ test_that("simulate_tanks floors a non-physical cp (finite, no sign flip)", {
   }
 })
 
+test_that("fit_cp flags a downward work-time slope (CP <= 0) as non-physical", {
+  # Work (power*duration) DECREASING with duration -> negative work-time slope -> CP <= 0.
+  # Exercises the CP-sign branch directly; the super-linear case above trips W' <= 0 instead.
+  dur <- c(60, 120, 300, 600)
+  pw  <- c(1000, 400, 120, 50)               # work = 60000,48000,36000,30000 (decreasing)
+  f <- fit_cp(dur, pw, 30, 3600)
+  expect_true(isTRUE(f$nonphysical))
+  expect_lte(f$CP, 0)
+})
+
 test_that("ride_diag margin does not sign-flip on a non-physical W'", {
   # base with W' <= 0 must not produce a positive margin from a negative reserve.
   bad_base <- modifyList(DEFAULTS, list(Wprime = -3000))
   dg <- ride_diag(c(rep(600, 20), rep(100, 40)), 250, bad_base)
   expect_true(is.finite(dg$margin))
+  expect_lte(dg$margin, 0)   # assert the SIGN (guard prevents a positive margin), not just finiteness
 })
