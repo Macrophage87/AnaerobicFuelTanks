@@ -78,14 +78,28 @@ jobs:
   # the job timeout. monkeydo can exit 0 even on test failure, so the gate is the
   # PARSED log: require the Run-No-Evil PASSED summary AND no FAILED/ERROR line.
   #
-  # ADVISORY (continue-on-error) FOR NOW: this on-device headless path is being
-  # stabilized and is NOT yet in ci-required. Enforced two-implementation equality
-  # is provided by a REQUIRED numeric guard — a Python mirror of TankModel cross-
-  # checked against the R reference fixtures — added in the companion issue #27
-  # part-C cross-check PR. Per the issue #27 definition-of-done, an advisory
-  # ciq-test is acceptable only while backed by that required numeric guard.
-  # Promote this into ci-required once it runs green reliably. Runs on ONE device
-  # (edge1050); the two-device compile matrix above stays the fast crash gate.
+  # ADVISORY (continue-on-error) and NOT in ci-required. Enforced two-implementation
+  # equality is provided by the REQUIRED `model-parity` numeric guard — a Python mirror
+  # of TankModel cross-checked against the R reference fixtures (issue #27 part C). Per
+  # the #27 definition-of-done, an advisory ciq-test is acceptable while backed by that
+  # required guard. Runs on ONE device (edge1050); the two-device compile matrix above
+  # stays the fast crash gate.
+  #
+  # KNOWN STATE (headless bring-up, verified from CI logs — remaining work to go green):
+  #   ✓ shell pinned to bash (image default is dash: `export -f`/`/dev/tcp` need bash)
+  #   ✓ run logic inlined into `bash -c` (an exported function is dropped across the
+  #     xvfb-run -> timeout -> bash exec chain)
+  #   ✓ HOME repointed at the SDK device data (Actions forces HOME=/github/home, so the
+  #     sim otherwise can't load Devices/edge1050/compiler.json and monkeydo hangs)
+  #   ✓ simulator launches, its shell socket connects in ~2 s, monkeydo deploys
+  #   ✗ the Qt `simulator` binary then SEGFAULTS ~13 s in, right after "SetLayout":
+  #       /connectiq/bin/connectiq: Segmentation fault (core dumped) "$MB_HOME"/simulator
+  #     Forcing software GL (LIBGL_ALWAYS_SOFTWARE / llvmpipe / QT_OPENGL=software) did
+  #     NOT change it, so it is not the GL path. This is a native Qt-under-Xvfb crash in
+  #     this image that needs a core-dump backtrace / Qt platform-plugin investigation in
+  #     the actual container (not fixable by blind CI iteration). Until then the suite is
+  #     enforced numerically by `model-parity`. When the segfault is resolved and this
+  #     runs green reliably, add it to ci-required.needs.
   # ------------------------------------------------------------------
   ciq-test:
     name: CIQ (:test) headless (advisory)
@@ -113,8 +127,9 @@ jobs:
           DEVICE: edge1050
           SIM_PORT: "1234"      # Connect IQ simulator shell port monkeydo connects to
           RUN_TIMEOUT: "300"
-          # The Qt simulator segfaults under Xvfb when it tries hardware GL (no GPU on the
-          # runner). Force software rendering (Mesa llvmpipe) so it can start headless.
+          # Software-render mitigations tried against the Qt segfault (see job header).
+          # These did NOT resolve it — the crash is not the GL path — but they are harmless
+          # and left as a starting point for whoever debugs the native crash next.
           LIBGL_ALWAYS_SOFTWARE: "1"
           GALLIUM_DRIVER: llvmpipe
           QT_OPENGL: software
