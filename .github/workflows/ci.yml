@@ -118,38 +118,41 @@ jobs:
           LOG=/tmp/ciq-test.log
           : > "$LOG"
 
-          run_tests() {
-            # Launch the simulator in the background under the xvfb display.
-            connectiq >/tmp/sim.log 2>&1 &
-            SIM_PID=$!
-            # Wait for the sim's shell socket to accept connections (bounded), rather
-            # than a fixed sleep — the sim can take several seconds to come up.
-            for i in $(seq 1 60); do
-              if (exec 3<>"/dev/tcp/127.0.0.1/${SIM_PORT}") 2>/dev/null; then
-                exec 3>&- 3<&- || true
-                echo "simulator socket up after ${i}s"
-                break
-              fi
-              if ! kill -0 "$SIM_PID" 2>/dev/null; then
-                echo "simulator process exited before opening a socket" >&2
-                return 1
-              fi
-              sleep 1
-            done
-            # Deploy + run the (:test) build; -t runs the test harness.
-            monkeydo bin/app-test.prg "$DEVICE" -t 2>&1 | tee "$LOG"
-            kill "$SIM_PID" 2>/dev/null || true
-            wait "$SIM_PID" 2>/dev/null || true
-          }
-          export -f run_tests
-          export SIM_PORT DEVICE LOG
-
-          # Virtual framebuffer + hard timeout so a hang fails fast.
+          # The simulator-run logic is passed INLINE to `bash -c` (not as an exported
+          # function): export -f + `bash -c funcname` does not survive the
+          # xvfb-run -> timeout -> bash exec chain (BASH_FUNC_* is dropped), so the
+          # function came back "command not found". DEVICE/SIM_PORT reach the inner
+          # bash via the exported `env:` vars; LOG is a fixed path.
           xvfb-run -a -s "-screen 0 1280x1024x24" \
-            timeout "${RUN_TIMEOUT}" bash -c run_tests || echo "run_tests exited non-zero (timeout or sim error)"
+            timeout "${RUN_TIMEOUT}" bash -c '
+              set -eux
+              # Launch the simulator in the background under the xvfb display.
+              connectiq >/tmp/sim.log 2>&1 &
+              SIM_PID=$!
+              # Wait (bounded) for the sim shell socket to listen — not a fixed sleep.
+              for i in $(seq 1 60); do
+                if (exec 3<>"/dev/tcp/127.0.0.1/${SIM_PORT}") 2>/dev/null; then
+                  exec 3>&- 3<&- || true
+                  echo "simulator socket up after ${i}s"
+                  break
+                fi
+                if ! kill -0 "$SIM_PID" 2>/dev/null; then
+                  echo "simulator process exited before opening a socket" >&2
+                  cat /tmp/sim.log >&2 || true
+                  exit 1
+                fi
+                sleep 1
+              done
+              # Deploy + run the (:test) build; -t runs the test harness.
+              monkeydo bin/app-test.prg "${DEVICE}" -t 2>&1 | tee /tmp/ciq-test.log
+              kill "$SIM_PID" 2>/dev/null || true
+              wait "$SIM_PID" 2>/dev/null || true
+            ' || echo "run_tests exited non-zero (timeout or sim error)"
 
           echo "----- captured test log -----"
           cat "$LOG" || true
+          echo "----- simulator log -----"
+          cat /tmp/sim.log 2>/dev/null || true
           echo "-----------------------------"
 
           # Parse: the Run-No-Evil harness prints a PASSED summary on success. Require it,
