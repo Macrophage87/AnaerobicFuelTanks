@@ -4,9 +4,8 @@ using Toybox.Lang;
 // Unit / regression tests for the dual-tank model.
 //
 // These COMPILE on the CI compile gate (monkeyc -t) and EXECUTE under the headless
-// simulator (xvfb) in the issue #27 test harness. (:test) functions — and the (:test)-
-// tagged helpers below — are excluded from release builds, so nothing here ships in the
-// data field.
+// simulator (xvfb) in the issue #27 test harness. (:test) functions are excluded from
+// release builds, so the test cases here never ship in the data field.
 //
 // The physiology tests drive a pure TankModel (no DataField/FitContributor/Activity/
 // Storage context), and the persistence tests exercise the pure DualTankView.validateBlob
@@ -14,12 +13,17 @@ using Toybox.Lang;
 // the documented QUALITATIVE behaviour (which tank drains, recovers, empties first), not
 // bit-exact joules.
 
-// ---- Shared (:test) helpers (release-excluded via the (:test) tag) ----
+// ---- Shared helpers ----
+//
+// These are PLAIN functions, not (:test) functions: the headless (:test) runner invokes
+// every (:test) symbol as a test case with a single Logger argument, so a tagged helper
+// with a different arity would fault. Plain helpers still compile under the -t test build
+// (they are only pruned from RELEASE builds, and this whole file is test-only) while being
+// callable with their real signatures.
 
 // Build a model at the documented default settings (CP=250), full tanks.
 // Settings order matches TankModel.configure(cp, wprime, fP, pPmax, tauP, tauG,
 // lt1Frac, eta, fatK, gFat, tauAer, tauOn).
-(:test)
 function tmMake() {
     var m = new TankModel();
     m.configure([250.0, 20000.0, 0.25, 300.0, 27.0, 470.0, 0.80, 1.00, 0.75, 0.0, 25.0, 6.0]);
@@ -29,7 +33,6 @@ function tmMake() {
 
 // Run a scripted trace: an array of [watts, seconds] segments. Each second is one
 // stepModel() call at the segment's constant power. Returns the last pctP.
-(:test)
 function tmRun(m, trace) {
     var pctP = 100.0;
     for (var i = 0; i < trace.size(); i += 1) {
@@ -72,8 +75,9 @@ function testHardPunchThenRecover(logger) {
 
     tmRun(m, [[100.0, 60]]);
     logger.debug("after 60s@100: rP=" + m.mRP);
-    // PCr recovers toward full during the easy spin.
-    Test.assert(m.mRP > rpAfterEffort);
+    // PCr recovers toward full during the easy spin: not just non-decreasing, but a
+    // meaningful refill — strictly more than 5% of capacity above where the effort left it.
+    Test.assert(m.mRP > rpAfterEffort + 0.05 * capP);
     Test.assert(m.mRP > 0.70 * capP);
     return true;
 }
@@ -170,7 +174,6 @@ function testRestRecoveryClosedForm(logger) {
     return true;
 }
 
-(:test)
 function absClose(x, y, tol) {
     var d = x - y;
     if (d < 0.0) { d = -d; }
@@ -181,7 +184,6 @@ function absClose(x, y, tol) {
 
 // Build a well-formed, acceptable snapshot: version 2, started, fresh, matching sessId.
 // STATE_LEN == 13; slots follow DualTankView's SLOT_* layout.
-(:test)
 function makeValidBlob(nowSec, sess) {
     var blob = new [13];
     blob[0]  = 2;          // SLOT_VERSION == STATE_VERSION
@@ -216,8 +218,9 @@ function testValidateBlobRejects(logger) {
     var now = 1000000;
     var sess = 12345;
 
-    // Wrong size.
-    var wrongSize = new [12];
+    // Wrong size: a version-2, started, fresh, matching-sess blob that is one slot short,
+    // so only the length check can reject it (isolates STATE_LEN from the other gates).
+    var wrongSize = [2, now, sess, 4000.0, 12000.0, 1000.0, 3000.0, 0.0, 0.0, 0.0, false, 0];
     Test.assert(!DualTankView.validateBlob(wrongSize, now, sess));
 
     // Not an array.
