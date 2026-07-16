@@ -86,8 +86,8 @@ jobs:
   # fixtures (issue #27 part C). Runs on ONE device (edge1050); the two-device compile
   # matrix above stays the fast crash gate.
   #
-  # KNOWN STATE (headless bring-up, verified from CI logs — remaining work to go green):
-  #   ✓ shell pinned to bash (image default is dash: `export -f`/`/dev/tcp` need bash)
+  # KNOWN STATE (headless bring-up, verified from CI logs — remaining work in #61):
+  #   ✓ shell pinned to bash (image default is dash: the `/dev/tcp` socket probe needs bash)
   #   ✓ run logic inlined into `bash -c` (an exported function is dropped across the
   #     xvfb-run -> timeout -> bash exec chain)
   #   ✓ HOME repointed at the SDK device data (Actions forces HOME=/github/home, so the
@@ -95,12 +95,13 @@ jobs:
   #   ✓ simulator launches, its shell socket connects in ~2 s, monkeydo deploys
   #   ✗ the Qt `simulator` binary then SEGFAULTS ~13 s in, right after "SetLayout":
   #       /connectiq/bin/connectiq: Segmentation fault (core dumped) "$MB_HOME"/simulator
-  #     Forcing software GL (LIBGL_ALWAYS_SOFTWARE / llvmpipe / QT_OPENGL=software) did
-  #     NOT change it, so it is not the GL path. This is a native Qt-under-Xvfb crash in
-  #     this image that needs a core-dump backtrace / Qt platform-plugin investigation in
-  #     the actual container (not fixable by blind CI iteration). Until then the suite is
-  #     enforced numerically by `model-parity`. When the segfault is resolved and this
-  #     runs green reliably, add it to ci-required.needs.
+  #     Forcing software GL (LIBGL_ALWAYS_SOFTWARE / llvmpipe / QT_OPENGL=software) did NOT
+  #     change it, so it is not the GL path (those env vars were removed as ineffective).
+  #     This is a native Qt-under-Xvfb crash in this image that needs a core-dump backtrace /
+  #     Qt platform-plugin investigation in the actual container (not fixable by blind CI
+  #     iteration). Until then the suite is enforced numerically by `model-parity`. Root-cause
+  #     + the promotion checklist (harden the log gate, then add to ci-required.needs) are
+  #     tracked in #61.
   # ------------------------------------------------------------------
   ciq-test:
     name: CIQ (:test) headless (best-effort)
@@ -120,21 +121,13 @@ jobs:
           monkeyc -f monkey.jungle -d edge1050 -o bin/app-test.prg -y /tmp/ci_key.der -t -l 1
       - name: Run (:test) headless under xvfb
         working-directory: connectiq
-        # The image's default shell is dash (sh); this step uses bash features
-        # (export -f, /dev/tcp socket probe, pipefail), so pin bash explicitly.
+        # The image's default shell is dash (sh); this step uses the bash `/dev/tcp` socket
+        # probe below, so pin bash explicitly.
         shell: bash
         env:
           DEVICE: edge1050
           SIM_PORT: "1234"      # Connect IQ simulator shell port monkeydo connects to
           RUN_TIMEOUT: "300"
-          # Software-render mitigations tried against the Qt segfault (see job header).
-          # These did NOT resolve it — the crash is not the GL path — but they are harmless
-          # and left as a starting point for whoever debugs the native crash next.
-          LIBGL_ALWAYS_SOFTWARE: "1"
-          GALLIUM_DRIVER: llvmpipe
-          QT_OPENGL: software
-          QT_QUICK_BACKEND: software
-          QT_XCB_GL_INTEGRATION: none
         run: |
           set -eux
           LOG=/tmp/ciq-test.log
@@ -166,10 +159,12 @@ jobs:
               connectiq >/tmp/sim.log 2>&1 &
               SIM_PID=$!
               # Wait (bounded) for the sim shell socket to listen — not a fixed sleep.
+              SOCK_UP=0
               for i in $(seq 1 60); do
                 if (exec 3<>"/dev/tcp/127.0.0.1/${SIM_PORT}") 2>/dev/null; then
                   exec 3>&- 3<&- || true
                   echo "simulator socket up after ${i}s"
+                  SOCK_UP=1
                   break
                 fi
                 if ! kill -0 "$SIM_PID" 2>/dev/null; then
@@ -179,6 +174,14 @@ jobs:
                 fi
                 sleep 1
               done
+              # Socket-exhaustion bail: never listened within the window — do not hand a dead
+              # port to monkeydo (which would then block until the outer timeout).
+              if [ "$SOCK_UP" != "1" ]; then
+                echo "simulator socket never came up within the wait window" >&2
+                cat /tmp/sim.log >&2 || true
+                kill "$SIM_PID" 2>/dev/null || true
+                exit 1
+              fi
               # Deploy + run the (:test) build; -t runs the test harness.
               monkeydo bin/app-test.prg "${DEVICE}" -t 2>&1 | tee /tmp/ciq-test.log
               kill "$SIM_PID" 2>/dev/null || true
@@ -199,11 +202,16 @@ jobs:
           #      hang) -> SKIP, exit 0. This is the known, documented headless-sim crash
           #      (see job header); failing the board on infra we can't yet fix would be
           #      noise. Equality is still enforced by the required `model-parity` job.
-          if grep -Eq "PASSED" "$LOG" && ! grep -Eiq "FAILED|ERROR" "$LOG"; then
+          # FAILED/ERROR are matched case-sensitively and word-bounded so benign summary text
+          # (e.g. "Errors: 0") can't false-fail. TODO(#61): before promoting this into
+          # ci-required, anchor the PASS check on the terminal Run-No-Evil summary line /
+          # expected test count (a per-test "PASSED" can survive a mid-suite crash) and verify
+          # the real markers against actual captured output.
+          if grep -Eq "PASSED" "$LOG" && ! grep -Eq "\b(FAILED|ERROR)\b" "$LOG"; then
             echo "CIQ (:test) suite passed headless"
             exit 0
           fi
-          if grep -Eiq "FAILED|ERROR" "$LOG"; then
+          if grep -Eq "\b(FAILED|ERROR)\b" "$LOG"; then
             echo "::error::(:test) reported FAILED/ERROR — a test genuinely failed"
             exit 1
           fi
