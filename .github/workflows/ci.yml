@@ -106,6 +106,9 @@ jobs:
           monkeyc -f monkey.jungle -d edge1050 -o bin/app-test.prg -y /tmp/ci_key.der -t -l 1
       - name: Run (:test) headless under xvfb
         working-directory: connectiq
+        # The image's default shell is dash (sh); this step uses bash features
+        # (export -f, /dev/tcp socket probe, pipefail), so pin bash explicitly.
+        shell: bash
         env:
           DEVICE: edge1050
           SIM_PORT: "1234"      # Connect IQ simulator shell port monkeydo connects to
