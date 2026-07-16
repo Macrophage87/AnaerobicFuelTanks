@@ -61,6 +61,108 @@ jobs:
           echo "Compiled ${{ matrix.device }} OK"
 
   # ------------------------------------------------------------------
+  # Headless (:test) EXECUTION — the crux #28 deferred and #27 stage 3 solves.
+  #
+  # The compile `test` job above builds with -t but does NOT run the (:test)
+  # functions. Here we actually EXECUTE them under a virtual framebuffer.
+  #
+  # Why not just call the image's tester.sh: tester.sh launches xvfb internally
+  # and is the exact path observed to hang ("BUILD SUCCESSFUL, then Running
+  # tests... stalls 25 min"). Instead we drive the pieces manually:
+  #   1. xvfb-run provides a display;
+  #   2. launch the `connectiq` simulator in the BACKGROUND;
+  #   3. WAIT for its shell socket to listen (poll the port, not a fixed sleep);
+  #   4. monkeydo the -t build and tee stdout to a log;
+  #   5. kill the simulator.
+  # The whole run is under `timeout` so a hang fails fast instead of stalling to
+  # the job timeout. monkeydo can exit 0 even on test failure, so the gate is the
+  # PARSED log: require the Run-No-Evil PASSED summary AND no FAILED/ERROR line.
+  #
+  # ADVISORY (continue-on-error) FOR NOW: this on-device headless path is being
+  # stabilized and is NOT yet in ci-required. Enforced two-implementation equality
+  # is provided by a REQUIRED numeric guard — a Python mirror of TankModel cross-
+  # checked against the R reference fixtures — added in the companion issue #27
+  # part-C cross-check PR. Per the issue #27 definition-of-done, an advisory
+  # ciq-test is acceptable only while backed by that required numeric guard.
+  # Promote this into ci-required once it runs green reliably. Runs on ONE device
+  # (edge1050); the two-device compile matrix above stays the fast crash gate.
+  # ------------------------------------------------------------------
+  ciq-test:
+    name: CIQ (:test) headless (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    container:
+      image: ghcr.io/matco/connectiq-tester@sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
+      - name: Build -t test PRG (edge1050)
+        working-directory: connectiq
+        run: |
+          set -eux
+          openssl genrsa -out /tmp/ci_key.pem 4096
+          openssl pkcs8 -topk8 -inform PEM -outform DER -in /tmp/ci_key.pem -out /tmp/ci_key.der -nocrypt
+          mkdir -p bin
+          monkeyc -f monkey.jungle -d edge1050 -o bin/app-test.prg -y /tmp/ci_key.der -t -l 1
+      - name: Run (:test) headless under xvfb
+        working-directory: connectiq
+        env:
+          DEVICE: edge1050
+          SIM_PORT: "1234"      # Connect IQ simulator shell port monkeydo connects to
+          RUN_TIMEOUT: "300"
+        run: |
+          set -eux
+          LOG=/tmp/ciq-test.log
+          : > "$LOG"
+
+          run_tests() {
+            # Launch the simulator in the background under the xvfb display.
+            connectiq >/tmp/sim.log 2>&1 &
+            SIM_PID=$!
+            # Wait for the sim's shell socket to accept connections (bounded), rather
+            # than a fixed sleep — the sim can take several seconds to come up.
+            for i in $(seq 1 60); do
+              if (exec 3<>"/dev/tcp/127.0.0.1/${SIM_PORT}") 2>/dev/null; then
+                exec 3>&- 3<&- || true
+                echo "simulator socket up after ${i}s"
+                break
+              fi
+              if ! kill -0 "$SIM_PID" 2>/dev/null; then
+                echo "simulator process exited before opening a socket" >&2
+                return 1
+              fi
+              sleep 1
+            done
+            # Deploy + run the (:test) build; -t runs the test harness.
+            monkeydo bin/app-test.prg "$DEVICE" -t 2>&1 | tee "$LOG"
+            kill "$SIM_PID" 2>/dev/null || true
+            wait "$SIM_PID" 2>/dev/null || true
+          }
+          export -f run_tests
+          export SIM_PORT DEVICE LOG
+
+          # Virtual framebuffer + hard timeout so a hang fails fast.
+          xvfb-run -a -s "-screen 0 1280x1024x24" \
+            timeout "${RUN_TIMEOUT}" bash -c run_tests || echo "run_tests exited non-zero (timeout or sim error)"
+
+          echo "----- captured test log -----"
+          cat "$LOG" || true
+          echo "-----------------------------"
+
+          # Parse: the Run-No-Evil harness prints a PASSED summary on success. Require it,
+          # AND require the log is free of FAILED/ERROR. A monkeydo exit 0 alone is NOT
+          # sufficient (it exits 0 even when a test fails).
+          if ! grep -Eq "PASSED" "$LOG"; then
+            echo "::error::no PASSED summary in test log (hang, sim-launch failure, or test failure)"
+            exit 1
+          fi
+          if grep -Eiq "FAILED|ERROR" "$LOG"; then
+            echo "::error::test log contains FAILED/ERROR"
+            exit 1
+          fi
+          echo "CIQ (:test) suite passed headless"
+
+  # ------------------------------------------------------------------
   # R Shiny calibration tool — syntax gate (parse) + advisory lint.
   # parse() needs no packages (unlike source(), which would try to load FITfileR
   # / shiny), so it runs clean on a stock R install.
