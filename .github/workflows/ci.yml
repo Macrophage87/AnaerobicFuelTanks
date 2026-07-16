@@ -71,6 +71,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
+      # Deploy-manifest freshness: fail if tools/calibrate/manifest.json no longer
+      # matches the committed files (a git-backed Posit Connect deploy would ship a
+      # manifest describing a different app.R than served). Package-free (jq+md5sum),
+      # so it runs before R is even installed. This job is in ci-required.needs.
+      - name: Deploy manifest freshness (checksums match committed files)
+        run: ./scripts/check_calibrate_manifest.sh tools/calibrate/manifest.json
       - name: Install R
         run: |
           set -eux
