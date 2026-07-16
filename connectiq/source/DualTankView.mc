@@ -301,6 +301,20 @@ class DualTankView extends WatchUi.DataField {
         if (gFat < 0.0)   { gFat = 0.0; }
         if (tauAer < 0.0) { tauAer = 0.0; }
         if (tauOn < 0.0)  { tauOn = 0.0; }
+        // pPmax / lt1Frac / eta are bounded by the settings UI but were never clamped in
+        // code (#23) — a defensive floor/ceiling against corrupt storage or sideloaded
+        // properties. pPmax: strictly-positive flux ceiling, upper bound mirrors the UI max
+        // (1500 W) so a corrupt value can't push mConsP past the SINT16 PCr_cons stream
+        // (#35). lt1Frac >= 0.05 keeps lt1Frac*CP strictly positive so the recovery anchor
+        // (mLt1Frac*mCP - 20)/(mLt1Frac*mCP) in stepModel()/applyRestRecovery() can't divide
+        // by zero; <= 1.0 since LT1 cannot exceed CP. eta is a recovery-efficiency fraction
+        // [0,1] — eta < 0 would drain PCr in the live restoration branch while P < CP.
+        if (pPmax < 1.0)    { pPmax = 1.0; }
+        if (pPmax > 1500.0) { pPmax = 1500.0; }
+        if (lt1Frac < 0.05) { lt1Frac = 0.05; }
+        if (lt1Frac > 1.0)  { lt1Frac = 1.0; }
+        if (eta < 0.0)      { eta = 0.0; }
+        if (eta > 1.0)      { eta = 1.0; }
 
         // Capacity derivation + reserve re-clamp live in the model now.
         mModel.configure([cp, wprime, fP, pPmax, tauP, tauG, lt1Frac, eta, fatK, gFat, tauAer, tauOn]);
