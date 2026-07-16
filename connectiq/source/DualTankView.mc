@@ -6,6 +6,7 @@ using Toybox.FitContributor;
 using Toybox.Math;
 using Toybox.Time;
 using Toybox.Lang;
+using Toybox.System;
 
 //======================================================================
 // Dual-Tank Anaerobic Reserve data field.
@@ -657,16 +658,52 @@ class DualTankView extends WatchUi.DataField {
         var pctP = 100.0 * mModel.mRP / mModel.mCapP;
         var pctG = 100.0 * mModel.mRG / mModel.mCapG;
 
+        // Round-display safety (#25): when THIS field fills a SQUARE round screen, inset the
+        // vertical/full layouts to the largest inscribed square so tank tops/bottoms and the
+        // PCr/GLY/percentage labels aren't clipped by the bezel. The inset is gated on the
+        // field actually FILLING the screen (not merely on device shape) so round grid /
+        // multi-field slots — the common case — are left untouched. For rectangular devices,
+        // round grid slots, and null/unknown settings, the rect is (0,0,w,h) so every layout
+        // is pixel-identical to before. Branch SELECTION below is unchanged (raw-pixel gates).
+        var sx = 0;
+        var sy = 0;
+        var sw = w;
+        var sh = h;
+        var ds = System.getDeviceSettings();
+        if (ds != null && w == h) {
+            var round = false;
+            if (ds.screenShape != null) {
+                round = (ds.screenShape == System.SCREEN_SHAPE_ROUND
+                      || ds.screenShape == System.SCREEN_SHAPE_SEMI_ROUND);
+            }
+            var fills = false;
+            if (ds.screenWidth != null && ds.screenHeight != null) {
+                fills = (w >= ds.screenWidth - 2 && h >= ds.screenHeight - 2);
+            }
+            if (round && fills) {
+                // m = ceil((1 - 1/sqrt(2))/2 * d) as pure integer math (d == w == h). The
+                // largest axis-aligned square inscribed in the disc; ceil keeps every corner
+                // strictly inside the circle (a floor would leave corners a sub-pixel out).
+                var m = (293 * w + 1999) / 2000;
+                sx = m;
+                sy = m;
+                sw = w - 2 * m;
+                sh = h - 2 * m;
+            }
+        }
+
         // VERTICAL tanks are the standard look on most layouts; only a genuinely short
         // strip (too short for a legible vertical bar) falls back to horizontal bars:
         //   large single field (w>=200, h>=240): vertical tanks on top + summary stats
         //   any field tall enough (h>=74): two VERTICAL tanks side by side  <-- default
         //   short & wide strip (w>=2h): two HORIZONTAL bars side by side
         //   short strip: two HORIZONTAL bars stacked
+        // Selection keys on raw w/h (unchanged); drawFull/drawVertical render within the
+        // safe rect (sx,sy,sw,sh), which equals (0,0,w,h) except on a full-screen round field.
         if (w >= 200 && h >= 240) {
-            drawFull(dc, w, h, fg, pctP, pctG);
+            drawFull(dc, sx, sy, sw, sh, fg, pctP, pctG);
         } else if (h >= 74) {
-            drawVertical(dc, w, h, fg, pctP, pctG);
+            drawVertical(dc, sx, sy, sw, sh, fg, pctP, pctG);
         } else if (w >= h * 2) {
             drawHorizontalPair(dc, w, h, fg, pctP, pctG);
         } else {
@@ -762,8 +799,8 @@ class DualTankView extends WatchUi.DataField {
     }
 
     // --- square/tall slot: two vertical bars filling the whole field ---
-    hidden function drawVertical(dc, w, h, fg, pctP, pctG) {
-        drawVerticalIn(dc, 0, 0, w, h, fg, pctP, pctG);
+    hidden function drawVertical(dc, sx, sy, sw, sh, fg, pctP, pctG) {
+        drawVerticalIn(dc, sx, sy, sw, sh, fg, pctP, pctG);
     }
 
     // Current fatigue level (%): how much PCr recovery is slowed right now, driven
@@ -778,28 +815,30 @@ class DualTankView extends WatchUi.DataField {
     }
 
     // --- large single-field screen: vertical tanks on top, summary stats below ---
-    hidden function drawFull(dc, w, h, fg, pctP, pctG) {
-        var topH = h * 3 / 5;                 // ~60% for the two tanks
-        drawVerticalIn(dc, 0, 0, w, topH, fg, pctP, pctG);
+    hidden function drawFull(dc, sx, sy, sw, sh, fg, pctP, pctG) {
+        var topH = sy + sh * 3 / 5;           // ~60% for the two tanks (within the safe rect)
+        drawVerticalIn(dc, sx, sy, sw, topH - sy, fg, pctP, pctG);
 
         // divider
         dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-        dc.drawLine(6, topH, w - 6, topH);
+        dc.drawLine(sx + 6, topH, sx + sw - 6, topH);
 
-        // distribute the three stat rows across the panel below the divider
-        var half = w / 2;
-        var avail = h - topH;
+        // distribute the three stat rows across the panel below the divider. half == w/2
+        // (the safe rect is centered), so on the rectangular path (sx=sy=0, sw=w, sh=h)
+        // every expression below is byte-identical to the original w/2 / half/2 / half+half/2.
+        var half = sx + sw / 2;
+        var avail = (sy + sh) - topH;
         var yHdr = topH + avail * 16 / 100;
         var yKj  = topH + avail * 46 / 100;
         var yFat = topH + avail * 78 / 100;
         var ctr = Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER;
 
-        dc.drawText(w / 2, yHdr, mFontSmall, "DEPLETED (kJ)", ctr);
+        dc.drawText(half, yHdr, mFontSmall, "DEPLETED (kJ)", ctr);
         dc.drawText(half / 2, yKj, mFontValue,
             "PCr " + (mModel.mDepP / 1000.0).format("%.1f"), ctr);
         dc.drawText(half + half / 2, yKj, mFontValue,
             "GLY " + (mModel.mDepG / 1000.0).format("%.1f"), ctr);
-        dc.drawText(w / 2, yFat, mFontValue,
+        dc.drawText(half, yFat, mFontValue,
             "Fatigue " + fatiguePct().toNumber().toString() + "%", ctr);
     }
 
