@@ -2491,7 +2491,10 @@
   },
   "files": {
     "app.R": {
-      "checksum": "9c47b5f22c877824309f9144fc08f891"
+      "checksum": "9e250e0e2dfb137d35ab2d9865aab21d"
+    },
+    "R/model.R": {
+      "checksum": "eaa8462ec5dc14d991461bb75bad97c7"
     },
     "deploy.R": {
       "checksum": "e1f6ac16be3112b7b9d5deeb690b0cc1"
@@ -2515,7 +2518,7 @@
       "checksum": "7a835e2e0d3925fa6f6166fd05768252"
     },
     "README.md": {
-      "checksum": "d10283b68e0ab2eec41dd0e3f265cee6"
+      "checksum": "647257729a51590416f124c2cd0a2e43"
     },
     "ui-mockup.html": {
       "checksum": "77d40d88c300b88faf3364d3cbe50a7c"

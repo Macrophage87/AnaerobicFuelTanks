@@ -91,6 +91,27 @@ jobs:
           Rscript -e 'if (!requireNamespace("lintr", quietly = TRUE)) install.packages("lintr", repos = "https://cloud.r-project.org"); lintr::lint_dir("tools/calibrate")'
 
   # ------------------------------------------------------------------
+  # R model unit tests (testthat) for the pure numeric + FIT-decoder functions
+  # extracted into tools/calibrate/R/model.R. Runs with base R + testthat only —
+  # no FITfileR/shiny/network/device. testthat comes from the Ubuntu package
+  # (r-cran-testthat, a prebuilt binary), avoiding source-compile / R-version
+  # mismatch. Required (in ci-required.needs).
+  # ------------------------------------------------------------------
+  r-test:
+    name: R model tests (testthat)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
+      - name: Install R + testthat (Ubuntu binaries)
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends r-base-core r-cran-testthat
+      - name: Run model unit tests
+        run: Rscript tools/calibrate/tests/run_tests.R
+
+  # ------------------------------------------------------------------
   # Manifest app-id sanity — catches placeholder / malformed ids (a packaging
   # bug that still compiles and passes tests, so `test` can't see it).
   # ------------------------------------------------------------------
@@ -111,6 +132,6 @@ jobs:
     name: ci-required
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [ test, r-lint, manifest-lint ]
+    needs: [ test, r-lint, r-test, manifest-lint ]
     steps:
       - run: echo "required checks passed"
