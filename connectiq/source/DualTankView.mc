@@ -282,10 +282,10 @@ class DualTankView extends WatchUi.DataField {
         var wprime  = propFloat("Wprime", 20000.0);
         var fP      = propFloat("fP", 0.25);
         var pPmax   = propFloat("pPmax", 300.0);
-        var tauP    = propFloat("tauP", 22.0);
-        var tauG    = propFloat("tauG", 360.0);
+        var tauP    = propFloat("tauP", 27.0);
+        var tauG    = propFloat("tauG", 470.0);
         var lt1Frac = propFloat("lt1Frac", 0.80);
-        var eta     = propFloat("eta", 0.80);
+        var eta     = propFloat("eta", 1.00);
         var fatK    = propFloat("fatK", 0.75);
         var gFat    = propFloat("gFat", 0.0);
         var tauAer  = propFloat("tauAer", 25.0);
