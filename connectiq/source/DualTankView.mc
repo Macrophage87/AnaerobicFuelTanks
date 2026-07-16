@@ -66,6 +66,16 @@ using Toybox.System;
 const STATE_KEY      = "state";  // Application.Storage key for the snapshot blob
 const STATE_VERSION  = 2;        // schema version; bump on layout change (v2 adds sessId)
 const SAVE_EVERY_SEC = 10;       // min seconds between throttled compute() writes
+// #52: while reserves are BELOW full, force a save at least this often even without a
+// material (>=STATE_EPS_J) change, so the persisted SLOT_SAVEDAT stays a fresh "last active"
+// marker. An unpaused reboot's off-gap recovery credit subtracts this window, so it can never
+// credit rest for on-device sub-epsilon minutes. Skipped at full tanks -> #21's zero-write
+// steady full-tank riding is preserved (a full tank has nothing to over-credit).
+const IDLE_SAVE_SEC = 60;
+// #51: max compute() ticks to wait for the activity identity to resolve before a TENTATIVE
+// restore (identity null at initialize) fails safe to full tanks — bounds the window in which
+// an unconfirmable foreign snapshot could otherwise run as the current ride.
+const RESTORE_CONFIRM_TICKS = 8;
 // Restore staleness cap, matched to MAX_PAUSE_SEC (24 h): a mid-activity pause that
 // outlives a reload still hands off to exitPause() (which itself caps recovery at
 // MAX_PAUSE_SEC and floors negative elapsed), so restoring mPaused/mPauseAt credits
@@ -156,6 +166,7 @@ class DualTankView extends WatchUi.DataField {
     hidden var mRestorePending; // true when a snapshot was TENTATIVELY restored because the live
                                 // activity id was null at initialize(); confirmed/rolled back in compute()
     hidden var mRestoreSess;    // the tentatively-restored snapshot's SLOT_SESS, to confirm identity against
+    hidden var mRestoreTicks;   // compute() ticks spent pending; fail safe to full tanks past RESTORE_CONFIRM_TICKS
     // ---- Power-dropout bridge/freeze state (#22; derived, per-second, NEVER serialized) ----
     hidden var mLastP;          // last VALID power (W); reused during the bridge window
     hidden var mMissCount;      // consecutive missing-sample seconds
@@ -189,6 +200,7 @@ class DualTankView extends WatchUi.DataField {
         mPauseAtMono = -1;
         mRestorePending = false;
         mRestoreSess = null;
+        mRestoreTicks = 0;
 
         // Restore a mid-ride snapshot if one exists and is valid; otherwise fall back to
         // full-tank defaults. restoreState() REPLACES the default block (it doesn't run
@@ -407,6 +419,20 @@ class DualTankView extends WatchUi.DataField {
         mPauseAt = 0;
     }
 
+    // #51: a tentatively-restored snapshot turned out foreign (or its identity never resolved
+    // within the deadline). Reset to a FRESH ride but KEEP mStarted=true — the activity is
+    // recording, so persistence must stay alive for it. (resetToFullTanks() sets mStarted=false,
+    // after which blobRestorable()'s started!=true check would reject every save for the rest of
+    // the ride.) resetSession() also re-seeds the dropout/derived state; then drop the stale blob.
+    hidden function restoreRollbackToFreshRide() {
+        resetSession();          // full tanks + reseeded mLastP/mMissCount/mHaveValidP
+        mStarted = true;         // recording -> keep persistence alive for the new ride
+        mPaused = false;
+        mPauseAt = 0;
+        mRestoreSess = null;
+        clearState();            // drop the foreign snapshot
+    }
+
     // Restore a persisted snapshot into the model state. Returns true on an accepted OR a
     // TENTATIVE restore (#51: live activity id momentarily null); on a hard reject
     // (missing/corrupt/stale/pre-start blob, a known-mismatched id, or any exception) returns
@@ -453,18 +479,28 @@ class DualTankView extends WatchUi.DataField {
 
             // #52: an UNPAUSED reload/reboot (dead-battery crash mid-effort — the feature's
             // primary case) previously resumed at the pre-crash DEPLETED reserves with NO recovery
-            // for the unrecorded off-gap (a conservative but minutes-large understatement). Credit
-            // the closed-form rest recovery for that gap now, using the persisted WALL-CLOCK save
-            // time (SLOT_SAVEDAT) — the monotonic clock (#41) can't cross a reboot. Bound it here
-            // INDEPENDENTLY to [0, MAX_PAUSE_SEC] (landing #41 does not cover this wall-clock path).
-            // Do NOT zero mAer/mG/mDeficit: those effort-state resets belong to an intentional pause
-            // via exitPause(), not a crash gap — the persisted values are the best estimate. A
-            // PAUSED reload is unchanged: its recovery still flows through exitPause() on resume.
+            // for the unrecorded off-gap. Credit the closed-form rest recovery for the gap the
+            // device was DEMONSTRABLY OFF, using the persisted WALL-CLOCK save time (SLOT_SAVEDAT)
+            // — the monotonic clock (#41) can't cross a reboot, so this path bounds itself.
+            //
+            // SAFETY (review-blocking fix): SLOT_SAVEDAT is the last SAVE, not the last active
+            // instant, and saves are epsilon+throttle gated — but the IDLE_SAVE_SEC heartbeat in
+            // compute() keeps it <= IDLE_SAVE_SEC stale WHILE depleted. So the device was provably
+            // recording until at least savedAt, and possibly up to IDLE_SAVE_SEC longer. Crediting
+            // only (now - savedAt - IDLE_SAVE_SEC) therefore NEVER over-credits rest (the earlier
+            // now-savedAt form could phantom-refill minutes of on-device sub-epsilon grind). A short
+            // reboot (< IDLE_SAVE_SEC off) credits ~0 (negligible); a long dead-battery off credits
+            // nearly the whole gap. Bounded independently to [0, MAX_PAUSE_SEC].
+            // Do NOT zero mAer/mG/mDeficit here (those effort-state resets belong to an intentional
+            // pause via exitPause(), not a crash gap). NOTE: the closed-form applyRestRecovery omits
+            // the live loop's mDeficit decay, so any banked deficit is carried across the gap
+            // (conservative — errs toward LESS recovered). A PAUSED reload is unchanged (recovery
+            // still flows through exitPause() on resume).
             if (mPaused != true) {
-                var gap = now - blob[SLOT_SAVEDAT];
+                var gap = (now - blob[SLOT_SAVEDAT]) - IDLE_SAVE_SEC;
                 if (gap < 0) { gap = 0; }
                 if (gap > MAX_PAUSE_SEC) { gap = MAX_PAUSE_SEC; }
-                mModel.applyRestRecovery(gap);
+                if (gap > 0) { mModel.applyRestRecovery(gap); }
             }
             return true;
         } catch (e) {
@@ -478,6 +514,11 @@ class DualTankView extends WatchUi.DataField {
     // DualTankApp.onStop can force a final flush. Resets the throttle/dirty bookkeeping on
     // a successful write so a following periodic compute() write isn't double-fired.
     function saveState() {
+        // #51: never persist a TENTATIVELY-restored (identity-unconfirmed) snapshot. Otherwise
+        // onTimerStart()'s immediate flush could stamp a FOREIGN ride's tanks under the NEW ride's
+        // now-resolved id (a valid-looking but wrong snapshot). Saves resume once compute() confirms
+        // or rolls back the pending restore (a few ticks at most).
+        if (mRestorePending) { return; }
         if (!mDirty) { return; }
         try {
             var blob = new [STATE_LEN];   // indexed via SLOT_* so writer/reader can't desync
@@ -545,7 +586,8 @@ class DualTankView extends WatchUi.DataField {
             // #58: reset the dropout-bridge guard so the first post-resume MISSING sample FREEZES
             // instead of bridging at pre-pause mLastP (which would over-deplete right after recovery
             // was credited). The paused early-return in compute() sits before the #22 dropout block,
-            // so these otherwise carry pre-pause values across the pause. Mirrors initialize()'s seed.
+            // so these otherwise carry pre-pause values across the pause. mLastP is intentionally
+            // left as-is — it's moot: mHaveValidP=false forces the freeze branch before mLastP is read.
             mHaveValidP = false;
             mMissCount = 0;
             mPauseAtMono = -1;
@@ -605,13 +647,21 @@ class DualTankView extends WatchUi.DataField {
             var liveNow = sessIdNow();
             if (liveNow != null) {
                 mRestorePending = false;
+                mRestoreTicks = 0;
                 if (liveNow != mRestoreSess) {
-                    // Foreign activity: the snapshot belongs to a different ride. Roll back to full
-                    // tanks and drop the snapshot (the off-gap credit #52 applied is discarded with it).
-                    resetToFullTanks();
-                    clearState();
+                    // Foreign activity: the snapshot belongs to a DIFFERENT ride -> start fresh.
+                    restoreRollbackToFreshRide();
                 }
                 // else: identity confirmed -> keep the tentatively-restored state.
+            } else {
+                // Identity still unavailable: bound the wait so an UNCONFIRMABLE foreign snapshot
+                // can't run as this ride indefinitely — fail safe to full tanks past the deadline
+                // (the base behavior when the activity can't be identified).
+                mRestoreTicks += 1;
+                if (mRestoreTicks > RESTORE_CONFIRM_TICKS) {
+                    mRestorePending = false;
+                    restoreRollbackToFreshRide();
+                }
             }
         }
 
@@ -687,6 +737,16 @@ class DualTankView extends WatchUi.DataField {
                 absf(mModel.mDeficit - mSavDeficit) >= STATE_EPS_J) {
                 mDirty = true;
             }
+        }
+
+        // #52 heartbeat: while reserves are BELOW full (recovery is still possible), force a save
+        // at least every IDLE_SAVE_SEC even without a material change, so the persisted SLOT_SAVEDAT
+        // stays a fresh "last active" marker and an unpaused-reboot off-gap credit can't over-credit
+        // rest for on-device sub-epsilon minutes. Skipped at full tanks -> #21's zero-write steady
+        // full-tank riding is preserved (a full tank has nothing to over-credit on restore).
+        if (!mDirty && (nowSec() - mLastSaveSec >= IDLE_SAVE_SEC)
+                && (mModel.mRP < mModel.mCapP || mModel.mRG < mModel.mCapG || mModel.mDeficit > 0.0)) {
+            mDirty = true;
         }
 
         // Persist the model state, throttled AND dirty-checked (flash-wear safe): at most
