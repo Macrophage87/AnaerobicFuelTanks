@@ -181,3 +181,10 @@ rsconnect::deployApp(appDir = ".", appName = "dual-tank-calibrate")  # or push t
 
 Update `platform` in `manifest.json` to your R version. `FITfileR` is a GitHub package
 (`grimbough/FITfileR`); `writeManifest()` records it automatically once installed from GitHub.
+
+> **Keep the manifest in lockstep.** `rsconnect::writeManifest(".")` must be the **final step of
+> any commit that changes a file in this folder**. The committed `manifest.json` stores an md5
+> checksum of every bundled file, and a git-backed Connect deploy restores the bundle from it — a
+> stale checksum ships a manifest describing a different `app.R` than the one served. CI enforces
+> this: `scripts/check_calibrate_manifest.sh` (run in the `r-lint` job, which is required) fails the
+> build if any listed file's md5 no longer matches, or a deployable file isn't listed.

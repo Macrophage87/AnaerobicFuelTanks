@@ -1,0 +1,9 @@
+# Pin line endings for the deploy bundle so manifest.json's md5 checksums stay
+# valid across platforms and CI (verified by scripts/check_calibrate_manifest.sh).
+# All text sources are already LF; this keeps them LF regardless of a contributor's
+# core.autocrlf. Binaries are marked so git never touches them.
+*.R    text eol=lf
+*.md   text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.png  binary

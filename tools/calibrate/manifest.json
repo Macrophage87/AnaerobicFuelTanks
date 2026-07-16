@@ -2491,34 +2491,34 @@
   },
   "files": {
     "app.R": {
-      "checksum": "3f602f912a0be5b228b836916bcab2da"
+      "checksum": "9c47b5f22c877824309f9144fc08f891"
     },
     "deploy.R": {
-      "checksum": "939fdc9cdec448883a85b29289475869"
+      "checksum": "e1f6ac16be3112b7b9d5deeb690b0cc1"
     },
     "mockup-guide.html": {
-      "checksum": "c5a844d152be1a4d7c675b688cec573a"
+      "checksum": "012ea9d3b88b412faead9822171decbb"
     },
     "mockup-guide.png": {
       "checksum": "ae5231e53c996a1646746b40a4b5289d"
     },
     "mockup-report.html": {
-      "checksum": "e097f75f9017032f00c2ddeaece44d54"
+      "checksum": "00b8162360dc0e0b8ce53a46907226e1"
     },
     "mockup-report.png": {
       "checksum": "649ce16ac94cd776aaf8ac030983896e"
     },
     "mockup-trends.html": {
-      "checksum": "eccd164b30e04c7bd72f475e1fe3d9a5"
+      "checksum": "9392ddf2a9fa3cfb68d4b1a2d33eab2e"
     },
     "mockup-trends.png": {
       "checksum": "7a835e2e0d3925fa6f6166fd05768252"
     },
     "README.md": {
-      "checksum": "1edbf217be00e23b7e9ba3810a6cabf3"
+      "checksum": "d10283b68e0ab2eec41dd0e3f265cee6"
     },
     "ui-mockup.html": {
-      "checksum": "c8a1fb93b80bcb741a2dea29a062bdad"
+      "checksum": "77d40d88c300b88faf3364d3cbe50a7c"
     },
     "ui-mockup.png": {
       "checksum": "47b8d5af8273206fcebd6c4d7f6bbdaf"
