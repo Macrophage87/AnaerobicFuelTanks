@@ -40,6 +40,13 @@ Whenever the maintainer says "review" (a PR or an issue proposal):
    - **Minor Revision** → state whether a re-review is necessary.
    - **Accept** → state whether any small changes are still needed.
 5. Verify load-bearing reviewer claims independently before relying on them.
+6. **Post the review to GitHub.** The per-reviewer summaries + single overall
+   verdict are posted as a comment on the PR (or issue) under review — that
+   posting *is* the review; a chat-only summary does not complete a "review."
+   Report the same verdict back in chat as well.
+
+Reviewing is not merging: never merge, close, or push code as part of a review.
+Do those only on a separate, explicit instruction.
 
 ## Issue triage — priority labels
 
