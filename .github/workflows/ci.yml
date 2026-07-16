@@ -1,0 +1,110 @@
+name: CI
+
+# NOTE: no `paths-ignore` on the pull_request trigger — a PR touching only ignored
+# paths would never post the required `ci-required` check and would block forever
+# under "require branches up to date before merging".
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read           # least privilege; nothing here writes to the repo
+
+jobs:
+  # ------------------------------------------------------------------
+  # Connect IQ compile gate (Variant B: untyped Monkey C).
+  #
+  # The Garmin SDK + device definitions are baked into a prebuilt image, so a
+  # stock hosted runner just pulls it — no SDK-Manager / EULA / device download.
+  # We invoke monkeyc directly at -l 1 (Gradual): this codebase is untyped, so
+  # strict -l 3 would drown in errors, but -l 1 is still a real gate for the
+  # crash-class — illegal API in a data field, syntax, symbol resolution.
+  #
+  # Compile-ONLY on purpose. The image's tester.sh ALSO launches the simulator to
+  # run (:test); headless in a plain container that hangs (Qt/xvfb) until the job
+  # times out (observed: BUILD SUCCESSFUL, then "Running tests..." stalls 25 min).
+  # Issue #28's gate is the compile / type-check; actually EXECUTING (:test) is
+  # wired up in #27. We still build with -t so the (:test) sources are compiled.
+  #
+  # The Connect IQ project lives in ./connectiq (NOT the repo root).
+  # ------------------------------------------------------------------
+  test:
+    name: Compile (${{ matrix.device }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [ edge1050, fenix6pro ]
+    container:
+      # Pinned by immutable digest (resolved from :latest, SDK 9.2.0). Re-resolve
+      # and update when bumping — see the digest snippet in issue #28.
+      image: ghcr.io/matco/connectiq-tester@sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
+      - name: Compile ${{ matrix.device }} (untyped Monkey C -> -l 1)
+        working-directory: connectiq        # monkey.jungle lives here, not the repo root
+        run: |
+          set -eux
+          # Throwaway signing key (same recipe as the repo's build.sh); never leaves CI.
+          openssl genrsa -out /tmp/ci_key.pem 4096
+          openssl pkcs8 -topk8 -inform PEM -outform DER -in /tmp/ci_key.pem -out /tmp/ci_key.der -nocrypt
+          mkdir -p bin
+          # Same monkeyc invocation the image's tester.sh uses (incl. -t), minus the
+          # simulator launch. A ~few-second failure here is a real compile error.
+          monkeyc -f monkey.jungle -d "${{ matrix.device }}" -o bin/app.prg -y /tmp/ci_key.der -t -l 1
+          echo "Compiled ${{ matrix.device }} OK"
+
+  # ------------------------------------------------------------------
+  # R Shiny calibration tool — syntax gate (parse) + advisory lint.
+  # parse() needs no packages (unlike source(), which would try to load FITfileR
+  # / shiny), so it runs clean on a stock R install.
+  # ------------------------------------------------------------------
+  r-lint:
+    name: R parse + lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
+      - name: Install R
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends r-base-core
+      - name: Parse (syntax gate)
+        run: |
+          Rscript -e 'invisible(parse("tools/calibrate/app.R")); invisible(parse("tools/calibrate/deploy.R")); cat("R parse OK\n")'
+      - name: lintr (advisory)
+        continue-on-error: true
+        run: |
+          Rscript -e 'if (!requireNamespace("lintr", quietly = TRUE)) install.packages("lintr", repos = "https://cloud.r-project.org"); lintr::lint_dir("tools/calibrate")'
+
+  # ------------------------------------------------------------------
+  # Manifest app-id sanity — catches placeholder / malformed ids (a packaging
+  # bug that still compiles and passes tests, so `test` can't see it).
+  # ------------------------------------------------------------------
+  manifest-lint:
+    name: Manifest app-id lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
+      - run: ./scripts/check_manifest_appid.sh connectiq/manifest.xml
+
+  # ------------------------------------------------------------------
+  # Stable required-check aggregator. Require ONLY this in branch protection so
+  # adding/removing jobs later doesn't churn the protected list. `test` compiles
+  # clean on both edge1050 and fenix6pro, so it's promoted into the gate here.
+  # ------------------------------------------------------------------
+  ci-required:
+    name: ci-required
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [ test, r-lint, manifest-lint ]
+    steps:
+      - run: echo "required checks passed"
