@@ -177,6 +177,7 @@ simulate_tanks <- function(power, cp, par) {
   n <- length(power); cP <- par$fP * par$Wprime; cG <- (1 - par$fP) * par$Wprime
   if (cP < 1e-6) cP <- 1e-6; if (cG < 1e-6) cG <- 1e-6   # guard f_p at 0/1 (rate taper divides by cP)
   rP <- cP; rG <- cG; aer <- cp; g <- 0; D <- 0; resTot <- numeric(n); deficit <- numeric(n)
+  rPv <- numeric(n); rGv <- numeric(n)   # per-tank reserve series (for the Monkey C cross-check)
   AER_FALL <- 6
   kUp <- if (par$tauAer > 0) 1 - exp(-1 / par$tauAer) else 1
   kDn <- if (par$tauAer > 0) 1 - exp(-1 / (par$tauAer * AER_FALL)) else 1
@@ -242,8 +243,9 @@ simulate_tanks <- function(power, cp, par) {
       }
     }
     rP <- max(0, min(cP, rP)); rG <- max(0, min(cG, rG)); resTot[i] <- rP + rG - D
+    rPv[i] <- rP; rGv[i] <- rG   # record AFTER the clamp (matches Monkey C clampReserves order)
   }
-  list(total = resTot, deficit = deficit)
+  list(total = resTot, deficit = deficit, rP = rPv, rG = rGv)
 }
 suggest_marks <- function(power, cp, base) {
   s <- simulate_tanks(power, cp, base); tot <- s$total; n <- length(tot)
