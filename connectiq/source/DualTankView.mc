@@ -77,6 +77,12 @@ const MAX_RESTORE_AGE_SEC = 86400;
 // fraction of a joule every second, keeping the field permanently dirty and writing
 // every SAVE_EVERY_SEC for the rest of a ride that ever touched the glycolytic tank.
 const STATE_EPS_J = 25.0;
+// Power-dropout bridge window (#22). On a MISSING power sample (info/currentPower null —
+// an ANT+/BLE dropout, NOT a valid 0 W coast) we reuse the last valid power for up to this
+// many consecutive seconds so a brief glitch keeps depleting at the real load, then FREEZE
+// (hold reserves) rather than collapse to 0 W and trip the model's restoration branch.
+// Kept small so a stale value can't over-deplete before the freeze takes over.
+const BRIDGE_SEC = 3;
 // Fixed-order snapshot Array layout (lower alloc/serialize cost than a Dictionary).
 // sessId (the activity's start-time, unix s) keys the snapshot to ONE activity so a
 // previous ride's blob can't bleed into a new one within the staleness window.
@@ -142,6 +148,12 @@ class DualTankView extends WatchUi.DataField {
     hidden var mStarted;
     hidden var mPaused;         // timer paused/stopped
     hidden var mPauseAt;        // unix seconds when the pause began
+    // ---- Power-dropout bridge/freeze state (#22; derived, per-second, NEVER serialized) ----
+    hidden var mLastP;          // last VALID power (W); reused during the bridge window
+    hidden var mMissCount;      // consecutive missing-sample seconds
+    hidden var mHaveValidP;     // false until a valid sample is seen this session (cold-start
+                                // / post-restore guard: a missing sample then FREEZES, so it
+                                // can't bridge at the mLastP=0.0 seed and inject phantom recovery)
     // ---- Persistence bookkeeping (never serialized) ----
     hidden var mLastSaveSec;    // unix seconds of the last successful save (never null after initialize)
     hidden var mDirty;          // true when model state materially changed since the last save
@@ -186,6 +198,12 @@ class DualTankView extends WatchUi.DataField {
         mModel.mConsG = 0.0;
         mModel.mExhausted = false;
         mModel.mRateLimited = false;
+        // Dropout bridge/freeze state (#22). mHaveValidP=false on EVERY path (fresh or
+        // restored) so a missing sample before the first valid reading — including right
+        // after a depleted-tank restore — freezes rather than bridging at the 0.0 seed.
+        mLastP = 0.0;
+        mMissCount = 0;
+        mHaveValidP = false;
         mFlashOn = false;
         markSaved();   // seed the epsilon baseline so a restore doesn't read as dirty
 
@@ -291,6 +309,13 @@ class DualTankView extends WatchUi.DataField {
     // Fresh-ride initialization: full tanks, zeroed session totals.
     hidden function resetSession() {
         mModel.resetTanks();
+        // Re-baseline the dropout bridge/freeze state (#22) for the fresh session. These are
+        // VIEW members, not model state, so resetTanks() cannot clear them — miss this and
+        // mHaveValidP survives an onTimerReset, letting a post-reset dropout bridge on stale
+        // power instead of freezing. (Not caught by the compile gate — must be seeded here.)
+        mLastP = 0.0;
+        mMissCount = 0;
+        mHaveValidP = false;
     }
 
     hidden function nowSec() {
@@ -509,10 +534,39 @@ class DualTankView extends WatchUi.DataField {
             return 100.0 * mModel.mRP / mModel.mCapP;
         }
 
-        var p = 0.0;
+        // #22: distinguish a MISSING power sample (info null or currentPower null — an
+        // ANT+/BLE dropout) from a valid 0 W coast. A missing sample must never collapse to
+        // p=0.0 and trip the model's restoration branch (gateP=(mCP-0)/mCP=1.0 -> phantom PCr/
+        // GLY/deficit recovery), and post-#47 that phantom value must not reach the snapshot.
+        // Bridge-then-freeze: reuse the last VALID power for up to BRIDGE_SEC seconds, then
+        // freeze (hold reserves) — but never bridge before a valid sample has been seen.
+        var cp = null;
         if (info != null) {
-            var cp = info.currentPower;   // Number or null
-            if (cp != null) { p = cp.toFloat(); }
+            cp = info.currentPower;   // Number or null
+        }
+        var p;
+        if (cp != null) {
+            p = cp.toFloat();
+            mLastP = p;
+            mMissCount = 0;
+            mHaveValidP = true;
+        } else {
+            mMissCount += 1;
+            // Freeze if no valid sample yet (cold start OR first sample after a depleted-tank
+            // restore — bridging at the 0.0 seed would inject phantom recovery), or once the
+            // dropout outlasts the bridge window. Mirror the paused early-return (502-510):
+            // hold reserves, zero consumption, keep the FIT streams gap-free, DON'T set mDirty
+            // (so no snapshot is written) and DON'T touch mAer/mG/mDeficit (don't relax effort).
+            if (!mHaveValidP || mMissCount > BRIDGE_SEC) {
+                mModel.mConsP = 0.0;
+                mModel.mConsG = 0.0;
+                mFPcrJ.setData(mModel.mRP);
+                mFGlyJ.setData(mModel.mRG);
+                mFPcrCons.setData(0);
+                mFGlyCons.setData(0);
+                return 100.0 * mModel.mRP / mModel.mCapP;
+            }
+            p = mLastP;   // bridge: reuse last valid power, fall through to normal compute
         }
 
         // Delegate the entire per-second physics step to the model (pure, testable).
