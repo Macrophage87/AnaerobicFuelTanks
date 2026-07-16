@@ -22,7 +22,7 @@ using Toybox.Lang;
 (:test)
 function tmMake() {
     var m = new TankModel();
-    m.configure(250.0, 20000.0, 0.25, 300.0, 27.0, 470.0, 0.80, 1.00, 0.75, 0.0, 25.0, 6.0);
+    m.configure([250.0, 20000.0, 0.25, 300.0, 27.0, 470.0, 0.80, 1.00, 0.75, 0.0, 25.0, 6.0]);
     m.resetTanks();
     return m;
 }
@@ -125,7 +125,7 @@ function testBelowCPStaysFull(logger) {
 (:test)
 function testDeficitBanksThenDecays(logger) {
     var m = new TankModel();
-    m.configure(250.0, 20000.0, 0.25, 5.0, 27.0, 470.0, 0.80, 1.00, 0.75, 0.0, 25.0, 6.0);
+    m.configure([250.0, 20000.0, 0.25, 5.0, 27.0, 470.0, 0.80, 1.00, 0.75, 0.0, 25.0, 6.0]);
     m.resetTanks();
 
     tmRun(m, [[800.0, 20]]);

@@ -285,7 +285,7 @@ class DualTankView extends WatchUi.DataField {
         if (tauOn < 0.0)  { tauOn = 0.0; }
 
         // Capacity derivation + reserve re-clamp live in the model now.
-        mModel.configure(cp, wprime, fP, pPmax, tauP, tauG, lt1Frac, eta, fatK, gFat, tauAer, tauOn);
+        mModel.configure([cp, wprime, fP, pPmax, tauP, tauG, lt1Frac, eta, fatK, gFat, tauAer, tauOn]);
     }
 
     // Fresh-ride initialization: full tanks, zeroed session totals.

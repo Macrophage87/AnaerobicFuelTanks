@@ -9,7 +9,7 @@ using Toybox.Lang;
 // WatchUi / FitContributor / Activity / Application / Storage. That makes it
 // constructible and drivable from a (:test) with no DataField context:
 //   var m = new TankModel();
-//   m.configure(250.0, 20000.0, 0.25, 300.0, 27.0, 470.0, 0.80, 1.00, 0.75, 0.0, 25.0, 6.0);
+//   m.configure([250.0, 20000.0, 0.25, 300.0, 27.0, 470.0, 0.80, 1.00, 0.75, 0.0, 25.0, 6.0]);
 //   m.resetTanks();
 //   var pctP = m.stepModel(800.0);   // one 1 s step at 800 W
 //
@@ -50,24 +50,26 @@ class TankModel {
     function initialize() {
     }
 
-    // Set the 12 settings fields and derive mCapP/mCapG. This mirrors the capacity
-    // derivation + reserve re-clamp formerly in DualTankView.reloadSettings(); the
-    // property reads and their per-field clamps stay in the view (which passes the
-    // already-clamped values in here). Callers with no Application.Properties (tests)
-    // just pass literals.
-    function configure(cp, wprime, fP, pPmax, tauP, tauG, lt1Frac, eta, fatK, gFat, tauAer, tauOn) {
-        mCP      = cp;
-        mWprime  = wprime;
-        mFP      = fP;
-        mPPmax   = pPmax;
-        mTauP    = tauP;
-        mTauG    = tauG;
-        mLt1Frac = lt1Frac;
-        mEta     = eta;
-        mFatK    = fatK;
-        mGFat    = gFat;
-        mTauAer  = tauAer;
-        mTauOn   = tauOn;
+    // Set the 12 settings and derive mCapP/mCapG. Takes ONE fixed-order array (not 12
+    // positional params) because Monkey C caps method arity low on older devices
+    // (fenix6pro allows only 9). Order:
+    //   [cp, wprime, fP, pPmax, tauP, tauG, lt1Frac, eta, fatK, gFat, tauAer, tauOn]
+    // Mirrors the capacity derivation + reserve re-clamp formerly in reloadSettings();
+    // the property reads + per-field clamps stay in the view (which passes already-
+    // clamped values in). Callers with no Application.Properties (tests) pass literals.
+    function configure(s) {
+        mCP      = s[0];
+        mWprime  = s[1];
+        mFP      = s[2];
+        mPPmax   = s[3];
+        mTauP    = s[4];
+        mTauG    = s[5];
+        mLt1Frac = s[6];
+        mEta     = s[7];
+        mFatK    = s[8];
+        mGFat    = s[9];
+        mTauAer  = s[10];
+        mTauOn   = s[11];
 
         mCapP = mFP * mWprime;
         mCapG = (1.0 - mFP) * mWprime;
