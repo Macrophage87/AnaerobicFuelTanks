@@ -188,3 +188,19 @@ Update `platform` in `manifest.json` to your R version. `FITfileR` is a GitHub p
 > stale checksum ships a manifest describing a different `app.R` than the one served. CI enforces
 > this: `scripts/check_calibrate_manifest.sh` (run in the `r-lint` job, which is required) fails the
 > build if any listed file's md5 no longer matches, or a deployable file isn't listed.
+
+## Tests
+
+The pure numeric model and FIT decoders live in `R/model.R` (sourced by `app.R`), so they can be
+unit-tested without launching Shiny, a device, or the network. Run the suite (base R + `testthat`
+only) from the repo root:
+
+```sh
+Rscript tools/calibrate/tests/run_tests.R
+```
+
+`tests/testthat/` covers `fit_cp`, `timeline_from`, the base-R `read_power_raw` decoder,
+`read_power`'s multi-sub-table merge, `simulate_tanks` (with a committed golden fixture), the
+`fit_recovery` optimiser, and the MMP helpers. The golden fixtures are regenerated with
+`Rscript tools/calibrate/tests/testthat/fixtures/gen_fixtures.R` — re-run it in the SAME commit when
+the model is intentionally changed. CI runs this suite in the required `r-test` job.
