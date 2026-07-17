@@ -188,6 +188,11 @@ jobs:
               wait "$SIM_PID" 2>/dev/null || true
             ' || echo "run_tests exited non-zero (timeout or sim error)"
 
+          # #61 process-group cleanup: if `timeout` fired, the backgrounded sim can orphan the
+          # inner bash -c — make sure no simulator/connectiq child outlives this step.
+          pkill -9 -x simulator 2>/dev/null || true
+          pkill -9 -x connectiq 2>/dev/null || true
+
           echo "----- captured test log -----"
           cat "$LOG" || true
           echo "----- simulator log -----"
@@ -202,20 +207,97 @@ jobs:
           #      hang) -> SKIP, exit 0. This is the known, documented headless-sim crash
           #      (see job header); failing the board on infra we can't yet fix would be
           #      noise. Equality is still enforced by the required `model-parity` job.
-          # FAILED/ERROR are matched case-sensitively and word-bounded so benign summary text
-          # (e.g. "Errors: 0") can't false-fail. TODO(#61): before promoting this into
-          # ci-required, anchor the PASS check on the terminal Run-No-Evil summary line /
-          # expected test count (a per-test "PASSED" can survive a mid-suite crash) and verify
-          # the real markers against actual captured output.
-          if grep -Eq "PASSED" "$LOG" && ! grep -Eq "\b(FAILED|ERROR)\b" "$LOG"; then
-            echo "CIQ (:test) suite passed headless"
-            exit 0
-          fi
-          if grep -Eq "\b(FAILED|ERROR)\b" "$LOG"; then
+          # #61 hardened gate — three DISTINCT outcomes, PASS anchored on an observed==expected
+          # count (not a bare "PASSED" substring, which a single per-test line can satisfy mid-crash):
+          #   1. no FAILED/ERROR AND observed PASSED count >= the number of (:test) cases in source
+          #      -> the whole suite ran and passed                     -> exit 0
+          #   2. the suite reported FAILED/ERROR                       -> a test genuinely failed -> exit 1
+          #   3. neither (segfault / hang / truncated run: fewer PASSED than expected, no error)
+          #      -> SKIP, exit 0 (the known headless-sim crash; equality still enforced by the
+          #      required model-parity job).
+          # CRITICAL (promotion guardrail): a no-output segfault MUST land in (3), never in (2) —
+          # this hardening changed PASS PRECISION only, not the skip disposition. FAILED/ERROR stay
+          # case-sensitive + word-bounded so benign summary text ("Errors: 0") can't false-fail.
+          # EXPECTED is derived from source so adding a (:test) can't silently leave a stale gate.
+          # (Anchoring PASS on the terminal Run-No-Evil summary STRING is deferred until the sim
+          # actually runs and the real marker can be pinned against captured output — see #61.)
+          EXPECTED="$(grep -rhoE '^\(:test\)' source/*.mc | wc -l | tr -d ' ')"
+          PASSES="$(grep -Ec '\bPASSED\b' "$LOG" || true)"
+          FAILS="$(grep -Ec '\b(FAILED|ERROR)\b' "$LOG" || true)"
+          echo "gate: expected (:test) cases=${EXPECTED:-0}  observed PASSED=${PASSES:-0}  FAILED/ERROR=${FAILS:-0}"
+          if [ "${FAILS:-0}" -gt 0 ]; then
             echo "::error::(:test) reported FAILED/ERROR — a test genuinely failed"
             exit 1
           fi
-          echo "::warning::headless simulator did not run the (:test) suite (known Qt segfault under Xvfb; see job header). Skipping — model equality is enforced by the required model-parity job."
+          if [ "${EXPECTED:-0}" -gt 0 ] && [ "${PASSES:-0}" -ge "${EXPECTED:-0}" ]; then
+            echo "CIQ (:test) suite passed headless (${PASSES}/${EXPECTED} cases)"
+            exit 0
+          fi
+          echo "::warning::headless simulator did not run the full (:test) suite (${PASSES:-0}/${EXPECTED:-0} cases passed; known Qt segfault under Xvfb — see job header). Skipping — model equality is enforced by the required model-parity job."
+          exit 0
+
+      # #61 diagnostics — root-causes the post-SetLayout SIGSEGV. Best-effort and NON-FATAL
+      # (set +e / exit 0 / if: always()), so it can never fail this best-effort job or the board;
+      # output goes to the step log (no artifact action to pin). Attaches gdb to the REAL sim
+      # process (reproducing the connectiq + monkeydo flow) to capture the crash backtrace, and
+      # probes the offscreen Qt platform (which bypasses X11/xcb) as a candidate-fix signal.
+      - name: Diagnose the headless simulator crash (best-effort, non-fatal)
+        if: ${{ always() }}
+        working-directory: connectiq
+        shell: bash
+        env:
+          DEVICE: edge1050
+          SIM_PORT: "1234"
+        run: |
+          set +e
+          echo "::group::install gdb"
+          (apt-get update -y && apt-get install -y gdb) >/dev/null 2>&1 || true
+          command -v gdb >/dev/null 2>&1 || echo "gdb unavailable; backtrace will be skipped"
+          echo "::endgroup::"
+          DEV_JSON="$(find / -path '*/.Garmin/ConnectIQ/Devices/edge1050/compiler.json' 2>/dev/null | head -1 || true)"
+          [ -n "$DEV_JSON" ] && export HOME="${DEV_JSON%%/.Garmin/*}"
+          SIMBIN="$(find / -type f -name simulator -perm -u+x 2>/dev/null | head -1 || true)"
+          echo "simulator binary: ${SIMBIN:-<not found>}"
+
+          echo "::group::(1) live gdb backtrace of the SetLayout SIGSEGV (real connectiq+monkeydo flow, QT_DEBUG_PLUGINS=1)"
+          QT_DEBUG_PLUGINS=1 timeout 150 xvfb-run -a -s "-screen 0 1280x1024x24" bash -c '
+            connectiq >/tmp/sim.diag.log 2>&1 &
+            for i in $(seq 1 40); do SIMPID=$(pgrep -x simulator 2>/dev/null || true); [ -n "$SIMPID" ] && break; sleep 0.5; done
+            echo "sim pid: ${SIMPID:-none}"
+            if command -v gdb >/dev/null 2>&1 && [ -n "${SIMPID:-}" ]; then
+              gdb -batch -nx -p "$SIMPID" \
+                -ex "set pagination off" -ex "handle SIGSEGV stop print" -ex "continue" \
+                -ex "printf \"\\n===== BACKTRACE =====\\n\"" -ex "bt full" \
+                -ex "printf \"\\n===== SHARED LIBS =====\\n\"" -ex "info sharedlibrary" \
+                -ex "detach" -ex "quit" 2>&1 &
+              GDBPID=$!
+              sleep 3
+              monkeydo bin/app-test.prg "${DEVICE}" -t >/tmp/monkeydo.diag.log 2>&1 || true
+              wait "$GDBPID" 2>/dev/null || true
+            else
+              echo "no sim pid or no gdb — see the Qt plugin log below"
+            fi
+          ' 2>&1 | tail -300
+          echo "----- sim.diag.log (Qt plugin loading, tail) -----"; tail -60 /tmp/sim.diag.log 2>/dev/null || true
+          pkill -9 -x simulator 2>/dev/null || true; pkill -9 -x connectiq 2>/dev/null || true
+          echo "::endgroup::"
+
+          echo "::group::(2) offscreen Qt platform probe (bypasses X11/xcb — candidate-fix signal)"
+          if [ -n "${SIMBIN:-}" ]; then
+            QT_QPA_PLATFORM=offscreen timeout 30 "$SIMBIN" >/tmp/sim.offscreen.log 2>&1 &
+            OPID=$!; sleep 10
+            if kill -0 "$OPID" 2>/dev/null; then
+              echo "offscreen: sim STILL ALIVE after 10s — the X11/xcb path is the likely culprit; QT_QPA_PLATFORM=offscreen is a candidate fix to trial in the run step."
+            else
+              echo "offscreen: sim exited within 10s — offscreen is NOT a clean standalone fix (see log)."
+            fi
+            kill -9 "$OPID" 2>/dev/null || true
+            tail -60 /tmp/sim.offscreen.log 2>/dev/null || true
+          else
+            echo "simulator binary not located; skipping offscreen probe"
+          fi
+          echo "::endgroup::"
+          pkill -9 -x simulator 2>/dev/null || true
           exit 0
 
   # ------------------------------------------------------------------
