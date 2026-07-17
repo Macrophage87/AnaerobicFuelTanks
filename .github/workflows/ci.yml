@@ -288,11 +288,20 @@ jobs:
           NO_AT_BRIDGE: "1"
         run: |
           set +e
-          echo "::group::install gdb + GTK theme/schemas (per-command timeouts so a stall can't ride the job cap)"
+          echo "::group::install gdb + GTK theme/schemas + dbus (per-command timeouts so a stall can't ride the job cap)"
           timeout 180 apt-get update -y >/dev/null 2>&1 || true
           timeout 240 apt-get install -y gdb adwaita-icon-theme gnome-themes-extra \
-            libgtk-3-common librsvg2-2 librsvg2-common gsettings-desktop-schemas >/dev/null 2>&1 || true
+            libgtk-3-common librsvg2-2 librsvg2-common gsettings-desktop-schemas \
+            dbus-x11 dconf-gsettings-backend >/dev/null 2>&1 || true
           timeout 60 glib-compile-schemas /usr/share/glib-2.0/schemas >/dev/null 2>&1 || true
+          dbus-uuidgen --ensure 2>/dev/null || true
+          # #61 L1 (DIAGNOSTIC-ONLY): the run path keeps L0's in-memory backend; here we ALSO trial the
+          # real dbus-run-session + dconf backend (group 2 below runs under $DBUS_WRAP with
+          # GSETTINGS_BACKEND unset) purely to capture its backtrace. RESULT: FALSIFIED — under dbus/dconf
+          # the sim segfaults at the IDENTICAL post-SetLayout point as L0 (memory), so the crash is NOT
+          # gated on the gsettings backend. Kept as a diagnostic capture only and NEVER in the run path: a
+          # falsified, non-substrate wrapper must not ride every future ciq-test run (see #61 re-diagnosis).
+          DBUS_WRAP=""; command -v dbus-run-session >/dev/null 2>&1 && DBUS_WRAP="dbus-run-session --"
           command -v gdb >/dev/null 2>&1 || echo "gdb unavailable; backtrace will be skipped"
           echo "::endgroup::"
           # NOTE: no -dbgsym/ddebs step. PR #84's run empirically proved it a no-op HERE — the crash
@@ -323,8 +332,11 @@ jobs:
 
           # (2) Also catch it in the REAL connectiq + monkeydo flow. Here the sim is a SIBLING of
           # gdb, so this attach needs the job's --cap-add=SYS_PTRACE (added to container.options).
-          echo "::group::(2) gdb attach in the real connectiq+monkeydo flow (needs SYS_PTRACE cap)"
-          QT_DEBUG_PLUGINS=1 timeout 150 xvfb-run -a -s "-screen 0 1280x1024x24" bash -c '
+          # #61 L1 diagnostic-only: run under $DBUS_WRAP with GSETTINGS_BACKEND UNSET (env -u) so this
+          # capture exercises the dbus/dconf backend (not the run path's memory backend). The captured
+          # backtrace is the identical post-SetLayout segfault -> L1 falsified, crash not backend-gated.
+          echo "::group::(2) gdb attach in the real connectiq+monkeydo flow, dbus/dconf backend (needs SYS_PTRACE cap)"
+          QT_DEBUG_PLUGINS=1 timeout 150 env -u GSETTINGS_BACKEND xvfb-run -a -s "-screen 0 1280x1024x24" $DBUS_WRAP bash -c '
             connectiq >/tmp/sim.diag.log 2>&1 &
             for i in $(seq 1 40); do SIMPID=$(pgrep -x simulator 2>/dev/null || true); [ -n "$SIMPID" ] && break; sleep 0.5; done
             echo "sim pid: ${SIMPID:-none}"
