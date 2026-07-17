@@ -75,7 +75,7 @@ def run_trace(cfg, rows):
     m.reset()
     out = []
     for row in rows:
-        pctP = m.step(row["power"])
+        pctP = m.step(row["power"], 1.0)
         out.append((m.mRP, m.mRG, pctP))
     return out
 

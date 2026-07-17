@@ -41,7 +41,7 @@ function tmRun(m, trace) {
         var w = seg[0];
         var secs = seg[1];
         for (var s = 0; s < secs; s += 1) {
-            pctP = m.stepModel(w);
+            pctP = m.stepModel(w, 1.0);
         }
     }
     return pctP;
@@ -111,7 +111,7 @@ function testBelowCPStaysFull(logger) {
     var prevRG = m.mRG;
     var minRG = m.mRG;
     for (var s = 0; s < 1200; s += 1) {
-        m.stepModel(150.0);
+        m.stepModel(150.0, 1.0);
         // GLY never decreases below CP.
         Test.assert(m.mRG >= prevRG - 1e-6);
         prevRG = m.mRG;

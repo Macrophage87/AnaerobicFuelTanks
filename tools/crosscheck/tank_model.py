@@ -85,9 +85,8 @@ class TankModel:
             t = 1.0
         return t
 
-    def step(self, power):
+    def step(self, power, dt=1.0):
         p = power
-        dt = 1.0
 
         # Aerobic supply.
         supply = self.mCP
