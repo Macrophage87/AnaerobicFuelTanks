@@ -105,14 +105,15 @@ openssl pkcs8 -topk8 -inform PEM -outform DER -in developer_key.pem -out develop
 # 2. build (wrapper handles paths); default device edge840
 ./build.sh              # or: ./build.sh edge1040
 
-# --- or the raw commands the wrapper runs ---
-monkeyc -d edge840 -f monkey.jungle -o bin/DualTank.prg -y developer_key.der   # build a PRG
-connectiq && monkeydo bin/DualTank.prg edge840                                  # run in simulator
-monkeyc -e -f monkey.jungle -o bin/DualTank.iq -y developer_key.der             # package .iq (all products)
+# --- or the raw commands the wrapper runs (bin/ is git-ignored, so create it first) ---
+mkdir -p bin
+monkeyc -d edge840 -f monkey.jungle -o bin/DualTank-edge840.prg -y developer_key.der   # build a PRG
+connectiq && monkeydo bin/DualTank-edge840.prg edge840   # run in simulator
+monkeyc -e -f monkey.jungle -o bin/DualTank.iq -y developer_key.der   # package .iq (all products, unsuffixed)
 ```
 
 > Tip: build with `-l 3` (strict type check) for the most thorough compiler pass:
-> `monkeyc -l 3 -d edge840 -f monkey.jungle -o bin/DualTank.prg -y developer_key.der`.
+> `monkeyc -l 3 -d edge840 -f monkey.jungle -o bin/DualTank-edge840.prg -y developer_key.der`.
 > The source was written to pass strict type checking (property reads are `instanceof`-narrowed,
 > nullable `Activity.Info` fields are copied to locals before use).
 
