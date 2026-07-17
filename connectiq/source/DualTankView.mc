@@ -21,7 +21,9 @@ using Toybox.System;
 //     in. The SHARE of submaximal demand is capacity-proportional (both tanks track
 //     W'bal in steady effort); the peak-flux RATE CEILING (pPmax, tapered with
 //     fullness) governs maximal efforts, where PCr dominance emerges. Unmet demand is
-//     banked as a deficit so combined W'bal stays energy-conserving.
+//     banked as a deficit D, REPORTED as a separate third quantity (the Deficit_kJ FIT
+//     stream) and NOT re-drained from the tanks (white paper §4.3/§6.9) — so the COMBINED
+//     readout (Rp + Rg - D) stays energy-conserving, while the two bars may read slightly full.
 //   - Below supply: PCr recovers (tauP, efficiency eta); glycolytic (and the
 //     deficit) recover whenever P < CP at Skiba's intensity-dependent W'bal rate
 //     tau_W'(CP-P), amplitude anchored to Ferguson 2010 at 20 W.
@@ -151,6 +153,12 @@ class DualTankView extends WatchUi.DataField {
     const FID_CFG_TAUAER  = 16;
     const FID_CFG_TAUON   = 17;
 
+    // #32: banked deficit D as kJ — the "third quantity" the white paper (§4.3/§6.9) prescribes:
+    // work booked to neither tank, decayed on recovery, REPORTED (not re-drained). Highest FID,
+    // and created LAST, so if the FIT field budget is exhausted (#34) it's this OPTIONAL field's
+    // handle that comes back null and degrades — never a core reserve/config stream.
+    const FID_DEFICIT_KJ  = 18;
+
     // Guard: cap a single pause's recovery to 24 h of rest (clock-change safety).
     const MAX_PAUSE_SEC = 86400;
 
@@ -190,6 +198,7 @@ class DualTankView extends WatchUi.DataField {
     hidden var mSavRP, mSavRG, mSavDepP, mSavDepG, mSavDeficit;
     // ---- FIT fields ----
     hidden var mFPcrJ, mFGlyJ, mFPcrCons, mFGlyCons, mFPcrKj, mFGlyKj;
+    hidden var mFDeficit;   // #32: Deficit_kJ record stream (optional; created last)
     hidden var mCfgFields;   // retained config session fields (CP, W', taus, ...)
     // ---- Draw resources ----
     hidden var mFontLabel, mFontValue, mFontSmall;
@@ -274,6 +283,12 @@ class DualTankView extends WatchUi.DataField {
         ];
         writeCfgFields();   // #33: initial write now that the fields exist (reloadSettings ran earlier)
 
+        // #32: create the optional Deficit_kJ record stream LAST (highest FID), so on FIT-field
+        // budget exhaustion (#34) it's this handle that comes back null and degrades — never a core
+        // field. Per-second kJ (mDeficit is J); written every compute() so the stream has no gaps.
+        mFDeficit = createField("Deficit_kJ", FID_DEFICIT_KJ, FitContributor.DATA_TYPE_FLOAT,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "kJ" });
+
         // Seed from current (possibly RESTORED) state so the session-total kJ fields
         // resume from the running total rather than restarting at 0 after a reload.
         // All writes go through writeField (#34) so a null handle can't fault init.
@@ -283,6 +298,7 @@ class DualTankView extends WatchUi.DataField {
         writeField(mFGlyCons, 0);
         writeField(mFPcrKj, mModel.mDepP / 1000.0);
         writeField(mFGlyKj, mModel.mDepG / 1000.0);
+        writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: seed the deficit stream
     }
 
     // #34: createField() returns null when the FIT field budget/memory is exhausted; a bare
@@ -802,6 +818,7 @@ class DualTankView extends WatchUi.DataField {
             writeField(mFGlyJ, mModel.mRG);
             writeField(mFPcrCons, 0);
             writeField(mFGlyCons, 0);
+            writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: gap-free deficit stream (held)
             return 100.0 * mModel.mRP / mModel.mCapP;
         }
 
@@ -824,6 +841,7 @@ class DualTankView extends WatchUi.DataField {
             writeField(mFGlyJ, mModel.mRG);
             writeField(mFPcrCons, 0);
             writeField(mFGlyCons, 0);
+            writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: gap-free deficit stream (held)
             return 100.0 * mModel.mRP / mModel.mCapP;
         }
 
@@ -862,6 +880,7 @@ class DualTankView extends WatchUi.DataField {
                 writeField(mFGlyJ, mModel.mRG);
                 writeField(mFPcrCons, 0);
                 writeField(mFGlyCons, 0);
+                writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: gap-free deficit stream (held)
                 markActiveIfDepleted();
                 return 100.0 * mModel.mRP / mModel.mCapP;
             }
@@ -879,6 +898,7 @@ class DualTankView extends WatchUi.DataField {
         // FIT: running session totals (kJ) — SDK keeps last value as summary
         writeField(mFPcrKj, mModel.mDepP / 1000.0);
         writeField(mFGlyKj, mModel.mDepG / 1000.0);
+        writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: banked deficit D as a live kJ stream
 
         // Epsilon dirty-check: flag dirty only on a MATERIAL change (>= STATE_EPS_J in any
         // reserve / session total / deficit) since the last save. Without this, the sub-CP
