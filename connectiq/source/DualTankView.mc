@@ -94,6 +94,11 @@ const STATE_EPS_J = 25.0;
 // (hold reserves) rather than collapse to 0 W and trip the model's restoration branch.
 // Kept small so a stale value can't over-deplete before the freeze takes over.
 const BRIDGE_SEC = 3;
+// #57: pure dropout-decision outcomes, so decideDropout() can be exercised from a (:test) with
+// no DataField/Activity context (mirrors the validateBlob()/shouldShowNoPower() seams).
+const DROPOUT_USE    = 0;   // valid sample: use it, reset the miss counter, arm mHaveValidP
+const DROPOUT_BRIDGE = 1;   // missing sample within the bridge window: reuse mLastP
+const DROPOUT_FREEZE = 2;   // no valid sample yet, or dropout outlasted BRIDGE_SEC: hold reserves
 // Fixed-order snapshot Array layout (lower alloc/serialize cost than a Dictionary).
 // sessId (the activity's start-time, unix s) keys the snapshot to ONE activity so a
 // previous ride's blob can't bleed into a new one within the staleness window.
@@ -833,23 +838,24 @@ class DualTankView extends WatchUi.DataField {
             cp = info.currentPower;   // Number or null
         }
         var p;
+        // #57: the bridge/freeze DECISION is delegated to the pure decideDropout() seam; the state
+        // mutations, effective-power selection, and the freeze early-return stay here so behavior is
+        // byte-identical. On a missing sample mMissCount is incremented BEFORE decideDropout() so the
+        // POST-increment value drives the `> BRIDGE_SEC` boundary exactly as the original inline code.
         if (cp != null) {
-            p = cp.toFloat();
+            p = cp.toFloat();                 // decideDropout(true, ...) == DROPOUT_USE
             mLastP = p;
             mMissCount = 0;
             mHaveValidP = true;
         } else {
             mMissCount += 1;
-            // Freeze if no valid sample yet (cold start OR first sample after a depleted-tank
-            // restore — bridging at the 0.0 seed would inject phantom recovery), or once the
-            // dropout outlasts the bridge window. Mirror the paused early-return (502-510):
-            // hold reserves, zero consumption, keep the FIT streams gap-free, and DON'T touch
-            // mAer/mG/mDeficit (don't relax effort). Reserves are held, so the epsilon dirty-check
-            // never fires here — but this IS active on-device time (an unpaused dropout, timer
-            // still running), so markActiveIfDepleted() still refreshes SLOT_SAVEDAT while depleted
-            // so a multi-minute dropout can't freeze the last-active marker and be credited as rest
-            // on a dropout-then-reboot (#52 over-credit, narrower path).
-            if (!mHaveValidP || mMissCount > BRIDGE_SEC) {
+            if (decideDropout(false, mMissCount, mHaveValidP) == DROPOUT_FREEZE) {
+                // Freeze — no valid sample yet (cold start OR first sample after a depleted-tank
+                // restore, where bridging the 0.0 seed would inject phantom recovery), or the dropout
+                // outlasted the bridge window. Mirror the paused early-return: hold reserves, zero
+                // consumption, keep the FIT streams gap-free, and DON'T touch mAer/mG/mDeficit. This
+                // IS active on-device time, so markActiveIfDepleted() still refreshes SLOT_SAVEDAT
+                // while depleted so a multi-minute dropout can't be credited as rest (#52).
                 mModel.mConsP = 0.0;
                 mModel.mConsG = 0.0;
                 writeField(mFPcrJ, mModel.mRP);
@@ -859,7 +865,7 @@ class DualTankView extends WatchUi.DataField {
                 markActiveIfDepleted();
                 return 100.0 * mModel.mRP / mModel.mCapP;
             }
-            p = mLastP;   // bridge: reuse last valid power, fall through to normal compute
+            p = mLastP;   // DROPOUT_BRIDGE: reuse last valid power, fall through to normal compute
         }
 
         // Delegate the entire per-second physics step to the model (pure, testable).
@@ -923,6 +929,19 @@ class DualTankView extends WatchUi.DataField {
     // logic is unit-testable without a DataField/Activity context.
     static function shouldShowNoPower(timerOn, paused, restorePending, haveValidP, missCount) {
         return timerOn && !paused && !restorePending && !haveValidP && missCount > BRIDGE_SEC;
+    }
+
+    // #57: pure bridge/freeze decision for a power sample (mirrors validateBlob/shouldShowNoPower —
+    // no self/Activity context, deterministic given its args) so the #22 dropout boundaries are
+    // (:test)-assertable without a live DataField. compute() keeps the state mutations, the
+    // effective-power selection, and the freeze early-return; this returns ONLY the decision.
+    // IMPORTANT: `missCount` is the POST-increment value — compute() does `mMissCount += 1` BEFORE
+    // calling on a missing sample, so `missCount > BRIDGE_SEC` matches the original inline logic
+    // exactly. Passing the pre-increment value would shift every boundary by one second.
+    static function decideDropout(valid, missCount, haveValidP) {
+        if (valid) { return DROPOUT_USE; }
+        if (!haveValidP || missCount > BRIDGE_SEC) { return DROPOUT_FREEZE; }
+        return DROPOUT_BRIDGE;
     }
 
     function onUpdate(dc) {
