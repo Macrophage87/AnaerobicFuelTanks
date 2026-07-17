@@ -404,8 +404,9 @@ class DualTankView extends WatchUi.DataField {
         return true;
     }
 
-    // Fresh-ride full-tank defaults. Extracted so both initialize()'s no-restore path and the
-    // #51 foreign-activity rollback in compute() share one definition.
+    // Fresh-ride full-tank defaults for initialize()'s no-restore path. (The #51 tentative-restore
+    // rollback in compute() uses restoreRollback() instead — it must re-seed the dropout/derived
+    // state and choose mStarted per its caller, which these bare field defaults do not.)
     hidden function resetToFullTanks() {
         mModel.mRP = mModel.mCapP;
         mModel.mRG = mModel.mCapG;
@@ -419,18 +420,25 @@ class DualTankView extends WatchUi.DataField {
         mPauseAt = 0;
     }
 
-    // #51: a tentatively-restored snapshot turned out foreign (or its identity never resolved
-    // within the deadline). Reset to a FRESH ride but KEEP mStarted=true — the activity is
-    // recording, so persistence must stay alive for it. (resetToFullTanks() sets mStarted=false,
-    // after which blobRestorable()'s started!=true check would reject every save for the rest of
-    // the ride.) resetSession() also re-seeds the dropout/derived state; then drop the stale blob.
-    hidden function restoreRollbackToFreshRide() {
+    // #51: a tentatively-restored snapshot did not confirm as this ride. Reset to FRESH full tanks
+    // (resetSession() also re-seeds the dropout/derived state) and drop the stale blob. The two
+    // callers need OPPOSITE mStarted, so it's a parameter — collapsing them (as an earlier revision
+    // did) re-opens #36 on the deadline path:
+    //   - startedAfter=true  — confirmed-foreign (identity RESOLVED to a different id): a ride is
+    //     genuinely recording, so keep persistence alive for it. mStarted=false here would make
+    //     blobRestorable()'s started!=true check reject every save for the rest of the ride.
+    //   - startedAfter=false — deadline-exceeded (identity NEVER resolved within
+    //     RESTORE_CONFIRM_TICKS): the usual cause is the timer hasn't actually started yet, so fail
+    //     fully safe and let the real onTimerStart() run resetSession() at the true start. Leaving
+    //     mStarted=true would make that onTimerStart() take the resume branch and skip the reset,
+    //     carrying pre-start depletion into the ride (#36).
+    hidden function restoreRollback(startedAfter) {
         resetSession();          // full tanks + reseeded mLastP/mMissCount/mHaveValidP
-        mStarted = true;         // recording -> keep persistence alive for the new ride
+        mStarted = startedAfter;
         mPaused = false;
         mPauseAt = 0;
         mRestoreSess = null;
-        clearState();            // drop the foreign snapshot
+        clearState();            // drop the unconfirmed snapshot
     }
 
     // Restore a persisted snapshot into the model state. Returns true on an accepted OR a
@@ -627,6 +635,12 @@ class DualTankView extends WatchUi.DataField {
         resetSession();
         mStarted = false;
         mPaused = false;
+        // A manual reset ends any tentative #51 restore outright (a fresh ride can't be confirming
+        // a prior snapshot). These self-clear on the next resolved compute() tick, but clearing them
+        // here keeps the fresh-ride state unambiguous and can't leave a stale pending-restore.
+        mRestorePending = false;
+        mRestoreTicks = 0;
+        mRestoreSess = null;
         clearState();      // fresh ride -> drop the snapshot so the next activity starts full
     }
 
@@ -634,6 +648,24 @@ class DualTankView extends WatchUi.DataField {
         mFontLabel = Graphics.FONT_XTINY;
         mFontValue = Graphics.FONT_TINY;
         mFontSmall = Graphics.FONT_XTINY;
+    }
+
+    // #52: keep SLOT_SAVEDAT a fresh "last-active" marker while the device is recording-and-depleted,
+    // then persist it (throttled + dirty-gated, flash-wear safe). Called on the normal per-second
+    // compute() path AND before its dropout-freeze early-return — a sustained sensor dropout is still
+    // active on-device time (the activity timer runs; a paused ride returns earlier), so its
+    // SLOT_SAVEDAT must not freeze, or a dropout-then-reboot would credit the frozen span as rest.
+    // The IDLE_SAVE_SEC heartbeat fires only while below full: at capacity applyRestRecovery is a
+    // no-op so there is nothing to over-credit, and #21's zero-write steady full-tank ride is kept.
+    // Cost is bounded — at most ~one extra write per IDLE_SAVE_SEC (60 s) while depleted.
+    hidden function markActiveIfDepleted() {
+        if (!mDirty && (nowSec() - mLastSaveSec >= IDLE_SAVE_SEC)
+                && (mModel.mRP < mModel.mCapP || mModel.mRG < mModel.mCapG || mModel.mDeficit > 0.0)) {
+            mDirty = true;
+        }
+        if (mDirty && (nowSec() - mLastSaveSec >= SAVE_EVERY_SEC)) {
+            saveState();
+        }
     }
 
     //------------------------------------------------------------------
@@ -649,18 +681,20 @@ class DualTankView extends WatchUi.DataField {
                 mRestorePending = false;
                 mRestoreTicks = 0;
                 if (liveNow != mRestoreSess) {
-                    // Foreign activity: the snapshot belongs to a DIFFERENT ride -> start fresh.
-                    restoreRollbackToFreshRide();
+                    // Foreign activity: the snapshot belongs to a DIFFERENT ride that IS recording
+                    // -> start fresh but keep mStarted=true so persistence stays alive for it.
+                    restoreRollback(true);
                 }
                 // else: identity confirmed -> keep the tentatively-restored state.
             } else {
                 // Identity still unavailable: bound the wait so an UNCONFIRMABLE foreign snapshot
-                // can't run as this ride indefinitely — fail safe to full tanks past the deadline
-                // (the base behavior when the activity can't be identified).
+                // can't run as this ride indefinitely. Past the deadline the usual cause is the timer
+                // hasn't started yet, so fail FULLY safe (mStarted=false) and let the real
+                // onTimerStart() reset at the true start -> no pre-start depletion carried in (#36).
                 mRestoreTicks += 1;
                 if (mRestoreTicks > RESTORE_CONFIRM_TICKS) {
                     mRestorePending = false;
-                    restoreRollbackToFreshRide();
+                    restoreRollback(false);
                 }
             }
         }
@@ -698,8 +732,12 @@ class DualTankView extends WatchUi.DataField {
             // Freeze if no valid sample yet (cold start OR first sample after a depleted-tank
             // restore — bridging at the 0.0 seed would inject phantom recovery), or once the
             // dropout outlasts the bridge window. Mirror the paused early-return (502-510):
-            // hold reserves, zero consumption, keep the FIT streams gap-free, DON'T set mDirty
-            // (so no snapshot is written) and DON'T touch mAer/mG/mDeficit (don't relax effort).
+            // hold reserves, zero consumption, keep the FIT streams gap-free, and DON'T touch
+            // mAer/mG/mDeficit (don't relax effort). Reserves are held, so the epsilon dirty-check
+            // never fires here — but this IS active on-device time (an unpaused dropout, timer
+            // still running), so markActiveIfDepleted() still refreshes SLOT_SAVEDAT while depleted
+            // so a multi-minute dropout can't freeze the last-active marker and be credited as rest
+            // on a dropout-then-reboot (#52 over-credit, narrower path).
             if (!mHaveValidP || mMissCount > BRIDGE_SEC) {
                 mModel.mConsP = 0.0;
                 mModel.mConsG = 0.0;
@@ -707,6 +745,7 @@ class DualTankView extends WatchUi.DataField {
                 mFGlyJ.setData(mModel.mRG);
                 mFPcrCons.setData(0);
                 mFGlyCons.setData(0);
+                markActiveIfDepleted();
                 return 100.0 * mModel.mRP / mModel.mCapP;
             }
             p = mLastP;   // bridge: reuse last valid power, fall through to normal compute
@@ -739,23 +778,12 @@ class DualTankView extends WatchUi.DataField {
             }
         }
 
-        // #52 heartbeat: while reserves are BELOW full (recovery is still possible), force a save
-        // at least every IDLE_SAVE_SEC even without a material change, so the persisted SLOT_SAVEDAT
-        // stays a fresh "last active" marker and an unpaused-reboot off-gap credit can't over-credit
-        // rest for on-device sub-epsilon minutes. Skipped at full tanks -> #21's zero-write steady
-        // full-tank riding is preserved (a full tank has nothing to over-credit on restore).
-        if (!mDirty && (nowSec() - mLastSaveSec >= IDLE_SAVE_SEC)
-                && (mModel.mRP < mModel.mCapP || mModel.mRG < mModel.mCapG || mModel.mDeficit > 0.0)) {
-            mDirty = true;
-        }
-
-        // Persist the model state, throttled AND dirty-checked (flash-wear safe): at most
-        // once per SAVE_EVERY_SEC, and only when state materially changed. Sits after the
-        // mPaused early-return above, so paused seconds don't write. saveState() re-checks
-        // mDirty and resets the throttle + epsilon baseline on a successful write.
-        if (mDirty && (nowSec() - mLastSaveSec >= SAVE_EVERY_SEC)) {
-            saveState();
-        }
+        // #52 heartbeat + throttled, dirty-gated persist (flash-wear safe). Factored into
+        // markActiveIfDepleted() so the dropout-freeze early-return above refreshes the same
+        // "last-active" marker — otherwise a long depleted dropout freezes SLOT_SAVEDAT and a
+        // reboot right after over-credits the frozen span as rest. Sits after the mPaused
+        // early-return, so paused seconds don't write.
+        markActiveIfDepleted();
 
         // Drive the depleted-bar blink (toggles at 1 Hz -> ~0.5 Hz visible).
         mFlashOn = !mFlashOn;
