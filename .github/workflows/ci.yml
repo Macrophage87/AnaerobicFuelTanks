@@ -124,6 +124,21 @@ jobs:
           openssl pkcs8 -topk8 -inform PEM -outform DER -in /tmp/ci_key.pem -out /tmp/ci_key.der -nocrypt
           mkdir -p bin
           monkeyc -f monkey.jungle -d edge1050 -o bin/app-test.prg -y /tmp/ci_key.der -t -l 1
+      - name: Provide a GTK theme + settings schemas (#61 fix candidate)
+        # PR #81's captured backtrace: the sim SIGSEGVs inside libgtk-3 while constructing a GTK
+        # message dialog at startup (gtk_message_dialog_new -> g_object_new -> g_type_create_instance),
+        # with a repeated `Gtk-CRITICAL … GTK_IS_STYLE_PROVIDER_PRIVATE(provider) failed`: GTK has no
+        # valid style provider because the minimal image lacks a theme + settings schemas. A bare
+        # GTK_THEME did NOT fix it (diagnostic group 3), so install the full theme + schemas stack;
+        # the run step then uses the in-memory gsettings backend (GSETTINGS_BACKEND=memory) seeded
+        # from those schema defaults, so no dbus/dconf session bus is needed.
+        run: |
+          set -eux
+          apt-get update -y
+          apt-get install -y --no-install-recommends \
+            libgtk-3-0 libgtk-3-common gnome-themes-extra adwaita-icon-theme \
+            librsvg2-2 librsvg2-common gsettings-desktop-schemas dconf-gsettings-backend || true
+          glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
       - name: Run (:test) headless under xvfb
         working-directory: connectiq
         # The image's default shell is dash (sh); this step uses the bash `/dev/tcp` socket
@@ -133,6 +148,9 @@ jobs:
           DEVICE: edge1050
           SIM_PORT: "1234"      # Connect IQ simulator shell port monkeydo connects to
           RUN_TIMEOUT: "300"
+          GTK_THEME: "Adwaita"          # #61: give the startup GTK dialog a concrete theme
+          GSETTINGS_BACKEND: "memory"   # #61: schema defaults without a dbus/dconf session bus
+          NO_AT_BRIDGE: "1"             # #61: don't reach for the a11y bus (absent headless)
         run: |
           set -eux
           LOG=/tmp/ciq-test.log
@@ -258,6 +276,9 @@ jobs:
         env:
           DEVICE: edge1050
           SIM_PORT: "1234"
+          GTK_THEME: "Adwaita"          # #61: same env as the run step so the probes test the fix
+          GSETTINGS_BACKEND: "memory"
+          NO_AT_BRIDGE: "1"
         run: |
           set +e
           echo "::group::install gdb + default GTK theme (per-command timeouts so a stall can't ride the job cap)"
