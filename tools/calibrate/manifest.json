@@ -2491,10 +2491,10 @@
   },
   "files": {
     "app.R": {
-      "checksum": "89e0a3cb1d3a7660ce13f1cc4255e11d"
+      "checksum": "bf3a8efa2d30099cf3362f49a49581ff"
     },
     "R/model.R": {
-      "checksum": "e305b42f2351cc8a4536a2b7fabbdfdf"
+      "checksum": "896bd40e01c92a40663ccb0d1bba26fd"
     },
     "deploy.R": {
       "checksum": "056b1c8137953f014931bce0731e2c88"

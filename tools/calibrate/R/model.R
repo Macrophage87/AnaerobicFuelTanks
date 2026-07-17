@@ -122,14 +122,22 @@ read_power_raw <- function(path) {
   timeline_from(tsv[seq_len(k)], pwv[seq_len(k)])
 }
 
-# Returns list(p = <per-second power vector | NULL>, reason = <NULL | message>).
+# #31: native sample cadence (median inter-sample seconds) on the cleaned timestamps — used only to
+# WARN when a file is not ~1 Hz (a smart-recorded file's zero-filled gaps deflate the MMP / CP-W').
+# Parity-inert: not consumed by simulate_tanks or the crosscheck fixtures.
+cadence_of <- function(t) {
+  t <- sort(unique(t[is.finite(t)]))
+  if (length(t) < 2) NA_real_ else stats::median(diff(t))
+}
+
+# Returns list(p = <per-second power vector | NULL>, reason = <NULL | message>, cadence = <s | NA>).
 # reason is non-NULL only when the file could not be turned into usable power.
 read_power <- function(path) {
-  fail <- function(msg) list(p = NULL, reason = msg)
+  fail <- function(msg) list(p = NULL, reason = msg, cadence = NA_real_)
   raw_fallback <- function(why) {
     # base-R decoder; survives developer-field files that break FITfileR
     r <- try(read_power_raw(path), silent = TRUE)
-    if (!inherits(r, "try-error") && !is.null(r) && length(r) >= 2) return(list(p = r, reason = NULL))
+    if (!inherits(r, "try-error") && !is.null(r) && length(r) >= 2) return(list(p = r, reason = NULL, cadence = NA_real_))
     fail(why)
   }
   ff <- try(readFitFile(path), silent = TRUE)
@@ -154,7 +162,7 @@ read_power <- function(path) {
   if (is.null(parts) || nrow(parts) < 2) return(raw_fallback("no power field in records"))
   line <- timeline_from(parts$t, parts$p)
   if (is.null(line)) return(raw_fallback("no usable power samples"))
-  list(p = line, reason = NULL)
+  list(p = line, reason = NULL, cadence = cadence_of(parts$t))
 }
 best_mean_power <- function(p, d) { n <- length(p); if (n < d) return(NA_real_)
   cs <- cumsum(c(0, p)); max((cs[(d + 1):(n + 1)] - cs[1:(n - d + 1)]) / d) }

@@ -41,10 +41,16 @@ function tmRun(m, trace) {
         var w = seg[0];
         var secs = seg[1];
         for (var s = 0; s < secs; s += 1) {
-            pctP = m.stepModel(w);
+            pctP = m.stepModel(w, 1.0);
         }
     }
     return pctP;
+}
+
+// Combined depletion so far: PCr draw + GLY draw + banked deficit (J). By energy conservation this
+// equals the cumulative demanded need, independent of how stepModel splits it across the tanks.
+function tmDep(m) {
+    return (m.mCapP - m.mRP) + (m.mCapG - m.mRG) + m.mDeficit;
 }
 
 // ---- Existing CI smoke test ----
@@ -111,7 +117,7 @@ function testBelowCPStaysFull(logger) {
     var prevRG = m.mRG;
     var minRG = m.mRG;
     for (var s = 0; s < 1200; s += 1) {
-        m.stepModel(150.0);
+        m.stepModel(150.0, 1.0);
         // GLY never decreases below CP.
         Test.assert(m.mRG >= prevRG - 1e-6);
         prevRG = m.mRG;
@@ -179,6 +185,51 @@ function absClose(x, y, tol) {
     var d = x - y;
     if (d < 0.0) { d = -d; }
     return d <= tol;
+}
+
+// ---- #83: dt != 1 integration ----
+//
+// The whole reason #83 exists: stepModel(power, dt) integrates over a real elapsed dt instead of a
+// hard-coded 1.0. Every rate/energy term scales with dt (need=delta*dt, pcap/gcap=rate*dt,
+// kOn/kA/kG=1-e^(-dt/tau), mConsP=takeP/dt), and dt<=0 is guarded so the takeP/dt division can't
+// NaN. Every OTHER test (and the parity fixtures) drives dt=1.0, so this is the only coverage of
+// the dt path. By conservation the COMBINED depletion (tmDep) equals the demanded need=(P-CP)*dt,
+// so it must scale exactly linearly with dt. The aerobic tracker is warmed to CP (mAer=mCP) so
+// supply==CP and delta==(P-CP) is dt-independent — isolating the dt scaling from the ramp.
+(:test)
+function testStepScalesWithDt(logger) {
+    var P = 450.0;             // supra-CP (CP=250) -> the depletion branch
+    var u = P - 250.0;         // demanded need per second
+
+    var m1 = tmMake();  m1.mAer  = m1.mCP;  m1.stepModel(P, 1.0);
+    var m2 = tmMake();  m2.mAer  = m2.mCP;  m2.stepModel(P, 2.0);
+    var m05 = tmMake(); m05.mAer = m05.mCP; m05.stepModel(P, 0.5);
+    logger.debug("dep 0.5/1/2 = " + tmDep(m05) + "/" + tmDep(m1) + "/" + tmDep(m2));
+
+    Test.assert(absClose(tmDep(m1),  u,        0.01));
+    Test.assert(absClose(tmDep(m2),  2.0 * u,  0.01));
+    Test.assert(absClose(tmDep(m05), 0.5 * u,  0.01));
+
+    // One 2 s step integrates the same energy as two 1 s steps.
+    var m11 = tmMake(); m11.mAer = m11.mCP;
+    m11.stepModel(P, 1.0);
+    m11.stepModel(P, 1.0);
+    Test.assert(absClose(tmDep(m2), tmDep(m11), 0.01));
+
+    // Live draw is dt-normalized (mConsP = takeP/dt) and finite at dt != 1.
+    Test.assert(m05.mConsP > 0.0);
+
+    // dt<=0 guard: integrate nothing, zero the live draw, no divide-by-dt NaN.
+    var mz = tmMake(); mz.mAer = mz.mCP;
+    var rp0 = mz.mRP;
+    var rg0 = mz.mRG;
+    var pct = mz.stepModel(P, 0.0);
+    Test.assert(mz.mRP == rp0);
+    Test.assert(mz.mRG == rg0);
+    Test.assert(mz.mConsP == 0.0);
+    Test.assert(mz.mConsG == 0.0);
+    Test.assert(pct == 100.0 * mz.mRP / mz.mCapP);
+    return true;
 }
 
 // ---- validateBlob persistence-seam tests ----

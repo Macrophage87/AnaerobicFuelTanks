@@ -199,6 +199,7 @@ class DualTankView extends WatchUi.DataField {
     // ---- FIT fields ----
     hidden var mFPcrJ, mFGlyJ, mFPcrCons, mFGlyCons, mFPcrKj, mFGlyKj;
     hidden var mFDeficit;   // #32: Deficit_kJ record stream (optional; created last)
+    hidden var mLastTimerTime;   // #31: previous info.timerTime (ms) for the real-dt step; null until first tick
     hidden var mCfgFields;   // retained config session fields (CP, W', taus, ...)
     // ---- Draw resources ----
     hidden var mFontLabel, mFontValue, mFontSmall;
@@ -781,6 +782,9 @@ class DualTankView extends WatchUi.DataField {
         // and onUpdate()'s NO POWER hint). Null-safe: an unknown info/timerState reads as "not on",
         // which fails safe to the frozen pre-start view. TIMER_STATE_ON is available on all targets.
         mTimerOn = (info != null && info.timerState == Activity.TIMER_STATE_ON);
+        // #31: activity-timer time (ms) for this tick; drives the real elapsed dt at the step below.
+        // Reseeded on every freeze/early-return so the first live step after a freeze isn't a giant gap.
+        var tnow = (info != null) ? info.timerTime : null;
 
         // #51: if the restore was TENTATIVE (activity id was null at initialize()), confirm or
         // roll it back now that identity may be available. Runs before everything else so a
@@ -819,6 +823,7 @@ class DualTankView extends WatchUi.DataField {
             writeField(mFPcrCons, 0);
             writeField(mFGlyCons, 0);
             writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: gap-free deficit stream (held)
+            if (tnow != null) { mLastTimerTime = tnow; }   // #31: reseed so post-resume dt isn't the whole pause
             return 100.0 * mModel.mRP / mModel.mCapP;
         }
 
@@ -842,6 +847,7 @@ class DualTankView extends WatchUi.DataField {
             writeField(mFPcrCons, 0);
             writeField(mFGlyCons, 0);
             writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: gap-free deficit stream (held)
+            if (tnow != null) { mLastTimerTime = tnow; }   // #31: reseed so the first post-start dt is one tick
             return 100.0 * mModel.mRP / mModel.mCapP;
         }
 
@@ -881,14 +887,49 @@ class DualTankView extends WatchUi.DataField {
                 writeField(mFPcrCons, 0);
                 writeField(mFGlyCons, 0);
                 writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: gap-free deficit stream (held)
+                if (tnow != null) { mLastTimerTime = tnow; }   // #31: reseed so post-dropout dt isn't the whole gap
                 markActiveIfDepleted();
                 return 100.0 * mModel.mRP / mModel.mCapP;
             }
             p = mLastP;   // DROPOUT_BRIDGE: reuse last valid power, fall through to normal compute
         }
 
+        // #31: real elapsed timestep from the activity timer (ms), clamped to [0,5] s. First live
+        // step / null timerTime -> dt = 1.0 (seed only). A non-positive delta (timer reset or a
+        // duplicate compute() tick) -> dt = 0.0 and we SKIP the step: stepModel's mConsP = takeP/dt
+        // would divide by zero, and a reset must never inject phantom joules. The [0,5] clamp absorbs
+        // smart-recording / GPS-stall coalescing (a longer real gap is clamped here; the R calibration
+        // tool warns on non-1 Hz files — #31 Part B). Compute dt from the PREVIOUS stamp, then reseed.
+        var dt = 1.0;
+        if (tnow != null && mLastTimerTime != null) {
+            dt = (tnow - mLastTimerTime) / 1000.0;
+            if (dt < 0.0) { dt = 0.0; }
+            if (dt > 5.0) { dt = 5.0; }
+        }
+        // Advance the model-time baseline by exactly what this tick integrates, so no advancing path
+        // leaves it stale. With a real stamp, snap to it. On a full info==null bridge tick (tnow null,
+        // decideDropout==BRIDGE) dt stays the 1.0 seed and we still step 1 s: advance the baseline 1 s
+        // too, else the recovery tick would compute dt=(tnow-staleBaseline) and re-span the whole bridge
+        // already integrated tick-by-tick (the double-count the reviewer traced). First-ever tick with
+        // no baseline yet (mLastTimerTime null) has nothing to advance and seeds on the next real stamp.
+        if (tnow != null) {
+            mLastTimerTime = tnow;
+        } else if (mLastTimerTime != null) {
+            mLastTimerTime += 1000;   // 1.0 s seed step on a stamp-less bridge tick
+        }
+        if (dt <= 0.0) {
+            mModel.mConsP = 0.0;
+            mModel.mConsG = 0.0;
+            writeField(mFPcrJ, mModel.mRP);
+            writeField(mFGlyJ, mModel.mRG);
+            writeField(mFPcrCons, 0);
+            writeField(mFGlyCons, 0);
+            writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: keep the deficit stream gap-free on a skipped tick
+            return 100.0 * mModel.mRP / mModel.mCapP;
+        }
+
         // Delegate the entire per-second physics step to the model (pure, testable).
-        var pctP = mModel.stepModel(p);
+        var pctP = mModel.stepModel(p, dt);
 
         // FIT: per-second reserve streams (joules remaining) + live consumption
         writeField(mFPcrJ, mModel.mRP);

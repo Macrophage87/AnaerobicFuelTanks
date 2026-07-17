@@ -11,14 +11,15 @@ using Toybox.Lang;
 //   var m = new TankModel();
 //   m.configure([250.0, 20000.0, 0.25, 300.0, 27.0, 470.0, 0.80, 1.00, 0.75, 0.0, 25.0, 6.0]);
 //   m.resetTanks();
-//   var pctP = m.stepModel(800.0);   // one 1 s step at 800 W
+//   var pctP = m.stepModel(800.0, 1.0);   // one 1 s step at 800 W
 //
 // DualTankView owns an instance of this class and DELEGATES all physics to it;
 // the view keeps only DataField / FIT / rendering / persistence / lifecycle concerns.
 // Every expression here is a byte-for-byte move from the original DualTankView so the
 // arithmetic (and thus the documented test traces) is preserved exactly.
 //
-// UNITS: energies in JOULES, power in WATTS, dt = 1 s = one stepModel() call.
+// UNITS: energies in JOULES, power in WATTS, dt = seconds elapsed for this step (passed by the
+//        caller; 1.0 for a 1 Hz sample). Every rate/energy term below is proportional to dt.
 //======================================================================
 class TankModel {
 
@@ -148,9 +149,18 @@ class TankModel {
     // Model step — one second of physics. `power` is a plain Float watt value
     // (already unwrapped by the caller). Returns pctP = 100 * mRP / mCapP.
     //------------------------------------------------------------------
-    function stepModel(power) {
+    function stepModel(power, dt) {
         var p = power;
-        var dt = 1.0;
+
+        // Defensive dt<=0 guard: a non-positive step integrates nothing and MUST NOT reach the
+        // mConsP = takeP/dt division below (0/0 -> NaN would poison the reserves). The live caller
+        // (DualTankView.compute) already skips the call on dt<=0 (timer reset / duplicate tick), so
+        // this is belt-and-suspenders that also makes the model total for any future caller.
+        if (dt <= 0.0) {
+            mConsP = 0.0;
+            mConsG = 0.0;
+            return 100.0 * mRP / mCapP;
+        }
 
         // Aerobic supply.
         //   Below CP: the aerobic system covers demand (supply = P) -> no anaerobic

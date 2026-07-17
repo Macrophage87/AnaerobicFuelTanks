@@ -212,14 +212,21 @@ server <- function(input, output, session) {
          p    = lapply(res, `[[`, "p"),
          ok   = vapply(res, function(r) !is.null(r$p), logical(1)),
          n    = vapply(res, function(r) if (is.null(r$p)) 0L else length(r$p), integer(1)),
-         reason = vapply(res, function(r) if (is.null(r$reason)) "" else r$reason, character(1))) })
+         reason = vapply(res, function(r) if (is.null(r$reason)) "" else r$reason, character(1)),
+         cadence = vapply(res, function(r) { cc <- r$cadence; if (is.null(cc) || !is.finite(cc)) NA_real_ else cc }, numeric(1))) })
   powers <- reactive({ r <- reads(); keep <- r$ok
     validate(need(any(keep), paste0("No readable power data. ",
       paste(sprintf("%s: %s", r$name[!keep], r$reason[!keep]), collapse = "; "))))
     list(p = r$p[keep], names = r$name[keep]) })
   output$read_txt <- renderText({ r <- reads()
-    lines <- sprintf("%s  %s  (%s)", ifelse(r$ok, "✓", "✗"), r$name,
-                     ifelse(r$ok, paste0(r$n, " s of power"), r$reason))
+    # #31: warn (visibly, per file) when a file isn't native ~1 Hz — a smart-recorded file's
+    # zero-filled gaps deflate the MMP curve and bias CP/W'. Warn-ONLY (no resample): a pause and a
+    # smart-recording gap are indistinguishable from the timestamps alone, so auto-resampling could
+    # convert a genuine pause into held power. Resampling is a deferred follow-up (see #31).
+    warn <- ifelse(r$ok & is.finite(r$cadence) & (r$cadence < 0.9 | r$cadence > 1.1),
+                   sprintf("  ⚠ non-1Hz (~%.1fs/sample): MMP / CP-W' may be biased (deflated)", r$cadence), "")
+    lines <- sprintf("%s  %s  (%s)%s", ifelse(r$ok, "✓", "✗"), r$name,
+                     ifelse(r$ok, paste0(r$n, " s of power"), r$reason), warn)
     paste(c(sprintf("%d/%d files loaded", sum(r$ok), length(r$ok)), lines), collapse = "\n") })
   mmp   <- reactive(data.frame(duration = DURATIONS, power = mmp_curve(powers()$p)))
   cpfit <- reactive(fit_cp(mmp()$duration, mmp()$power, input$cpwin[1]*60, input$cpwin[2]*60))
