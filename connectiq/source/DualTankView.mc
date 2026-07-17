@@ -244,42 +244,77 @@ class DualTankView extends WatchUi.DataField {
         mFGlyKj   = createField("GLY_depleted_kJ", FID_GLY_KJ, FitContributor.DATA_TYPE_FLOAT,
             { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "kJ" });
 
-        // Config parameters -> FIT session message. Written once (settings are fixed for
-        // the ride); the values reflect exactly what the model ran with, so a post-ride
-        // tool can read them back and adjust. Field names match the settings keys.
+        // Config parameters -> FIT session message. Created ONCE here (a field can't be created
+        // twice); the values are written by writeCfgFields() and RE-written on any live settings
+        // change (#33), so the recorded config reflects the end-of-ride effective settings, not the
+        // init-time snapshot. Field names match the settings keys.
         mCfgFields = [
-            cfgField("CP",      FID_CFG_CP,      mModel.mCP,      "W"),
-            cfgField("Wprime",  FID_CFG_WPRIME,  mModel.mWprime,  "J"),
-            cfgField("fP",      FID_CFG_FP,      mModel.mFP,      null),
-            cfgField("pPmax",   FID_CFG_PPMAX,   mModel.mPPmax,   "W"),
-            cfgField("tauP",    FID_CFG_TAUP,    mModel.mTauP,    "s"),
-            cfgField("tauG",    FID_CFG_TAUG,    mModel.mTauG,    "s"),
-            cfgField("lt1Frac", FID_CFG_LT1FRAC, mModel.mLt1Frac, null),
-            cfgField("eta",     FID_CFG_ETA,     mModel.mEta,     null),
-            cfgField("fatK",    FID_CFG_FATK,    mModel.mFatK,    null),
-            cfgField("gFat",    FID_CFG_GFAT,    mModel.mGFat,    null),
-            cfgField("tauAer",  FID_CFG_TAUAER,  mModel.mTauAer,  "s"),
-            cfgField("tauOn",   FID_CFG_TAUON,   mModel.mTauOn,   "s")
+            cfgField("CP",      FID_CFG_CP,      "W"),
+            cfgField("Wprime",  FID_CFG_WPRIME,  "J"),
+            cfgField("fP",      FID_CFG_FP,      null),
+            cfgField("pPmax",   FID_CFG_PPMAX,   "W"),
+            cfgField("tauP",    FID_CFG_TAUP,    "s"),
+            cfgField("tauG",    FID_CFG_TAUG,    "s"),
+            cfgField("lt1Frac", FID_CFG_LT1FRAC, null),
+            cfgField("eta",     FID_CFG_ETA,     null),
+            cfgField("fatK",    FID_CFG_FATK,    null),
+            cfgField("gFat",    FID_CFG_GFAT,    null),
+            cfgField("tauAer",  FID_CFG_TAUAER,  "s"),
+            cfgField("tauOn",   FID_CFG_TAUON,   "s")
         ];
+        writeCfgFields();   // #33: initial write now that the fields exist (reloadSettings ran earlier)
 
         // Seed from current (possibly RESTORED) state so the session-total kJ fields
         // resume from the running total rather than restarting at 0 after a reload.
-        mFPcrJ.setData(mModel.mRP);
-        mFGlyJ.setData(mModel.mRG);
-        mFPcrCons.setData(0);
-        mFGlyCons.setData(0);
-        mFPcrKj.setData(mModel.mDepP / 1000.0);
-        mFGlyKj.setData(mModel.mDepG / 1000.0);
+        // All writes go through writeField (#34) so a null handle can't fault init.
+        writeField(mFPcrJ, mModel.mRP);
+        writeField(mFGlyJ, mModel.mRG);
+        writeField(mFPcrCons, 0);
+        writeField(mFGlyCons, 0);
+        writeField(mFPcrKj, mModel.mDepP / 1000.0);
+        writeField(mFGlyKj, mModel.mDepG / 1000.0);
     }
 
-    // Create a SESSION field for a config parameter and write its current value.
+    // #34: createField() returns null when the FIT field budget/memory is exhausted; a bare
+    // handle.setData() then throws and can take down compute()/onTimerStart/initialize. Route
+    // EVERY write through this null-safe helper so a null handle just skips (that one field
+    // doesn't record) instead of faulting — each field is guarded independently, so partial
+    // recording survives. value may be a Float or an Int; both are valid setData payloads.
+    // Static (no instance state) so a (:test) can exercise the null path without a DataField.
+    static function writeField(f, value) {
+        if (f != null) { f.setData(value); }
+    }
+
+    // #33: (re)write the 12 config SESSION fields from the CURRENT model values. Split from
+    // creation (cfgField, once in initialize()) so a live onSettingsChanged -> reloadSettings()
+    // keeps the recorded config in sync instead of reporting the init-time snapshot. SESSION
+    // fields keep only their final value, so re-writing is cheap and the saved config reflects
+    // the end-of-ride effective settings. Guarded because reloadSettings() runs from initialize()
+    // BEFORE the fields exist. Index order matches the mCfgFields build below.
+    hidden function writeCfgFields() {
+        if (mCfgFields == null) { return; }
+        writeField(mCfgFields[0],  mModel.mCP);
+        writeField(mCfgFields[1],  mModel.mWprime);
+        writeField(mCfgFields[2],  mModel.mFP);
+        writeField(mCfgFields[3],  mModel.mPPmax);
+        writeField(mCfgFields[4],  mModel.mTauP);
+        writeField(mCfgFields[5],  mModel.mTauG);
+        writeField(mCfgFields[6],  mModel.mLt1Frac);
+        writeField(mCfgFields[7],  mModel.mEta);
+        writeField(mCfgFields[8],  mModel.mFatK);
+        writeField(mCfgFields[9],  mModel.mGFat);
+        writeField(mCfgFields[10], mModel.mTauAer);
+        writeField(mCfgFields[11], mModel.mTauOn);
+    }
+
+    // #33/#34: create (only) a SESSION field for a config parameter; the value is written
+    // separately by writeCfgFields() so it can be re-emitted on live settings changes. A field
+    // must be created exactly once (creating twice is invalid), so this stays in initialize().
     // units may be null for dimensionless parameters (fP, eta, ...).
-    hidden function cfgField(name, id, value, units) {
+    hidden function cfgField(name, id, units) {
         var opts = { :mesgType => FitContributor.MESG_TYPE_SESSION };
         if (units != null) { opts[:units] = units; }
-        var f = createField(name, id, FitContributor.DATA_TYPE_FLOAT, opts);
-        f.setData(value);   // value is a settings Float (propFloat); FLOAT field
-        return f;
+        return createField(name, id, FitContributor.DATA_TYPE_FLOAT, opts);
     }
 
     // #64: coerce a settings value to a FINITE Float, or null if it is null / non-numeric /
@@ -375,6 +410,9 @@ class DualTankView extends WatchUi.DataField {
 
         // Capacity derivation + reserve re-clamp live in the model now.
         mModel.configure([cp, wprime, fP, pPmax, tauP, tauG, lt1Frac, eta, fatK, gFat, tauAer, tauOn]);
+        // #33: re-emit the config SESSION fields so a live settings change is reflected in the FIT
+        // record. No-op while called from initialize() (fields not built yet; writeCfgFields guards).
+        writeCfgFields();
     }
 
     // Fresh-ride initialization: full tanks, zeroed session totals.
@@ -745,10 +783,10 @@ class DualTankView extends WatchUi.DataField {
         if (mPaused) {
             mModel.mConsP = 0.0;
             mModel.mConsG = 0.0;
-            mFPcrJ.setData(mModel.mRP);
-            mFGlyJ.setData(mModel.mRG);
-            mFPcrCons.setData(0);
-            mFGlyCons.setData(0);
+            writeField(mFPcrJ, mModel.mRP);
+            writeField(mFGlyJ, mModel.mRG);
+            writeField(mFPcrCons, 0);
+            writeField(mFGlyCons, 0);
             return 100.0 * mModel.mRP / mModel.mCapP;
         }
 
@@ -782,10 +820,10 @@ class DualTankView extends WatchUi.DataField {
             if (!mHaveValidP || mMissCount > BRIDGE_SEC) {
                 mModel.mConsP = 0.0;
                 mModel.mConsG = 0.0;
-                mFPcrJ.setData(mModel.mRP);
-                mFGlyJ.setData(mModel.mRG);
-                mFPcrCons.setData(0);
-                mFGlyCons.setData(0);
+                writeField(mFPcrJ, mModel.mRP);
+                writeField(mFGlyJ, mModel.mRG);
+                writeField(mFPcrCons, 0);
+                writeField(mFGlyCons, 0);
                 markActiveIfDepleted();
                 return 100.0 * mModel.mRP / mModel.mCapP;
             }
@@ -796,13 +834,13 @@ class DualTankView extends WatchUi.DataField {
         var pctP = mModel.stepModel(p);
 
         // FIT: per-second reserve streams (joules remaining) + live consumption
-        mFPcrJ.setData(mModel.mRP);
-        mFGlyJ.setData(mModel.mRG);
-        mFPcrCons.setData(mModel.mConsP.toNumber());
-        mFGlyCons.setData(mModel.mConsG.toNumber());
+        writeField(mFPcrJ, mModel.mRP);
+        writeField(mFGlyJ, mModel.mRG);
+        writeField(mFPcrCons, mModel.mConsP.toNumber());
+        writeField(mFGlyCons, mModel.mConsG.toNumber());
         // FIT: running session totals (kJ) — SDK keeps last value as summary
-        mFPcrKj.setData(mModel.mDepP / 1000.0);
-        mFGlyKj.setData(mModel.mDepG / 1000.0);
+        writeField(mFPcrKj, mModel.mDepP / 1000.0);
+        writeField(mFGlyKj, mModel.mDepG / 1000.0);
 
         // Epsilon dirty-check: flag dirty only on a MATERIAL change (>= STATE_EPS_J in any
         // reserve / session total / deficit) since the last save. Without this, the sub-CP

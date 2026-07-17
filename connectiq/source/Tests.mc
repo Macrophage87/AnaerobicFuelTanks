@@ -334,3 +334,15 @@ function testCpWprimeDefaultUnconfigured(logger) {
     Test.assert(!DualTankView.isConfigured(cp, wp));
     return true;
 }
+
+// ---- #34: writeField null-safety ----
+//
+// createField() returns null when the FIT field budget is exhausted; writeField must skip a
+// null handle instead of throwing (which would take down compute()/onTimerStart/initialize).
+// The assertion is implicit: if the guarded call threw, the test would fault before returning.
+(:test)
+function testWriteFieldNullSafe(logger) {
+    DualTankView.writeField(null, 5.0);   // Float payload, null handle -> no-op, no throw
+    DualTankView.writeField(null, 0);     // Int payload, null handle   -> no-op, no throw
+    return true;
+}
