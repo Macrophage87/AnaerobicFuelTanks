@@ -346,3 +346,27 @@ function testWriteFieldNullSafe(logger) {
     DualTankView.writeField(null, 0);     // Int payload, null handle   -> no-op, no throw
     return true;
 }
+
+// ---- #36: NO POWER hint gate (shouldShowNoPower) ----
+//
+// Pure predicate behind onUpdate()'s NO POWER hint. Args:
+// (timerOn, paused, restorePending, haveValidP, missCount). BRIDGE_SEC is 3, so missCount must
+// exceed it. The display itself is sim/manual; this fences the gate logic.
+(:test)
+function testShouldShowNoPower(logger) {
+    // Recording, no power ever seen, past the grace -> show.
+    Test.assert(DualTankView.shouldShowNoPower(true, false, false, false, 4));
+
+    // Timer not running (pre-start / stopped) -> never (the whole point: no nag before recording).
+    Test.assert(!DualTankView.shouldShowNoPower(false, false, false, false, 4));
+    // Paused (resume transient: timerState ON but mPaused still set) -> suppressed.
+    Test.assert(!DualTankView.shouldShowNoPower(true, true, false, false, 4));
+    // #51 restore-confirm window -> suppressed.
+    Test.assert(!DualTankView.shouldShowNoPower(true, false, true, false, 4));
+    // A valid power sample was seen -> cleared.
+    Test.assert(!DualTankView.shouldShowNoPower(true, false, false, true, 4));
+    // Still within the #22 grace window (missCount == BRIDGE_SEC == 3, not > 3) -> not yet.
+    Test.assert(!DualTankView.shouldShowNoPower(true, false, false, false, 3));
+
+    return true;
+}
