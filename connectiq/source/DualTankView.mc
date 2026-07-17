@@ -808,7 +808,11 @@ class DualTankView extends WatchUi.DataField {
         // frozen. HOLDS the current reserves (mirrors the paused / #22 dropout freeze); #67's
         // onTimerStart->resetSession still resets to full at the real start. A user pause is handled
         // by the mPaused branch above (which also credits recovery on resume), so it never reaches here.
-        if (!mTimerOn) {
+        // Gated on info != null: a null-info tick is an ACTIVE-recording dropout to the #22/#52 code,
+        // so it must fall through to the #22 handler below (which refreshes SLOT_SAVEDAT via
+        // markActiveIfDepleted) — otherwise a null-info dropout on a depleted ride would freeze that
+        // #52 heartbeat and a reboot could re-credit the frozen span as rest.
+        if (info != null && !mTimerOn) {
             mModel.mConsP = 0.0;
             mModel.mConsG = 0.0;
             writeField(mFPcrJ, mModel.mRP);
