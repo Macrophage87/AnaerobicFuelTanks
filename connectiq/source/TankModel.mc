@@ -44,8 +44,6 @@ class TankModel {
     var mAer;            // aerobic supply (W), when ramp enabled
     var mG;              // glycolytic activation (0..1): ramps in over tauOn
     var mDeficit;        // energy debt (J): supra-CP work the rate caps couldn't place
-    var mExhausted;      // genuine exhaustion: both reserves at/near zero (drives red flash)
-    var mRateLimited;    // producing power beyond the tanks' flux (unmet > 0) — usually a stale P1s
 
     function initialize() {
     }
@@ -96,8 +94,6 @@ class TankModel {
         mAer = 0.0;
         mG = 0.0;
         mDeficit = 0.0;
-        mExhausted = false;
-        mRateLimited = false;
     }
 
     // Clamp both reserves into [0, capacity]. Called only when mRP/mRG are non-null.
@@ -242,11 +238,6 @@ class TankModel {
             mDeficit += unmet;                       // bank the debt (energy conservation)
             mDepP += takeP;
             mDepG += takeG;
-            // Two distinct states: genuine exhaustion (tanks empty) drives the red flash;
-            // rate-limited (unmet>0 with tanks non-empty) means "power beyond my flux caps",
-            // usually a stale P1s rather than a spent rider.
-            mExhausted = ((mRP + mRG) <= 1.0);
-            mRateLimited = (unmet > 0.0);
             mConsP = takeP / dt;
             mConsG = takeG / dt;
         } else {
@@ -281,8 +272,6 @@ class TankModel {
             }
             mConsP = 0.0;
             mConsG = 0.0;
-            mExhausted = ((mRP + mRG) <= 1.0);
-            mRateLimited = false;
         }
 
         // Clamp

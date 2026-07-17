@@ -1,5 +1,6 @@
 using Toybox.Test;
 using Toybox.Lang;
+using Toybox.Application;
 
 // Unit / regression tests for the dual-tank model.
 //
@@ -251,5 +252,85 @@ function testValidateBlobRejects(logger) {
     var noSess = makeValidBlob(now, null);
     Test.assert(!DualTankView.validateBlob(noSess, now, sess));
 
+    return true;
+}
+
+// ---- #64: settings finiteness gate (coerceFiniteFloat) ----
+//
+// Drives the pure static seam behind propFloat/propFloatOrNull with plain Lang values, so it
+// runs without device Properties. A NaN would otherwise pass every comparison clamp in
+// reloadSettings() and reach the model; ±Inf comes from a Float overflow. The 0.0 case is the
+// regression guard for the rejected f/f != f/f idiom (0/0 = NaN would have dropped a legit 0.0).
+(:test)
+function testCoerceFiniteFloat(logger) {
+    // Finite values pass through unchanged.
+    Test.assert(DualTankView.coerceFiniteFloat(250.0) == 250.0);
+    Test.assert(DualTankView.coerceFiniteFloat(-5.0) == -5.0);
+    Test.assert(DualTankView.coerceFiniteFloat(0.0) == 0.0);    // MUST survive (legit gFat/fP=0.0)
+    Test.assert(DualTankView.coerceFiniteFloat(300) == 300.0);  // Number -> Float
+
+    // Unset / non-numeric -> null.
+    Test.assert(DualTankView.coerceFiniteFloat(null) == null);
+    Test.assert(DualTankView.coerceFiniteFloat("250") == null);
+
+    // Build Float +Inf / -Inf / NaN by IEEE overflow (3.0e38 is in-range; its square is not).
+    var fmax = (3.0e38).toFloat();
+    var inf  = fmax * fmax;    // +Inf
+    var nan  = inf - inf;      // NaN
+
+    Test.assert(DualTankView.coerceFiniteFloat(inf) == null);     // +Inf -> null
+    Test.assert(DualTankView.coerceFiniteFloat(-inf) == null);    // -Inf -> null
+    Test.assert(DualTankView.coerceFiniteFloat(nan) == null);     // NaN  -> null
+
+    return true;
+}
+
+// ---- #42: SET CP/W' guard reachability (isConfigured) ----
+//
+// Exercises mConfigured == false directly (the case the inert-guard regression hid): the pure
+// seam behind reloadSettings()'s mConfigured. An unconfigured rider reads the sentinel 0 default
+// from properties.xml; the guard must reject <=0 (and null, defensively) so an unset CP/W' shows
+// the "SET CP/W'" prompt instead of running on the generic defaults.
+(:test)
+function testIsConfigured(logger) {
+    // Both provided and positive -> configured.
+    Test.assert(DualTankView.isConfigured(250.0, 20000.0));
+    Test.assert(DualTankView.isConfigured(0.5, 1000.0));    // below-floor but PROVIDED -> configured
+
+    // Sentinel 0 (unconfigured default) -> NOT configured; the SET CP/W' prompt stays up.
+    Test.assert(!DualTankView.isConfigured(0.0, 20000.0));
+    Test.assert(!DualTankView.isConfigured(250.0, 0.0));
+    Test.assert(!DualTankView.isConfigured(0.0, 0.0));
+    Test.assert(!DualTankView.isConfigured(-5.0, 20000.0)); // negative also rejected
+
+    // null (defensive: unset/non-numeric via propFloatOrNull) -> NOT configured.
+    Test.assert(!DualTankView.isConfigured(null, 20000.0));
+    Test.assert(!DualTankView.isConfigured(250.0, null));
+    Test.assert(!DualTankView.isConfigured(null, null));
+
+    return true;
+}
+
+// ---- #42: properties.xml default fences the SECOND half of the fix ----
+//
+// testIsConfigured pins the isConfigured() LOGIC; this pins the properties.xml DEFAULT. The #42
+// fix has two halves — the sentinel-0 CP/W' default AND the <=0 rejection — and a properties-only
+// revert to 250/20000 (the exact round-1 root cause) would make getValue() return those, flip
+// isConfigured true, and silently re-inert the SET CP/W' guard. Reads through the REAL
+// Application.Properties resource layer so that revert fails here.
+// NOTE: the ENFORCEABLE CI gate for the same revert is scripts/check_settings_defaults.sh (wired
+// into the required manifest-lint job) — the headless (:test) suite segfault-skips under Xvfb, so
+// this case runs only in a working simulator (local dev, or if the CI sim is ever fixed).
+(:test)
+function testCpWprimeDefaultUnconfigured(logger) {
+    var cp = Application.Properties.getValue("CP");
+    var wp = Application.Properties.getValue("Wprime");
+    logger.debug("default CP=" + cp + " Wprime=" + wp);
+    // The unset default must be the sentinel 0 (or, defensively, null) — never a positive config
+    // value that would hide the prompt on a fresh install.
+    Test.assert(cp == null || cp <= 0);
+    Test.assert(wp == null || wp <= 0);
+    // And it must resolve to "not configured" through the same predicate reloadSettings() uses.
+    Test.assert(!DualTankView.isConfigured(cp, wp));
     return true;
 }

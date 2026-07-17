@@ -157,6 +157,8 @@ class DualTankView extends WatchUi.DataField {
     hidden var mModel;
     hidden var mFlashOn;
     hidden var mStarted;
+    hidden var mConfigured;     // #42: true once CP AND W' are both provided (>0) via settings;
+                                // drives the reachable "SET CP/W'" guard in onUpdate()
     hidden var mPaused;         // timer paused/stopped
     hidden var mPauseAt;        // unix seconds (WALL clock) when the pause began
     hidden var mPauseAtMono;    // #41: System.getTimer() ms at pause start; -1 when not set this
@@ -212,8 +214,6 @@ class DualTankView extends WatchUi.DataField {
         // it is recomputed each second and is never persisted.
         mModel.mConsP = 0.0;
         mModel.mConsG = 0.0;
-        mModel.mExhausted = false;
-        mModel.mRateLimited = false;
         // Dropout bridge/freeze state (#22). mHaveValidP=false on EVERY path (fresh or
         // restored) so a missing sample before the first valid reading — including right
         // after a depleted-tank restore — freezes rather than bridging at the 0.0 seed.
@@ -282,20 +282,61 @@ class DualTankView extends WatchUi.DataField {
         return f;
     }
 
-    // Read a numeric property, coerced to Float; dflt if unset/non-numeric.
+    // #64: coerce a settings value to a FINITE Float, or null if it is null / non-numeric /
+    // non-finite (NaN or ±Inf). This is the single settings choke point: a NaN would otherwise
+    // pass every comparison clamp in reloadSettings() (NaN < lo and NaN > hi are both false) and
+    // reach mModel.configure(...), propagating into reserves, pctP and the FIT streams. Static and
+    // pure (no Properties, no members) so it is unit-testable directly. NaN is caught with f != f;
+    // ±Inf with a FINITE SENTINEL — the f/f != f/f idiom would misfire on a legitimate 0.0
+    // (0/0 = NaN) and reject it, so it is deliberately NOT used. Number/Long can't be non-finite.
+    static function coerceFiniteFloat(v) {
+        var f;
+        if (v instanceof Lang.Float)       { f = v; }
+        else if (v instanceof Lang.Double) { f = v.toFloat(); }
+        else if (v instanceof Lang.Number) { return v.toFloat(); }
+        else if (v instanceof Lang.Long)   { return v.toFloat(); }
+        else { return null; }
+        if (f != f) { return null; }                     // NaN
+        if (f > 3.4e38 || f < -3.4e38) { return null; }  // ±Inf (beyond finite 32-bit float range)
+        return f;
+    }
+
+    // #42: like propFloat but returns null when the key is unset / non-numeric / non-finite, so
+    // reloadSettings() can tell "the user actually provided CP/W'" from "defaulted" — the numeric
+    // clamps force CP,W' >= 1 and propFloat substitutes defaults, which is exactly why the old
+    // mCP<=0 SET CP/W' guard was unreachable (#42).
+    hidden function propFloatOrNull(key) {
+        return coerceFiniteFloat(Application.Properties.getValue(key));
+    }
+
     hidden function propFloat(key, dflt) {
-        var v = Application.Properties.getValue(key);
-        if (v instanceof Lang.Float)  { return v; }
-        if (v instanceof Lang.Double) { return v.toFloat(); }
-        if (v instanceof Lang.Number) { return v.toFloat(); }
-        if (v instanceof Lang.Long)   { return v.toFloat(); }
-        return dflt;
+        var f = propFloatOrNull(key);
+        return (f == null) ? dflt : f;
+    }
+
+    // #42: true only when the rider has actually PROVIDED both CP and W' — present, finite, and > 0.
+    // Static + pure so the mConfigured==false case is unit-testable without device Properties. Treats
+    // BOTH null (unset key, once properties.xml drops the defaults) AND a present <=0 as not-provided,
+    // so the guard is correct whether the SDK returns null or 0 for an unset property. A present
+    // below-floor value (e.g. CP=0.5) still counts as provided; the reloadSettings() clamps then keep
+    // the mCapP/mCapG denominators safe.
+    static function isConfigured(rawCP, rawWprime) {
+        return (rawCP != null && rawCP > 0.0 && rawWprime != null && rawWprime > 0.0);
     }
 
     // Public so the app can push live settings changes.
     function reloadSettings() {
-        var cp      = propFloat("CP", 250.0);
-        var wprime  = propFloat("Wprime", 20000.0);
+        // #42: CP and W' via the null-returning form so we can tell "provided" from "defaulted".
+        // properties.xml defaults these two to the sentinel 0 (numeric properties require a default),
+        // so an unconfigured rider reads 0 -> isConfigured() is false and the "SET CP/W'" guard shows
+        // (the former 250/20000 defaults made it always-configured and the guard dead). A 0/unset
+        // (or null) value maps to the model's safe 250/20000 fallback so the FIT streams stay sane
+        // while unconfigured; #64 already dropped any NaN/±Inf to null upstream.
+        var rawCP     = propFloatOrNull("CP");
+        var rawWprime = propFloatOrNull("Wprime");
+        mConfigured   = isConfigured(rawCP, rawWprime);
+        var cp      = (rawCP == null     || rawCP <= 0.0)     ? 250.0   : rawCP;
+        var wprime  = (rawWprime == null || rawWprime <= 0.0) ? 20000.0 : rawWprime;
         var fP      = propFloat("fP", 0.25);
         var pPmax   = propFloat("pPmax", 300.0);
         var tauP    = propFloat("tauP", 27.0);
@@ -814,7 +855,10 @@ class DualTankView extends WatchUi.DataField {
         var w = dc.getWidth();
         var h = dc.getHeight();
 
-        if (mModel.mCP <= 0.0 || mModel.mWprime <= 0.0) {
+        // #42: reachable now — mConfigured is false until the user actually provides CP AND W'
+        // (the old mCP<=0/mWprime<=0 test was dead: reloadSettings() clamps both to >= 1). A
+        // never-configured user sees the prompt instead of misleading full-looking tanks.
+        if (!mConfigured) {
             dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
             dc.drawText(w / 2, h / 2, mFontValue, "SET CP/W'",
                 Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
