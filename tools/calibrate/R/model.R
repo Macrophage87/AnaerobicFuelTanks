@@ -178,7 +178,7 @@ fit_cp <- function(dur, pw, tmin, tmax) {
   # keep them truthful so the user can diagnose the bad source data.
   nonphysical <- !is.finite(CP) || !is.finite(Wprime) || CP <= 0 || Wprime <= 0
   implausible <- is.finite(CP) && CP > 0 && CP < CP_FLOOR_W
-  list(CP = CP, Wprime = Wprime, r2 = summary(f)$r.squared,
+  list(CP = CP, Wprime = Wprime, r2 = if (length(keep) < 3) NA_real_ else summary(f)$r.squared,
        n = length(keep), rng = max(t)/min(t), t = t, W = W,
        impossible = is.finite(CP) && is.finite(minP) && CP >= minP,
        nonphysical = nonphysical, implausible = implausible)
@@ -284,6 +284,7 @@ ride_flag <- function(dg, fit) {
   fl <- character(0)
   if (!is.null(fit) && isTRUE(fit$submax)) fl <- c(fl, "submax-weak")
   if (!is.null(fit) && fit$conv != 0) fl <- c(fl, "no-converge")
+  if (!is.null(fit) && isTRUE(fit$boundary)) fl <- c(fl, "boundary-hit")
   if (is.na(dg$n_bouts) || dg$n_bouts < 3) fl <- c(fl, "few-bouts")
   # A submaximal set is *meant* to leave margin, so "rest-too-long" doesn't apply.
   if (!is.na(dg$refill) && dg$refill > 0.7 && !(!is.null(fit) && isTRUE(fit$submax))) fl <- c(fl, "rest-too-long")
@@ -304,26 +305,67 @@ fit_recovery <- function(power, cp, base, marks, submax = FALSE) {
       # rides are flagged low-confidence rather than trusted like maximal anchors.
       feas + 0.02 * mean(((th - th0) / pmax(1e-6, th0))^2)
     } else feas + (if (length(marks)) mean((s$total[marks]/Wp)^2) else 0) }
-  st <- optim(th0, obj, method = "L-BFGS-B",
-              lower = c(0.10,5,60), upper = c(0.60,120,1800), control = list(maxit = 200))
-  list(fP = st$par[1], tauP = st$par[2], tauG = st$par[3], eta = base$eta,
-       obj = st$value, conv = st$convergence, submax = submax)
+  lower <- c(0.10, 5, 60); upper <- c(0.60, 120, 1800)
+  mkerr <- function(msg) list(fP = th0[1], tauP = th0[2], tauG = th0[3], eta = base$eta,
+                              obj = Inf, conv = 99L, submax = submax,
+                              status = "error", err = msg, boundary = FALSE)
+  # Deterministic multi-start (th0 + fixed interior points) hardens the L-BFGS-B fit against
+  # a poor single start; keep the lowest-objective CONVERGED fit (else the lowest finite one).
+  # If optim throws (a non-finite objective aborts L-BFGS-B) or EVERY start is non-finite,
+  # return a well-shaped error list: obj = Inf (never NA, so ride_flag's `obj > 0.05` read is
+  # safe), conv non-zero, status = "error". fit_all_rides re-throws this into its single
+  # fit-error channel, so a failed fit is never presented as a (poor) fit.
+  runone <- function(s) tryCatch({
+    st <- optim(s, obj, method = "L-BFGS-B", lower = lower, upper = upper, control = list(maxit = 200))
+    if (is.finite(st$value)) st else NULL
+  }, error = function(e) NULL)
+  starts <- c(list(th0), lapply(c(0.5, 0.25, 0.75), function(fr) lower + fr * (upper - lower)))
+  fits <- Filter(Negate(is.null), lapply(starts, runone))
+  if (!length(fits)) return(mkerr("optim failed for all starts (non-finite objective)"))
+  conv0 <- Filter(function(x) x$convergence == 0, fits)
+  pool <- if (length(conv0)) conv0 else fits
+  st <- pool[[which.min(vapply(pool, function(x) x$value, numeric(1)))]]
+  par <- unname(st$par)
+  list(fP = par[1], tauP = par[2], tauG = par[3], eta = base$eta,
+       obj = st$value, conv = st$convergence, submax = submax,
+       status = "ok", err = NA_character_,
+       boundary = isTRUE(any(par == lower | par == upper)))
 }
 fit_all_rides <- function(power_list, names, cp, base, anchors, interval_idx, submax_idx = integer(0)) {
+  # ONE fixed 15-column row schema for BOTH good and fit-error rows so do.call(rbind, ...)
+  # can never hit a column mismatch. `eta` is dropped as a column (held fixed, not fitted).
+  # `status`/`err` are carried on every row. Failed fits become flag = "fit-error" rows.
+  mkrow <- function(file, type, src, dg, r, flag, err) data.frame(
+    file = file, type = type, anchors = src,
+    bouts  = if (is.null(dg)) NA_integer_ else dg$n_bouts,
+    rec_s  = if (is.null(dg)) NA_real_ else round(dg$mean_rec_s),
+    refill = if (is.null(dg)) NA_real_ else round(dg$refill, 2),
+    margin = if (is.null(dg)) NA_real_ else round(dg$margin, 2),
+    fP   = if (is.null(r)) NA_real_ else r$fP,
+    tauP = if (is.null(r)) NA_real_ else r$tauP,
+    tauG = if (is.null(r)) NA_real_ else r$tauG,
+    obj  = if (is.null(r)) Inf else r$obj,
+    conv = if (is.null(r)) 99L else as.integer(r$conv),
+    flag = flag,
+    status = if (is.null(r)) "error" else r$status,
+    err = err, stringsAsFactors = FALSE)
   rows <- lapply(seq_along(power_list), function(i) {
     p <- power_list[[i]]; man <- anchors[[as.character(i)]]
     is_sub <- i %in% submax_idx; is_int <- (i %in% interval_idx) || is_sub
-    if (is_sub) { m <- integer(0); src <- "submax (no reserve=0)" }        # not to failure -> no anchor
-    else if (!is.null(man) && length(man)) { m <- man; src <- "manual" }
-    else if (is_int) { m <- c(which.min(simulate_tanks(p, cp, base)$total), length(p)); src <- "interval-end" }
-    else { m <- suggest_marks(p, cp, base); src <- "auto" }
-    r <- try(fit_recovery(p, cp, base, m, submax = is_sub), silent = TRUE); if (inherits(r, "try-error")) return(NULL)
-    dg <- ride_diag(p, cp, base)
-    data.frame(file = names[i], type = if (is_sub) "submax" else if (is_int) "interval" else "variable",
-               anchors = src, bouts = dg$n_bouts, rec_s = round(dg$mean_rec_s),
-               refill = round(dg$refill, 2), margin = round(dg$margin, 2),
-               fP = r$fP, tauP = r$tauP, tauG = r$tauG, eta = r$eta, obj = r$obj, conv = r$conv,
-               flag = ride_flag(dg, r), stringsAsFactors = FALSE)
+    type <- if (is_sub) "submax" else if (is_int) "interval" else "variable"
+    # The ENTIRE per-ride block (marks + fit + diag) is wrapped, and a fit_recovery that
+    # RETURNS status == "error" is re-thrown, so every failure -- thrown or returned -- lands
+    # in the single catch handler that builds the one canonical fit-error row.
+    tryCatch({
+      if (is_sub) { m <- integer(0); src <- "submax (no reserve=0)" }        # not to failure -> no anchor
+      else if (!is.null(man) && length(man)) { m <- man; src <- "manual" }
+      else if (is_int) { m <- c(which.min(simulate_tanks(p, cp, base)$total), length(p)); src <- "interval-end" }
+      else { m <- suggest_marks(p, cp, base); src <- "auto" }
+      r <- fit_recovery(p, cp, base, m, submax = is_sub)
+      if (isTRUE(r$status == "error")) stop(r$err)
+      dg <- ride_diag(p, cp, base)
+      mkrow(names[i], type, src, dg, r, ride_flag(dg, r), r$err)
+    }, error = function(e) mkrow(names[i], type, NA_character_, NULL, NULL, "fit-error", conditionMessage(e)))
   })
-  do.call(rbind, Filter(Negate(is.null), rows))
+  do.call(rbind, rows)
 }
