@@ -314,11 +314,13 @@ function testIsConfigured(logger) {
 // ---- #42: properties.xml default fences the SECOND half of the fix ----
 //
 // testIsConfigured pins the isConfigured() LOGIC; this pins the properties.xml DEFAULT. The #42
-// fix has two halves — the sentinel-0 CP/W' default AND the <=0 rejection — and without this a
-// properties-only revert to 250/20000 (the exact round-1 root cause) would make getValue() return
-// those, flip isConfigured true, and silently re-inert the SET CP/W' guard with every other test
-// still green. Read through the REAL Application.Properties resource layer so that revert fails here.
-// (Runs under the ciq-test job, which loads the app resources; a pure-logic test can't see this.)
+// fix has two halves — the sentinel-0 CP/W' default AND the <=0 rejection — and a properties-only
+// revert to 250/20000 (the exact round-1 root cause) would make getValue() return those, flip
+// isConfigured true, and silently re-inert the SET CP/W' guard. Reads through the REAL
+// Application.Properties resource layer so that revert fails here.
+// NOTE: the ENFORCEABLE CI gate for the same revert is scripts/check_settings_defaults.sh (wired
+// into the required manifest-lint job) — the headless (:test) suite segfault-skips under Xvfb, so
+// this case runs only in a working simulator (local dev, or if the CI sim is ever fixed).
 (:test)
 function testCpWprimeDefaultUnconfigured(logger) {
     var cp = Application.Properties.getValue("CP");

@@ -313,6 +313,9 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
       - run: ./scripts/check_manifest_appid.sh connectiq/manifest.xml
+      # #42: CP/W' must keep the sentinel 0 default or the SET CP/W' guard silently re-inerts.
+      # Enforced here (a required job) because the headless (:test) suite segfault-skips in CI.
+      - run: ./scripts/check_settings_defaults.sh connectiq/resources/settings/properties.xml
 
   # ------------------------------------------------------------------
   # Stable required-check aggregator. Require ONLY this in branch protection so
