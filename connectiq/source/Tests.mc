@@ -1,5 +1,6 @@
 using Toybox.Test;
 using Toybox.Lang;
+using Toybox.Application;
 
 // Unit / regression tests for the dual-tank model.
 //
@@ -307,5 +308,27 @@ function testIsConfigured(logger) {
     Test.assert(!DualTankView.isConfigured(250.0, null));
     Test.assert(!DualTankView.isConfigured(null, null));
 
+    return true;
+}
+
+// ---- #42: properties.xml default fences the SECOND half of the fix ----
+//
+// testIsConfigured pins the isConfigured() LOGIC; this pins the properties.xml DEFAULT. The #42
+// fix has two halves — the sentinel-0 CP/W' default AND the <=0 rejection — and without this a
+// properties-only revert to 250/20000 (the exact round-1 root cause) would make getValue() return
+// those, flip isConfigured true, and silently re-inert the SET CP/W' guard with every other test
+// still green. Read through the REAL Application.Properties resource layer so that revert fails here.
+// (Runs under the ciq-test job, which loads the app resources; a pure-logic test can't see this.)
+(:test)
+function testCpWprimeDefaultUnconfigured(logger) {
+    var cp = Application.Properties.getValue("CP");
+    var wp = Application.Properties.getValue("Wprime");
+    logger.debug("default CP=" + cp + " Wprime=" + wp);
+    // The unset default must be the sentinel 0 (or, defensively, null) — never a positive config
+    // value that would hide the prompt on a fresh install.
+    Test.assert(cp == null || cp <= 0);
+    Test.assert(wp == null || wp <= 0);
+    // And it must resolve to "not configured" through the same predicate reloadSettings() uses.
+    Test.assert(!DualTankView.isConfigured(cp, wp));
     return true;
 }
