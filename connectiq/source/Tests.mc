@@ -253,3 +253,33 @@ function testValidateBlobRejects(logger) {
 
     return true;
 }
+
+// ---- #64: settings finiteness gate (coerceFiniteFloat) ----
+//
+// Drives the pure static seam behind propFloat/propFloatOrNull with plain Lang values, so it
+// runs without device Properties. A NaN would otherwise pass every comparison clamp in
+// reloadSettings() and reach the model; ±Inf comes from a Float overflow. The 0.0 case is the
+// regression guard for the rejected f/f != f/f idiom (0/0 = NaN would have dropped a legit 0.0).
+(:test)
+function testCoerceFiniteFloat(logger) {
+    // Finite values pass through unchanged.
+    Test.assert(DualTankView.coerceFiniteFloat(250.0) == 250.0);
+    Test.assert(DualTankView.coerceFiniteFloat(-5.0) == -5.0);
+    Test.assert(DualTankView.coerceFiniteFloat(0.0) == 0.0);    // MUST survive (legit gFat/fP=0.0)
+    Test.assert(DualTankView.coerceFiniteFloat(300) == 300.0);  // Number -> Float
+
+    // Unset / non-numeric -> null.
+    Test.assert(DualTankView.coerceFiniteFloat(null) == null);
+    Test.assert(DualTankView.coerceFiniteFloat("250") == null);
+
+    // Build Float +Inf / -Inf / NaN by IEEE overflow (3.0e38 is in-range; its square is not).
+    var fmax = (3.0e38).toFloat();
+    var inf  = fmax * fmax;    // +Inf
+    var nan  = inf - inf;      // NaN
+
+    Test.assert(DualTankView.coerceFiniteFloat(inf) == null);     // +Inf -> null
+    Test.assert(DualTankView.coerceFiniteFloat(-inf) == null);    // -Inf -> null
+    Test.assert(DualTankView.coerceFiniteFloat(nan) == null);     // NaN  -> null
+
+    return true;
+}

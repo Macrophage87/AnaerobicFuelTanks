@@ -27,8 +27,7 @@ class TankModel:
     # ---- settings ----
     # mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta, mFatK, mGFat, mTauAer, mTauOn
     # ---- derived ---- mCapP, mCapG
-    # ---- state ---- mRP, mRG, mDepP, mDepG, mConsP, mConsG, mAer, mG, mDeficit,
-    #                 mExhausted, mRateLimited
+    # ---- state ---- mRP, mRG, mDepP, mDepG, mConsP, mConsG, mAer, mG, mDeficit
 
     def configure(self, cfg):
         """cfg: dict with keys cp, Wprime, fP, pPmax, tauP, tauG, lt1Frac, eta, fatK,
@@ -64,8 +63,6 @@ class TankModel:
         self.mAer = self.mCP        # WARM (test-only) — see module docstring / part C1
         self.mG = 0.0
         self.mDeficit = 0.0
-        self.mExhausted = False
-        self.mRateLimited = False
 
     def clamp_reserves(self):
         if self.mRP < 0.0:
@@ -168,8 +165,6 @@ class TankModel:
             self.mDeficit += unmet
             self.mDepP += takeP
             self.mDepG += takeG
-            self.mExhausted = (self.mRP + self.mRG) <= 1.0
-            self.mRateLimited = unmet > 0.0
             self.mConsP = takeP / dt
             self.mConsG = takeG / dt
         else:
@@ -197,8 +192,6 @@ class TankModel:
                 self.mDeficit -= self.mDeficit * kG
             self.mConsP = 0.0
             self.mConsG = 0.0
-            self.mExhausted = (self.mRP + self.mRG) <= 1.0
-            self.mRateLimited = False
 
         self.clamp_reserves()
         return 100.0 * self.mRP / self.mCapP
