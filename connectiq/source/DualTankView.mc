@@ -156,6 +156,8 @@ class DualTankView extends WatchUi.DataField {
     //      lifecycle. Constructed in initialize() before reloadSettings(). ----
     hidden var mModel;
     hidden var mFlashOn;
+    hidden var mTimerOn;        // #36: cached live Activity.timerState==ON, refreshed each compute();
+                               // drives the pre-start freeze + NO POWER hint. Transient, never serialized.
     hidden var mStarted;
     hidden var mConfigured;     // #42: true once CP AND W' are both provided (>0) via settings;
                                 // drives the reachable "SET CP/W'" guard in onUpdate()
@@ -221,6 +223,9 @@ class DualTankView extends WatchUi.DataField {
         mMissCount = 0;
         mHaveValidP = false;
         mFlashOn = false;
+        // #36: seed false so onUpdate()'s NO POWER gate is null-safe on the first frame (before the
+        // first compute() has cached the live timerState). A field starts pre-start / not recording.
+        mTimerOn = false;
         markSaved();   // seed the epsilon baseline so a restore doesn't read as dirty
 
         // Fonts (also set in onLayout; initialized here so onUpdate is always safe).
@@ -751,6 +756,11 @@ class DualTankView extends WatchUi.DataField {
     // Model step — called once per second by the system.
     //------------------------------------------------------------------
     function compute(info) {
+        // #36: cache the LIVE activity timer state for this tick (used by the pre-start freeze below
+        // and onUpdate()'s NO POWER hint). Null-safe: an unknown info/timerState reads as "not on",
+        // which fails safe to the frozen pre-start view. TIMER_STATE_ON is available on all targets.
+        mTimerOn = (info != null && info.timerState == Activity.TIMER_STATE_ON);
+
         // #51: if the restore was TENTATIVE (activity id was null at initialize()), confirm or
         // roll it back now that identity may be available. Runs before everything else so a
         // foreign snapshot can't accrue a second of depletion/recovery before being discarded.
@@ -781,6 +791,28 @@ class DualTankView extends WatchUi.DataField {
         // While paused/stopped: freeze depletion (no accumulation). Recovery for
         // the pause is applied in one shot on resume (see exitPause()).
         if (mPaused) {
+            mModel.mConsP = 0.0;
+            mModel.mConsG = 0.0;
+            writeField(mFPcrJ, mModel.mRP);
+            writeField(mFGlyJ, mModel.mRG);
+            writeField(mFPcrCons, 0);
+            writeField(mFGlyCons, 0);
+            return 100.0 * mModel.mRP / mModel.mCapP;
+        }
+
+        // #36: hold the tanks until the activity timer is actually running. Before the first start
+        // (or after a stop), timerState != ON, so warm-up pedaling — or a data field added before the
+        // start press — doesn't deplete from a wrong baseline. Derived from the LIVE timerState every
+        // tick (mTimerOn), NOT a sticky flag, so it self-releases the instant recording begins: a
+        // field added mid-ride or a mid-ride reboot (neither fires onTimerStart) is never stranded
+        // frozen. HOLDS the current reserves (mirrors the paused / #22 dropout freeze); #67's
+        // onTimerStart->resetSession still resets to full at the real start. A user pause is handled
+        // by the mPaused branch above (which also credits recovery on resume), so it never reaches here.
+        // Gated on info != null: a null-info tick is an ACTIVE-recording dropout to the #22/#52 code,
+        // so it must fall through to the #22 handler below (which refreshes SLOT_SAVEDAT via
+        // markActiveIfDepleted) — otherwise a null-info dropout on a depleted ride would freeze that
+        // #52 heartbeat and a reboot could re-credit the frozen span as rest.
+        if (info != null && !mTimerOn) {
             mModel.mConsP = 0.0;
             mModel.mConsG = 0.0;
             writeField(mFPcrJ, mModel.mRP);
@@ -884,6 +916,15 @@ class DualTankView extends WatchUi.DataField {
         return (lum > 140) ? Graphics.COLOR_BLACK : Graphics.COLOR_WHITE;
     }
 
+    // #36: pure predicate for onUpdate()'s NO POWER hint — show only when the timer is running
+    // (recording), not paused (covers the resume transient where timerState is briefly ON while
+    // mPaused is still set), not in the #51 restore-confirm window, no valid power ever seen, and
+    // past the #22 grace (so a cold start / 1-frame gap doesn't flash). Static + pure so the gate
+    // logic is unit-testable without a DataField/Activity context.
+    static function shouldShowNoPower(timerOn, paused, restorePending, haveValidP, missCount) {
+        return timerOn && !paused && !restorePending && !haveValidP && missCount > BRIDGE_SEC;
+    }
+
     function onUpdate(dc) {
         var bg = getBackgroundColor();
         var fg = contrastColor(bg);
@@ -899,6 +940,22 @@ class DualTankView extends WatchUi.DataField {
         if (!mConfigured) {
             dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
             dc.drawText(w / 2, h / 2, mFontValue, "SET CP/W'",
+                Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+            return;
+        }
+
+        // #36: no power meter (or none seen yet) while recording -> tell the rider instead of showing
+        // full-looking tanks forever. Keyed on the LIVE timerState (mTimerOn), NOT mStarted, so a field
+        // added mid-ride (which never gets onTimerStart) also surfaces the hint. !mPaused covers the
+        // resume transient (timerState briefly ON while mPaused is still set, before exitPause runs);
+        // !mRestorePending the #51 confirm window; mMissCount > BRIDGE_SEC reuses the #22 grace so a
+        // cold start or a 1-frame gap doesn't flash. A late-arriving sample latches mHaveValidP and
+        // clears the hint. Sits AFTER the SET CP/W' guard (config prompt takes precedence).
+        // #76 (unconfigured disposition): mConfigured is already true here; an unconfigured ride is
+        // caught by the guard above. A configured ride with no power meter shows this instead.
+        if (shouldShowNoPower(mTimerOn, mPaused, mRestorePending, mHaveValidP, mMissCount)) {
+            dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(w / 2, h / 2, mFontValue, "NO POWER",
                 Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
             return;
         }
