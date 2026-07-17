@@ -4,8 +4,9 @@
 # AnaerobicFuelTanks parameters, picking the best value for each across files.
 #
 #   * CP, W', pPmax        -> combined mean-maximal power curve (best-of-all).
-#   * fP, tauP, tauG, eta   -> dual-tank model fit per ride, anchored at maximal
-#                              moments, then aggregated (median / best-fit).
+#   * fP, tauP, tauG        -> dual-tank model fit per ride, anchored at maximal
+#                              moments, then aggregated (median / best-fit). eta is
+#                              held fixed at 1.0 (degenerate with tauP), not fitted.
 #   * INTERVAL SETS         -> constrain recovery only when between-bout refill is
 #                              low (short rest). Sets with >70% refill are flagged.
 #   * UNCERTAINTY           -> every parameter is flagged when weakly constrained.
@@ -17,12 +18,25 @@
 # remotes::install_github("grimbough/FITfileR")
 # --------------------------------------------------------------------------
 
+# Fail fast with ONE actionable message if a dependency is missing, then attach only the
+# packages used from the search path. model.R calls readFitFile()/records() BARE, so FITfileR
+# must stay ATTACHED (not merely installed); yaml + DT are used namespaced (yaml::, DT::) and
+# only need to be installed.
+.pkgs <- c("shiny", "bslib", "ggplot2", "yaml", "DT", "FITfileR")
+.missing <- .pkgs[!vapply(.pkgs, requireNamespace, logical(1), quietly = TRUE)]
+if (length(.missing)) {
+  .cran <- setdiff(.missing, "FITfileR")
+  stop("Missing required package(s): ", paste(.missing, collapse = ", "), ".\n",
+       if (length(.cran)) paste0("  Install from CRAN:  install.packages(c(",
+         paste(sprintf('"%s"', .cran), collapse = ", "), "))\n") else "",
+       if ("FITfileR" %in% .missing) '  Install FITfileR:  remotes::install_github("grimbough/FITfileR")\n' else "",
+       call. = FALSE)
+}
 library(shiny)
 library(bslib)
 library(ggplot2)
-library(yaml)
 suppressWarnings(suppressMessages(library(FITfileR)))
-# install.packages(c("shiny","bslib","ggplot2","DT","yaml")); remotes::install_github("grimbough/FITfileR")
+options(shiny.maxRequestSize = 100 * 1024^2)   # allow multi-file / large FIT uploads (Shiny default is 5 MB)
 
 # ---------------------------------------------------------------------------
 # Pure model + FIT/IO functions live in R/model.R (single source of truth) so
@@ -37,7 +51,7 @@ PARAM_DESC <- c(
   fP      = "PCr share of W' (0-1): weakly identified; recovery fit across rides, else default (~0.25).",
   tauP    = "PCr recovery time constant (s): fast reconstitution.",
   tauG    = "Glycolytic recovery time constant (s): slow reconstitution.",
-  eta     = "PCr recovery-rate efficiency (0-1): rescales tauP (degenerate with it), not a true hysteresis.",
+  eta     = "PCr recovery-rate efficiency: HELD FIXED at 1.0 (degenerate with tauP) - not fitted; retained for settings/export parity.",
   lt1Frac = "LT1 as a fraction of CP: set from a MEASURED LT1 test, not left at the 0.80 default.",
   fatK    = "Fatigue slowing of PCr recovery: default (needs repeated-bout data).",
   gFat    = "Glycolytic flux fatigue exponent: rate_g *= (rG/cG)^gFat. Optional (0 = off); shifts repeated-sprint partition toward the biopsy direction (§6.10).",
@@ -101,7 +115,7 @@ guide_html <- r"[
 <li>On <i>Anchor editor</i>, <b>click each ride's reserve trace</b> where you were maximal or cracked
 (final sprint, an attack you could not follow, the moment you got dropped). Tick repeated-bout
 workouts as <b>interval sets</b> in the sidebar.</li>
-<li>Press <b>Fit fP / tauP / tauG / eta on every ride</b>. Per-ride results appear on <i>Recovery fit</i>;
+<li>Press <b>Fit fP / tauP / tauG on every ride</b>. Per-ride results appear on <i>Recovery fit</i>;
 the final set with uncertainty flags is on <i>App parameters</i>.</li>
 <li><b>Export</b> (sidebar): a Connect IQ settings file, a dated YAML reading, or a PDF report.</li>
 </ol>
@@ -110,8 +124,8 @@ the final set with uncertainty flags is on <i>App parameters</i>.</li>
 <table>
 <tr><th>Parameter</th><th>Source</th><th>Reliable?</th></tr>
 <tr><td>CP, Wprime, pPmax</td><td>best across all files (power-duration curve)</td><td>yes</td></tr>
-<tr><td>fP, tauP, tauG, eta</td><td>model fit on rides with maximal anchors</td><td>only with the right data</td></tr>
-<tr><td>lt1Frac, fatK, gFat, tauAer, tauOn</td><td>defaults (tauOn ~6 s, Parolin 1999; gFat off)</td><td>need special tests / not power-identifiable</td></tr>
+<tr><td>fP, tauP, tauG</td><td>model fit on rides with maximal anchors</td><td>only with the right data</td></tr>
+<tr><td>eta, lt1Frac, fatK, gFat, tauAer, tauOn</td><td>defaults (eta held fixed at 1.0; tauOn ~6 s, Parolin 1999; gFat off)</td><td>need special tests / not power-identifiable</td></tr>
 </table>
 <p>A single all-out effort obeys t_lim = W'/(P-CP), so it gives only CP and W'. The tank split and
 recovery rates appear only across <b>repeated efforts with recovery</b>, and only where you anchor
@@ -152,7 +166,7 @@ ui <- page_sidebar(
   sidebar = sidebar(width = 330, title = "Controls",
     fileInput("files", "FIT files (rides / races / interval sets)", multiple = TRUE, accept = c(".fit", ".FIT")),
     verbatimTextOutput("read_txt"),
-    actionButton("fitall", "Fit fP / tauP / tauG / eta", class = "btn-primary w-100"),
+    actionButton("fitall", "Fit fP / tauP / tauG", class = "btn-primary w-100"),
     # Secondary controls tucked into collapsed panels so the sidebar fits one screen.
     accordion(id = "opts", open = FALSE, class = "my-2",
       accordion_panel("CP & model", icon = NULL,
@@ -188,6 +202,9 @@ ui <- page_sidebar(
 # ===========================================================================
 server <- function(input, output, session) {
   rv <- reactiveValues(fits = NULL, anchors = list())
+  # A new upload invalidates the ride-index-keyed anchors and prior fits (a stale index
+  # would otherwise mis-map onto the new file set / throw subscript-out-of-bounds).
+  observeEvent(input$files, { rv$anchors <- list(); rv$fits <- NULL })
 
   reads <- reactive({ req(input$files)
     res <- lapply(input$files$datapath, read_power)
@@ -216,12 +233,21 @@ server <- function(input, output, session) {
       helpText("Tick a submaximal set when the bouts were repeated but NOT all-out. The fit then uses only feasibility + recovery between bouts (no reserve = 0 anchor) and flags the result as low-confidence.")) })
 
   agg <- reactive({ df <- rv$fits; if (is.null(df)) return(NULL)
-    good <- df[!grepl("no-converge|few-bouts|rest-too-long|submax-weak", df$flag), , drop = FALSE]
-    constrained <- nrow(good) > 0; use <- if (constrained) good else df
+    # Hard failures (fit-error) and rail-pinned fits (boundary-hit, an unidentified recovery
+    # constant) must never enter the median -- in EITHER the good filter or the fallback.
+    excl <- "no-converge|few-bouts|rest-too-long|submax-weak|fit-error|boundary-hit"
+    good <- df[!grepl(excl, df$flag), , drop = FALSE]
+    constrained <- nrow(good) > 0
+    use <- if (constrained) good else df[!grepl("fit-error|boundary-hit", df$flag), , drop = FALSE]
+    n_failed <- sum(df$flag == "fit-error"); n_total <- nrow(df)
+    if (nrow(use) == 0)   # every ride failed / was excluded: report defaults, never median() over nothing
+      return(list(fP = DEFAULTS$fP, tauP = DEFAULTS$tauP, tauG = DEFAULTS$tauG,
+                  constrained = FALSE, n_used = 0L, n_failed = n_failed, n_total = n_total,
+                  cv = NULL, src = "defaults (all rides failed to fit)"))
     pick <- function(col) if (input$agg == "best-fit") use[[col]][which.min(use$obj)] else median(use[[col]])
-    list(fP = pick("fP"), tauP = pick("tauP"), tauG = pick("tauG"), eta = pick("eta"),
-         constrained = constrained, n_used = nrow(use),
-         cv = c(fP = cv(use$fP), tauP = cv(use$tauP), tauG = cv(use$tauG), eta = cv(use$eta)),
+    list(fP = pick("fP"), tauP = pick("tauP"), tauG = pick("tauG"),
+         constrained = constrained, n_used = nrow(use), n_failed = n_failed, n_total = n_total,
+         cv = c(fP = cv(use$fP), tauP = cv(use$tauP), tauG = cv(use$tauG)),
          src = if (input$agg == "best-fit") paste("best-fit:", use$file[which.min(use$obj)]) else sprintf("median of %d rides", nrow(use))) })
 
   # ---- unified estimate table (value / source / uncertainty) ----
@@ -234,27 +260,35 @@ server <- function(input, output, session) {
       if (isTRUE(f$nonphysical)) "non-physical CP/W' (<= 0) - fit is corrupt, check files/window",
       if (isTRUE(f$implausible)) sprintf("CP implausibly low (< %d W) - verify files/window", CP_FLOOR_W),
       if (isTRUE(f$impossible))  "CP above longest effort - check file/window",
-      if (f$r2 < 0.95) "low R2", if (f$n < 3) "few efforts", if (f$rng < 5) "narrow durations"),
+      if (isTRUE(f$n >= 3 && f$r2 < 0.95)) "low R2", if (isTRUE(f$n < 3)) "few efforts", if (isTRUE(f$rng < 5)) "narrow durations"),
       collapse = ", ")
-    recU <- is.null(a) || !a$constrained
-    spread <- function(k) !is.null(a) && a$constrained && is.finite(a$cv[[k]]) && a$cv[[k]] > 0.3
-    recWhy <- if (is.null(a)) "not fit (defaults)" else "rest too long / few bouts"
+    # `a` is non-NULL whenever any ride exists (it now carries failure counts + a defaults
+    # sentinel when nothing is usable), so key default substitution off "no usable rows".
+    noRec <- is.null(a) || isTRUE(a$n_used == 0L)
+    recU <- noRec || !isTRUE(a$constrained)
+    spread <- function(k) !noRec && isTRUE(a$constrained) && !is.null(a$cv) && is.finite(a$cv[[k]]) && a$cv[[k]] > 0.3
+    failNote <- if (!is.null(a) && isTRUE(a$n_failed > 0)) sprintf(" (%d of %d rides failed to fit)", a$n_failed, a$n_total) else ""
+    recWhy <- if (is.null(a)) "not fit (defaults)" else
+              if (isTRUE(a$n_used == 0L) && isTRUE(a$n_failed > 0)) sprintf("%d of %d rides failed to fit - defaults substituted", a$n_failed, a$n_total) else
+              "rest too long / few bouts"
     src_rec <- if (is.null(a)) "default" else a$src
     val <- c(CP = round(f$CP), Wprime = round(f$Wprime), pPmax = pPmax,
-             fP = round(if (is.null(a)) input$fP else a$fP, 2),
-             tauP = round(if (is.null(a)) DEFAULTS$tauP else a$tauP),
-             tauG = round(if (is.null(a)) DEFAULTS$tauG else a$tauG),
-             eta = round(if (is.null(a)) DEFAULTS$eta else a$eta, 2),
+             fP = round(if (noRec) input$fP else a$fP, 2),
+             tauP = round(if (noRec) DEFAULTS$tauP else a$tauP),
+             tauG = round(if (noRec) DEFAULTS$tauG else a$tauG),
+             eta = round(DEFAULTS$eta, 2),
              lt1Frac = DEFAULTS$lt1Frac, fatK = DEFAULTS$fatK, gFat = DEFAULTS$gFat, tauAer = DEFAULTS$tauAer, tauOn = DEFAULTS$tauOn)
     src <- c(CP = "best across files", Wprime = "best across files", pPmax = "best 1s - CP",
-             fP = src_rec, tauP = src_rec, tauG = src_rec, eta = src_rec,
+             fP = src_rec, tauP = src_rec, tauG = src_rec, eta = "fixed (deprecated)",
              lt1Frac = "default", fatK = "default", gFat = "default (off)", tauAer = "default", tauOn = "default (Parolin 1999)")
-    unc <- c(CP = nzchar(cpWhy), Wprime = nzchar(cpWhy), pPmax = (!is.finite(p1) || p1 < 1.6 * f$CP),
+    unc <- c(CP = nzchar(cpWhy), Wprime = nzchar(cpWhy), pPmax = isTRUE(!is.finite(p1) || p1 < 1.6 * f$CP),
              fP = recU || spread("fP"), tauP = recU || spread("tauP"), tauG = recU || spread("tauG"),
-             eta = recU || spread("eta"), lt1Frac = TRUE, fatK = TRUE, gFat = TRUE, tauAer = TRUE, tauOn = TRUE)
+             eta = TRUE, lt1Frac = TRUE, fatK = TRUE, gFat = TRUE, tauAer = TRUE, tauOn = TRUE)
     note <- c(CP = cpWhy, Wprime = cpWhy, pPmax = "no clear maximal sprint",
-              fP = if (recU) recWhy else "wide spread across rides", tauP = if (recU) recWhy else "wide spread across rides",
-              tauG = if (recU) recWhy else "wide spread across rides", eta = if (recU) recWhy else "wide spread across rides",
+              fP = if (recU) recWhy else paste0("wide spread across rides", failNote),
+              tauP = if (recU) recWhy else paste0("wide spread across rides", failNote),
+              tauG = if (recU) recWhy else paste0("wide spread across rides", failNote),
+              eta = "held fixed at 1.0; degenerate with tauP",
               lt1Frac = "needs a threshold test", fatK = "needs repeated-bout data", gFat = "optional realism term; off by default (§6.10)",
               tauAer = "needs onset-kinetics data", tauOn = "literature default ~6 s; not power-identifiable")
     ord <- names(PARAM_DESC)
@@ -295,15 +329,16 @@ server <- function(input, output, session) {
   output$mmp_tbl  <- DT::renderDataTable(DT::datatable(transform(mmp(), power = round(power)), rownames = FALSE, options = list(pageLength = 8, dom = "tp")))
   output$cp_plot  <- renderPlot({ g <- cp_gg(); validate(need(!is.null(g), "Need >=2 efforts in the window.")); g }, bg = "transparent")
   output$cp_txt   <- renderText({ f <- cpfit(); req(f)
+    r2txt <- if (isTRUE(f$n >= 3) && is.finite(f$r2)) sprintf("%.3f", f$r2) else "n/a (<3 efforts)"
     paste0(
-      sprintf("CP = %.0f W   W' = %.0f J   R^2 = %.3f (n = %d efforts, %.1fx duration range)", f$CP, f$Wprime, f$r2, f$n, f$rng),
+      sprintf("CP = %.0f W   W' = %.0f J   R^2 = %s (n = %d efforts, %.1fx duration range)", f$CP, f$Wprime, r2txt, f$n, f$rng),
       if (isTRUE(f$nonphysical)) "\n⚠ CP/W' are non-physical (<= 0) -- the power-duration fit is corrupt (bad FIT parse / scrambled MMP) or the window is wrong. Export to device is blocked. Check the files or widen the CP window." else "",
       if (isTRUE(f$implausible)) sprintf("\n⚠ CP is implausibly low (< %d W) -- verify the files and CP window.", CP_FLOOR_W) else "",
       if (isTRUE(f$impossible)) "\n⚠ CP is at/above the power you held for the longest effort in the window -- physically impossible. Usually a corrupt power-duration curve (odd FIT parse) or too narrow a fit window; widen the CP window or check the file." else "") })
 
   # ---- anchor editor ----
   output$ride_pick <- renderUI({ pw <- powers(); selectInput("ride", "Ride", choices = setNames(seq_along(pw$p), pw$names)) })
-  ride_idx   <- reactive({ req(input$ride); as.integer(input$ride) })
+  ride_idx   <- reactive({ req(input$ride); idx <- as.integer(input$ride); req(idx >= 1L, idx <= length(powers()$p)); idx })
   ride_power <- reactive({ powers()$p[[ride_idx()]] })
   observeEvent(input$res_click, { p <- ride_power(); req(p); x <- round(input$res_click$x); if (x < 1 || x > length(p)) return()
     key <- as.character(ride_idx()); cur <- rv$anchors[[key]]; if (is.null(cur)) cur <- integer(0)
@@ -318,7 +353,7 @@ server <- function(input, output, session) {
     sprintf("bouts>CP: %d | mean recovery: %s s | between-bout refill: %s%s", dg$n_bouts,
             ifelse(is.na(dg$mean_rec_s), "-", round(dg$mean_rec_s)), ifelse(is.na(dg$refill), "-", paste0(round(100*dg$refill), "%")), warn) })
   output$res_plot <- renderPlot({ f <- cpfit(); p <- ride_power(); req(f, p)
-    par <- base_par(); a <- agg(); if (!is.null(a)) par <- modifyList(par, a[c("fP","tauP","tauG","eta")])
+    par <- base_par(); a <- agg(); if (!is.null(a)) par <- modifyList(par, a[c("fP","tauP","tauG")])
     s <- simulate_tanks(p, f$CP, par); df <- data.frame(t = seq_along(p), pct = 100 * s$total / par$Wprime)
     anch <- rv$anchors[[as.character(ride_idx())]]
     g <- ggplot(df, aes(t, pct)) + geom_line(colour = "#B44DFF") + ylim(0, 100) +
@@ -328,12 +363,15 @@ server <- function(input, output, session) {
   # ---- fit + results ----
   observeEvent(input$fitall, { f <- cpfit(); pw <- powers(); req(f); rv$fits <- fit_all_rides(pw$p, pw$names, f$CP, base_par(), rv$anchors, interval_idx(), submax_idx()) })
   output$fit_tbl <- DT::renderDataTable({ validate(need(!is.null(rv$fits), "Set anchors / mark interval sets, then 'Fit ... on every ride'."))
-    d <- rv$fits; num <- c("fP","tauP","tauG","eta","obj"); d[num] <- lapply(d[num], round, 3)
+    d <- rv$fits; num <- c("fP","tauP","tauG","obj"); d[num] <- lapply(d[num], round, 3)
+    d$status <- NULL   # redundant with `flag`; `err` kept so a fit-error row shows its reason
     dt <- DT::datatable(d, rownames = FALSE, options = list(pageLength = 10, dom = "tp"))
-    DT::formatStyle(dt, "flag", target = "row", backgroundColor = DT::styleEqual("ok", "white", default = "#fff3cd")) })
+    DT::formatStyle(dt, "flag", target = "row",
+      backgroundColor = DT::styleEqual(c("ok", "fit-error"), c("white", "#f5c6cb"), default = "#fff3cd")) })
   output$agg_txt <- renderText({ a <- agg(); if (is.null(a)) return("")
-    u <- if (!a$constrained) "  [HIGH UNCERTAINTY: no ride constrained recovery]" else ""
-    sprintf("Chosen (%s):  fP = %.2f  tauP = %.0f s  tauG = %.0f s  eta = %.2f%s", a$src, a$fP, a$tauP, a$tauG, a$eta, u) })
+    u <- if (!isTRUE(a$constrained)) "  [HIGH UNCERTAINTY: no ride constrained recovery]" else ""
+    fail <- if (isTRUE(a$n_failed > 0)) sprintf("  [%d of %d rides failed to fit]", a$n_failed, a$n_total) else ""
+    sprintf("Chosen (%s):  fP = %.2f  tauP = %.0f s  tauG = %.0f s%s%s", a$src, a$fP, a$tauP, a$tauG, u, fail) })
 
   output$params <- renderText({ et <- est_table(); req(et)
     lines <- vapply(seq_len(nrow(et)), function(i) {
@@ -341,7 +379,7 @@ server <- function(input, output, session) {
       if (et$uncertain[i]) paste0(base, "   <<= uncertain: ", et$note[i]) else base }, character(1))
     paste(lines, collapse = "\n") })
   output$caveats <- renderUI(HTML(paste0(
-    "<b>CP, W', pPmax</b> take the best across every file. <b>fP, tauP, tauG, eta</b> are fit per ride, then combined. ",
+    "<b>CP, W', pPmax</b> take the best across every file. <b>fP, tauP, tauG</b> are fit per ride, then combined (<b>eta</b> is held fixed at 1.0, degenerate with tauP). ",
     "<b>Interval sets</b> only constrain recovery when between-bout refill is low (short rest); &gt;70% refill is flagged. ",
     "Lines marked <i>uncertain</i> are weakly constrained. Export a dated YAML to build history, then re-supply it for trends.")))
 
@@ -353,36 +391,48 @@ server <- function(input, output, session) {
   output$dl_ciq <- downloadHandler(
     filename = function() paste0("dualtank_ciq_settings_", Sys.Date(), ".json"),
     content = function(file) {
-      # Never write a non-physical CP/W' to a real device. validate(need(...)) inside a
-      # downloadHandler raises a silent condition (no output slot renders it), so pair the
-      # block with a visible showNotification before aborting the write.
+      # #24 guard: never write a non-physical CP/W' to a real device. validate(need(...)) inside a
+      # downloadHandler raises a SILENT condition (no output slot renders it), so pair it with a
+      # visible showNotification and keep it OUTSIDE the tryCatch below -- it must ABORT (no file),
+      # not fall through to the placeholder writer.
       f <- cpfit()
       if (isTRUE(f$nonphysical))
         showNotification("Connect IQ export blocked: CP/W' are non-physical (<= 0). The power-duration fit is corrupt - check the source files or widen the CP fit window.", type = "error", duration = NULL)
       validate(need(!isTRUE(f$nonphysical),
         "Cannot export Connect IQ settings: CP/W' are non-physical (<= 0). The power-duration fit is corrupt - check the source files or widen the CP fit window."))
-      et <- est_table(); v <- setNames(et$value, et$param)
-      keys <- c("CP","Wprime","fP","pPmax","tauP","tauG","lt1Frac","eta","fatK","gFat","tauAer","tauOn")   # match properties.xml
-      body <- paste(vapply(keys, function(k) sprintf('  "%s": %s', k, format(v[[k]], trim = TRUE)), character(1)), collapse = ",\n")
-      writeLines(c("{", body, "}"), file)
+      tryCatch({
+        et <- est_table(); v <- setNames(et$value, et$param)
+        keys <- c("CP","Wprime","fP","pPmax","tauP","tauG","lt1Frac","eta","fatK","gFat","tauAer","tauOn")   # match properties.xml
+        body <- paste(vapply(keys, function(k) sprintf('  "%s": %s', k, format(v[[k]], trim = TRUE)), character(1)), collapse = ",\n")
+        writeLines(c("{", body, "}"), file)
+      }, error = function(e) { warning("dl_ciq: ", conditionMessage(e))
+        writeLines(c("{", '  "error": "Connect IQ export unavailable - upload rides and compute an estimate first."', "}"), file) })
     })
 
   output$dl_yaml <- downloadHandler(
     filename = function() paste0("dualtank_readings_", Sys.Date(), ".yaml"),
     content = function(file) {
-      cur <- current_reading(); et <- est_table()
-      newr <- as.list(cur); newr$flags <- et$param[et$uncertain]
-      # Record the hard non-physical condition explicitly so it round-trips through history
-      # (change to est_table already puts CP/Wprime in flags when non-physical).
-      if (isTRUE(cpfit()$nonphysical)) newr$flags <- union(newr$flags, "nonphysical")
-      readings <- c(history_data(), list(newr))
-      yaml::write_yaml(list(readings = readings), file) })
+      # NB: dl_yaml has NO #24 abort guard by design -- it RECORDS the non-physical condition
+      # into flags (round-tripping it through history), it does not block the write.
+      tryCatch({
+        cur <- current_reading(); et <- est_table()
+        newr <- as.list(cur); newr$flags <- et$param[et$uncertain]
+        if (isTRUE(cpfit()$nonphysical)) newr$flags <- union(newr$flags, "nonphysical")
+        readings <- c(history_data(), list(newr))
+        yaml::write_yaml(list(readings = readings), file)
+      }, error = function(e) { warning("dl_yaml: ", conditionMessage(e))
+        yaml::write_yaml(list(readings = list(),
+          note = "No data - upload rides and compute an estimate before exporting."), file) }) })
 
   output$dl_pdf <- downloadHandler(
     filename = function() paste0("dualtank_report_", Sys.Date(), ".pdf"),
     content = function(file) {
-      et <- est_table()
+      # Open the device FIRST so on.exit(dev.off()) always delivers >=1 page; est_table() (which
+      # can req()/error on no data) runs INSIDE the tryCatch, whose handler draws a placeholder
+      # page rather than re-raising -- a delivered placeholder beats a corrupt/zero-page PDF.
       pdf(file, width = 8.5, height = 11, bg = "#EDE0C8"); on.exit(if (dev.cur() > 1) dev.off())
+      tryCatch({
+      et <- est_table()
       # page 1 — explanations (dark ink on parchment)
       op <- par(mar = c(0,0,0,0)); plot(NA, xlim = c(0,1), ylim = c(0,1), axes = FALSE, xlab = "", ylab = "")
       rect(-0.03, -0.03, 1.03, 1.03, border = "#8a6a2a", lwd = 3, xpd = NA)
@@ -402,6 +452,10 @@ server <- function(input, output, session) {
       # page 2+ — plots on parchment
       print(mmp_gg() + gg_report()); g <- cp_gg(); if (!is.null(g)) print(g + gg_report())
       tg <- trend_gg(); if (!is.null(tg)) print(tg + gg_report())
+      }, error = function(e) { warning("dl_pdf: ", conditionMessage(e))
+        plot(NA, xlim = c(0,1), ylim = c(0,1), axes = FALSE, xlab = "", ylab = "")
+        text(0.5, 0.5, "No data available.\nUpload rides and compute an estimate before exporting.",
+             cex = 1.1, col = "#6b4f2a", family = "serif") })
     })
 }
 
