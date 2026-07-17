@@ -281,7 +281,8 @@ def write_png16(rgba_img, path):
     png += chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 16, 6, 0, 0, 0))  # 16-bit, RGBA
     png += chunk(b"IDAT", zlib.compress(bytes(raw), 9))
     png += chunk(b"IEND", b"")
-    open(path, "wb").write(png)
+    with open(path, "wb") as f:
+        f.write(png)
 
 def make_icons():
     icon = render_icon_rgba()

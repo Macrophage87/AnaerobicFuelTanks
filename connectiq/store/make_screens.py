@@ -344,8 +344,13 @@ def make_palette_icon():
         print("skip palette icon: {} not found — run make_assets.py first "
               "(its make_icons() generates it).".format(src_path))
         return
-    src = Image.open(src_path).convert("RGB")
-    pal = src.convert("P", palette=Image.ADAPTIVE, colors=256)
+    with Image.open(src_path) as _src_im:
+        src = _src_im.convert("RGB")
+    try:
+        _adaptive = Image.Palette.ADAPTIVE   # Pillow >= 9.1
+    except AttributeError:
+        _adaptive = Image.ADAPTIVE           # older-Pillow fallback (same enum value)
+    pal = src.convert("P", palette=_adaptive, colors=256)
     p = os.path.join(OUT, "device_icon_128_8bit_palette.png")
     pal.save(p, "PNG")
     print("palette icon:", p, os.path.getsize(p)//1024, "KB")
