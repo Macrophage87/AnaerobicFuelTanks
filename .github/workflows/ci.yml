@@ -109,6 +109,11 @@ jobs:
     timeout-minutes: 15
     container:
       image: ghcr.io/matco/connectiq-tester@sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
+      # #61 diagnostics: allow gdb to attach to the (sibling) simulator process for a crash
+      # backtrace. The default runner has YAMA ptrace_scope=1 with no CAP_SYS_PTRACE, so a
+      # sibling `gdb -p` is denied ("Inappropriate ioctl for device"). Diagnostic-only — the
+      # job stays best-effort and out of ci-required.
+      options: --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
       - name: Build -t test PRG (edge1050)
@@ -188,10 +193,11 @@ jobs:
               wait "$SIM_PID" 2>/dev/null || true
             ' || echo "run_tests exited non-zero (timeout or sim error)"
 
-          # #61 process-group cleanup: if `timeout` fired, the backgrounded sim can orphan the
-          # inner bash -c — make sure no simulator/connectiq child outlives this step.
+          # #61 cleanup: if `timeout` fired, the backgrounded sim can orphan the inner bash -c —
+          # make sure no simulator/connectiq/Xvfb child outlives this step.
           pkill -9 -x simulator 2>/dev/null || true
           pkill -9 -x connectiq 2>/dev/null || true
+          pkill -9 -x Xvfb 2>/dev/null || true
 
           echo "----- captured test log -----"
           cat "$LOG" || true
@@ -221,7 +227,11 @@ jobs:
           # EXPECTED is derived from source so adding a (:test) can't silently leave a stale gate.
           # (Anchoring PASS on the terminal Run-No-Evil summary STRING is deferred until the sim
           # actually runs and the real marker can be pinned against captured output — see #61.)
-          EXPECTED="$(grep -rhoE '^\(:test\)' source/*.mc | wc -l | tr -d ' ')"
+          # Count (:test) annotations robustly: recurse (a .mc in a subdir counts), allow leading
+          # indentation, and match combined forms like `(:test :debug)` — an UNDERCOUNT would lower
+          # the pass threshold, so this errs toward matching. (A source-vs-gate unit check is a hard
+          # precondition before this job is ever promoted to ci-required — see #61.)
+          EXPECTED="$(grep -rhoE '^[[:space:]]*\(:test\b' source | wc -l | tr -d ' ')"
           PASSES="$(grep -Ec '\bPASSED\b' "$LOG" || true)"
           FAILS="$(grep -Ec '\b(FAILED|ERROR)\b' "$LOG" || true)"
           echo "gate: expected (:test) cases=${EXPECTED:-0}  observed PASSED=${PASSES:-0}  FAILED/ERROR=${FAILS:-0}"
@@ -250,16 +260,35 @@ jobs:
           SIM_PORT: "1234"
         run: |
           set +e
-          echo "::group::install gdb"
-          (apt-get update -y && apt-get install -y gdb) >/dev/null 2>&1 || true
+          echo "::group::install gdb + default GTK theme (per-command timeouts so a stall can't ride the job cap)"
+          timeout 180 apt-get update -y >/dev/null 2>&1 || true
+          timeout 240 apt-get install -y gdb adwaita-icon-theme gnome-themes-extra >/dev/null 2>&1 || true
           command -v gdb >/dev/null 2>&1 || echo "gdb unavailable; backtrace will be skipped"
           echo "::endgroup::"
-          DEV_JSON="$(find / -path '*/.Garmin/ConnectIQ/Devices/edge1050/compiler.json' 2>/dev/null | head -1 || true)"
+          DEV_JSON="$(timeout 60 find / -path '*/.Garmin/ConnectIQ/Devices/edge1050/compiler.json' 2>/dev/null | head -1 || true)"
           [ -n "$DEV_JSON" ] && export HOME="${DEV_JSON%%/.Garmin/*}"
-          SIMBIN="$(find / -type f -name simulator -perm -u+x 2>/dev/null | head -1 || true)"
+          SIMBIN="$(timeout 60 find / -type f -name simulator -perm -u+x 2>/dev/null | head -1 || true)"
           echo "simulator binary: ${SIMBIN:-<not found>}"
 
-          echo "::group::(1) live gdb backtrace of the SetLayout SIGSEGV (real connectiq+monkeydo flow, QT_DEBUG_PLUGINS=1)"
+          # (1) The crash reproduces at STARTUP (PR #81's run showed the standalone offscreen sim
+          # segfaulting with no monkeydo), so launch the sim AS gdb's CHILD via `gdb --args` — a
+          # PARENT attach is YAMA-exempt, yielding a backtrace even without CAP_SYS_PTRACE. Run under
+          # offscreen (no X11 needed). `thread apply all bt full` because Qt is multithreaded.
+          echo "::group::(1) gdb --args bare-sim backtrace (parent attach; offscreen; YAMA-exempt)"
+          if command -v gdb >/dev/null 2>&1 && [ -n "${SIMBIN:-}" ]; then
+            QT_QPA_PLATFORM=offscreen QT_DEBUG_PLUGINS=1 timeout 90 gdb -batch -nx \
+              -ex "set pagination off" -ex "run" \
+              -ex "printf \"\\n===== BACKTRACE (all threads) =====\\n\"" -ex "thread apply all bt full" \
+              -ex "printf \"\\n===== SHARED LIBS =====\\n\"" -ex "info sharedlibrary" \
+              -ex "quit" --args "$SIMBIN" 2>&1 | tail -400
+          else
+            echo "no gdb or sim binary; skipping"
+          fi
+          echo "::endgroup::"
+
+          # (2) Also catch it in the REAL connectiq + monkeydo flow. Here the sim is a SIBLING of
+          # gdb, so this attach needs the job's --cap-add=SYS_PTRACE (added to container.options).
+          echo "::group::(2) gdb attach in the real connectiq+monkeydo flow (needs SYS_PTRACE cap)"
           QT_DEBUG_PLUGINS=1 timeout 150 xvfb-run -a -s "-screen 0 1280x1024x24" bash -c '
             connectiq >/tmp/sim.diag.log 2>&1 &
             for i in $(seq 1 40); do SIMPID=$(pgrep -x simulator 2>/dev/null || true); [ -n "$SIMPID" ] && break; sleep 0.5; done
@@ -267,7 +296,7 @@ jobs:
             if command -v gdb >/dev/null 2>&1 && [ -n "${SIMPID:-}" ]; then
               gdb -batch -nx -p "$SIMPID" \
                 -ex "set pagination off" -ex "handle SIGSEGV stop print" -ex "continue" \
-                -ex "printf \"\\n===== BACKTRACE =====\\n\"" -ex "bt full" \
+                -ex "printf \"\\n===== BACKTRACE (all threads) =====\\n\"" -ex "thread apply all bt full" \
                 -ex "printf \"\\n===== SHARED LIBS =====\\n\"" -ex "info sharedlibrary" \
                 -ex "detach" -ex "quit" 2>&1 &
               GDBPID=$!
@@ -279,25 +308,31 @@ jobs:
             fi
           ' 2>&1 | tail -300
           echo "----- sim.diag.log (Qt plugin loading, tail) -----"; tail -60 /tmp/sim.diag.log 2>/dev/null || true
-          pkill -9 -x simulator 2>/dev/null || true; pkill -9 -x connectiq 2>/dev/null || true
+          echo "----- monkeydo.diag.log (tail) -----"; tail -40 /tmp/monkeydo.diag.log 2>/dev/null || true
+          echo "----- ciq-test.log from the run step (tail) -----"; tail -40 /tmp/ciq-test.log 2>/dev/null || true
+          pkill -9 -x simulator 2>/dev/null || true; pkill -9 -x connectiq 2>/dev/null || true; pkill -9 -x Xvfb 2>/dev/null || true
           echo "::endgroup::"
 
-          echo "::group::(2) offscreen Qt platform probe (bypasses X11/xcb — candidate-fix signal)"
+          # (3) Candidate-fix probe for the GTK NULL style-provider clue PR #81's offscreen run
+          # surfaced (Gtk-CRITICAL _gtk_style_provider_private_get_settings): does a default GTK
+          # theme stop the startup segfault? If the sim survives here, the fix to trial in the run
+          # step is the theme install + GTK_THEME (kept out of the run path until confirmed).
+          echo "::group::(3) GTK-theme candidate-fix probe (offscreen + GTK_THEME=Adwaita)"
           if [ -n "${SIMBIN:-}" ]; then
-            QT_QPA_PLATFORM=offscreen timeout 30 "$SIMBIN" >/tmp/sim.offscreen.log 2>&1 &
-            OPID=$!; sleep 10
-            if kill -0 "$OPID" 2>/dev/null; then
-              echo "offscreen: sim STILL ALIVE after 10s — the X11/xcb path is the likely culprit; QT_QPA_PLATFORM=offscreen is a candidate fix to trial in the run step."
+            GTK_THEME=Adwaita QT_QPA_PLATFORM=offscreen timeout 30 "$SIMBIN" >/tmp/sim.gtk.log 2>&1 &
+            GPID=$!; sleep 10
+            if kill -0 "$GPID" 2>/dev/null; then
+              echo "GTK probe: sim STILL ALIVE after 10s with a default GTK theme — STRONG candidate fix; trial the theme install + GTK_THEME in the run step next."
             else
-              echo "offscreen: sim exited within 10s — offscreen is NOT a clean standalone fix (see log)."
+              echo "GTK probe: sim still exited — a GTK theme alone is not the fix (see log / the backtrace in group 1)."
             fi
-            kill -9 "$OPID" 2>/dev/null || true
-            tail -60 /tmp/sim.offscreen.log 2>/dev/null || true
+            kill -9 "$GPID" 2>/dev/null || true
+            tail -60 /tmp/sim.gtk.log 2>/dev/null || true
           else
-            echo "simulator binary not located; skipping offscreen probe"
+            echo "simulator binary not located; skipping GTK probe"
           fi
           echo "::endgroup::"
-          pkill -9 -x simulator 2>/dev/null || true
+          pkill -9 -x simulator 2>/dev/null || true; pkill -9 -x Xvfb 2>/dev/null || true
           exit 0
 
   # ------------------------------------------------------------------
