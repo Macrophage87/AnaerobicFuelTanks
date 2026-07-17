@@ -32,6 +32,7 @@ Rscript tools/crosscheck/gen_fixtures.R).
 """
 
 import csv
+import math
 import os
 import sys
 
@@ -80,6 +81,58 @@ def run_trace(cfg, rows):
     return out
 
 
+def check_dt(cfg):
+    """#83: exercise the dt != 1 path the parity/fixture traces (all dt=1) never touch.
+
+    Every rate/energy term in step() scales with dt (need=delta*dt, pcap/gcap=rate*dt,
+    kOn/kA/kG=1-exp(-dt/tau), mConsP=takeP/dt) and the caller guards dt<=0. By conservation the
+    COMBINED depletion (rP draw + rG draw + banked deficit) equals the demanded need=(P-CP)*dt
+    regardless of how step() splits it, so it must scale exactly linearly with dt. reset() starts
+    the aerobic tracker warm (aer=cp), so supply==cp and delta==(P-CP) is dt-independent.
+    Returns True iff every dt property holds.
+    """
+    P = cfg["cp"] + 200.0                    # supra-CP: demand the tanks must cover
+    u = P - cfg["cp"]                        # need per second = delta
+
+    def dep_after(dt, steps=1):
+        m = TankModel()
+        m.configure(cfg)
+        m.reset()
+        for _ in range(steps):
+            m.step(P, dt)
+        dep = (m.mCapP - m.mRP) + (m.mCapG - m.mRG) + m.mDeficit
+        return dep, m
+
+    d1, _ = dep_after(1.0)
+    d2, m2 = dep_after(2.0)
+    d05, m05 = dep_after(0.5)
+    d11, _ = dep_after(1.0, steps=2)         # one 2 s step must equal two 1 s steps
+    tol = 1e-6
+    checks = [
+        ("dep(1s)==need", abs(d1 - u) <= tol),
+        ("dep(2s)==2*need", abs(d2 - 2.0 * u) <= tol),
+        ("dep(.5s)==need/2", abs(d05 - 0.5 * u) <= tol),
+        ("2s==two 1s", abs(d2 - d11) <= tol),
+        ("consP finite@dt=.5", math.isfinite(m05.mConsP) and m05.mConsP > 0.0),
+    ]
+
+    # dt<=0 guard: integrate nothing, zero the live draw, stay finite — never divide by dt.
+    mz = TankModel()
+    mz.configure(cfg)
+    mz.reset()
+    rp0, rg0, def0 = mz.mRP, mz.mRG, mz.mDeficit
+    r0 = mz.step(P, 0.0)
+    checks += [
+        ("dt=0 holds state", mz.mRP == rp0 and mz.mRG == rg0 and mz.mDeficit == def0),
+        ("dt=0 zero draw", mz.mConsP == 0.0 and mz.mConsG == 0.0),
+        ("dt=0 finite pctP", math.isfinite(r0)),
+    ]
+
+    passed = all(ok for _, ok in checks)
+    print("[dt-scale] " + "  ".join("%s:%s" % (n, "OK" if ok else "FAIL") for n, ok in checks))
+    return passed
+
+
 def main():
     if not os.path.isdir(FIXDIR):
         print("ERROR: fixtures missing — run: Rscript tools/crosscheck/gen_fixtures.R")
@@ -121,6 +174,9 @@ def main():
         print("[%-8s] n=%3d  max|dRP|=%.6g J  max|dRG|=%.6g J  max|dpctP|=%.6g  (worst sec %d)  %s"
               % (name, len(rows), max_dP, max_dG, max_dPct, worst_sec,
                  "OK" if passed else "DIVERGENCE"))
+
+    # #83: dt-scaling / dt<=0 guard on the mirror (the fixtures only ever run dt=1).
+    ok = check_dt(cfg) and ok
 
     print("\n%s" % ("PASSED — R and the Python mirror agree (Monkey C guarded transitively)" if ok
                     else "FAILED — model divergence exceeds tolerance"))

@@ -88,6 +88,14 @@ class TankModel:
     def step(self, power, dt=1.0):
         p = power
 
+        # Defensive dt<=0 guard (mirror of TankModel.stepModel): a non-positive step integrates
+        # nothing and must not reach the mConsP = takeP/dt division (0/0 -> NaN). Kept in lock-step
+        # with the Monkey C model; parity paths always pass dt=1 so this never fires there.
+        if dt <= 0.0:
+            self.mConsP = 0.0
+            self.mConsG = 0.0
+            return 100.0 * self.mRP / self.mCapP
+
         # Aerobic supply.
         supply = self.mCP
         if self.mTauAer > 0.0:

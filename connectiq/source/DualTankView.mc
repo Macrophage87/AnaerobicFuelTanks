@@ -906,7 +906,17 @@ class DualTankView extends WatchUi.DataField {
             if (dt < 0.0) { dt = 0.0; }
             if (dt > 5.0) { dt = 5.0; }
         }
-        if (tnow != null) { mLastTimerTime = tnow; }
+        // Advance the model-time baseline by exactly what this tick integrates, so no advancing path
+        // leaves it stale. With a real stamp, snap to it. On a full info==null bridge tick (tnow null,
+        // decideDropout==BRIDGE) dt stays the 1.0 seed and we still step 1 s: advance the baseline 1 s
+        // too, else the recovery tick would compute dt=(tnow-staleBaseline) and re-span the whole bridge
+        // already integrated tick-by-tick (the double-count the reviewer traced). First-ever tick with
+        // no baseline yet (mLastTimerTime null) has nothing to advance and seeds on the next real stamp.
+        if (tnow != null) {
+            mLastTimerTime = tnow;
+        } else if (mLastTimerTime != null) {
+            mLastTimerTime += 1000;   // 1.0 s seed step on a stamp-less bridge tick
+        }
         if (dt <= 0.0) {
             mModel.mConsP = 0.0;
             mModel.mConsG = 0.0;

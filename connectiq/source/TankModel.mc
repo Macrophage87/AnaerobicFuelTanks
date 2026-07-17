@@ -152,6 +152,16 @@ class TankModel {
     function stepModel(power, dt) {
         var p = power;
 
+        // Defensive dt<=0 guard: a non-positive step integrates nothing and MUST NOT reach the
+        // mConsP = takeP/dt division below (0/0 -> NaN would poison the reserves). The live caller
+        // (DualTankView.compute) already skips the call on dt<=0 (timer reset / duplicate tick), so
+        // this is belt-and-suspenders that also makes the model total for any future caller.
+        if (dt <= 0.0) {
+            mConsP = 0.0;
+            mConsG = 0.0;
+            return 100.0 * mRP / mCapP;
+        }
+
         // Aerobic supply.
         //   Below CP: the aerobic system covers demand (supply = P) -> no anaerobic
         //     draw, so PCr does NOT deplete while you ride below CP.
