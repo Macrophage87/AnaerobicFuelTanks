@@ -124,6 +124,28 @@ jobs:
           openssl pkcs8 -topk8 -inform PEM -outform DER -in /tmp/ci_key.pem -out /tmp/ci_key.der -nocrypt
           mkdir -p bin
           monkeyc -f monkey.jungle -d edge1050 -o bin/app-test.prg -y /tmp/ci_key.der -t -l 1
+      - name: Install a GTK theme + settings schemas for the sim (#61 L0 — trialed, falsified; L1 substrate)
+        # #61 L0 fix candidate: the minimal image ships no GTK theme and no settings backend, and
+        # PR #81's backtrace put the startup SIGSEGV in the GTK path (frame #17 gtk_main; a NULL
+        # style-provider assertion), so this installs the full theme + schemas stack, compiles the
+        # glib schemas, and the run step reads schema defaults through the in-memory gsettings backend
+        # (GSETTINGS_BACKEND=memory) — dconf-gsettings-backend is deliberately NOT installed (one
+        # lever, not two, so the run isolates the theme+schemas variable).
+        #
+        # RESULT — L0 was FALSIFIED by PR #84's CI run: with this whole stack + GTK_THEME +
+        # GSETTINGS_BACKEND=memory in the run path, the sim STILL segfaulted under real Xvfb, the NULL
+        # style-provider assertion still fired (x3), and (:test) did not run (gate SKIPped). The stack
+        # is RETAINED as (a) a reproducible negative baseline and (b) substrate for L1 (dbus-run-session,
+        # a real session bus in place of the memory backend) — the next lever, tracked as a separate PR.
+        # Best-effort with per-command timeouts so an apt stall can't ride the 15-min job cap.
+        shell: bash
+        run: |
+          set -eux
+          timeout 180 apt-get update -y || true
+          timeout 240 apt-get install -y --no-install-recommends \
+            libgtk-3-0 libgtk-3-common gnome-themes-extra adwaita-icon-theme \
+            librsvg2-2 librsvg2-common gsettings-desktop-schemas || true
+          timeout 60 glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
       - name: Run (:test) headless under xvfb
         working-directory: connectiq
         # The image's default shell is dash (sh); this step uses the bash `/dev/tcp` socket
@@ -133,6 +155,9 @@ jobs:
           DEVICE: edge1050
           SIM_PORT: "1234"      # Connect IQ simulator shell port monkeydo connects to
           RUN_TIMEOUT: "300"
+          GTK_THEME: "Adwaita"          # #61 L0: give the startup GTK dialog a concrete theme
+          GSETTINGS_BACKEND: "memory"   # #61 L0: schema defaults without a dbus/dconf session bus
+          NO_AT_BRIDGE: "1"             # #61 L0: don't reach for the a11y bus (absent headless)
         run: |
           set -eux
           LOG=/tmp/ciq-test.log
@@ -258,13 +283,23 @@ jobs:
         env:
           DEVICE: edge1050
           SIM_PORT: "1234"
+          GTK_THEME: "Adwaita"          # #61 L0: same env as the run step so the probes test the fix
+          GSETTINGS_BACKEND: "memory"
+          NO_AT_BRIDGE: "1"
         run: |
           set +e
-          echo "::group::install gdb + default GTK theme (per-command timeouts so a stall can't ride the job cap)"
+          echo "::group::install gdb + GTK theme/schemas (per-command timeouts so a stall can't ride the job cap)"
           timeout 180 apt-get update -y >/dev/null 2>&1 || true
-          timeout 240 apt-get install -y gdb adwaita-icon-theme gnome-themes-extra >/dev/null 2>&1 || true
+          timeout 240 apt-get install -y gdb adwaita-icon-theme gnome-themes-extra \
+            libgtk-3-common librsvg2-2 librsvg2-common gsettings-desktop-schemas >/dev/null 2>&1 || true
+          timeout 60 glib-compile-schemas /usr/share/glib-2.0/schemas >/dev/null 2>&1 || true
           command -v gdb >/dev/null 2>&1 || echo "gdb unavailable; backtrace will be skipped"
           echo "::endgroup::"
+          # NOTE: no -dbgsym/ddebs step. PR #84's run empirically proved it a no-op HERE — the crash
+          # site is inside the stripped, closed-source Garmin `simulator` binary, which has no public
+          # symbol package, so thread-1 frames stayed ?? () even with libgtk-3/glib -dbgsym installed
+          # (even the libglib frame stayed unresolved). gdb below still yields the shared-lib map and
+          # whatever partial frames resolve, but the crash frame is NOT nameable via this route.
           DEV_JSON="$(timeout 60 find / -path '*/.Garmin/ConnectIQ/Devices/edge1050/compiler.json' 2>/dev/null | head -1 || true)"
           [ -n "$DEV_JSON" ] && export HOME="${DEV_JSON%%/.Garmin/*}"
           SIMBIN="$(timeout 60 find / -type f -name simulator -perm -u+x 2>/dev/null | head -1 || true)"
@@ -313,18 +348,20 @@ jobs:
           pkill -9 -x simulator 2>/dev/null || true; pkill -9 -x connectiq 2>/dev/null || true; pkill -9 -x Xvfb 2>/dev/null || true
           echo "::endgroup::"
 
-          # (3) Candidate-fix probe for the GTK NULL style-provider clue PR #81's offscreen run
-          # surfaced (Gtk-CRITICAL _gtk_style_provider_private_get_settings): does a default GTK
-          # theme stop the startup segfault? If the sim survives here, the fix to trial in the run
-          # step is the theme install + GTK_THEME (kept out of the run path until confirmed).
-          echo "::group::(3) GTK-theme candidate-fix probe (offscreen + GTK_THEME=Adwaita)"
+          # (3) With-theme cross-check for the GTK NULL style-provider clue PR #81's offscreen run
+          # surfaced (Gtk-CRITICAL _gtk_style_provider_private_get_settings). L0 (the theme+schemas
+          # stack + GTK_THEME/GSETTINGS_BACKEND) is applied in the RUN step, and PR #84's run
+          # FALSIFIED it: the sim still segfaulted under real Xvfb with the full stack, and the NULL
+          # style-provider assertion still fired. This probe stays as a cheap offscreen cross-check —
+          # the next lever is L1 (dbus-run-session), tracked as a separate PR, not group (1).
+          echo "::group::(3) GTK-theme cross-check probe (offscreen + GTK_THEME=Adwaita)"
           if [ -n "${SIMBIN:-}" ]; then
             GTK_THEME=Adwaita QT_QPA_PLATFORM=offscreen timeout 30 "$SIMBIN" >/tmp/sim.gtk.log 2>&1 &
             GPID=$!; sleep 10
             if kill -0 "$GPID" 2>/dev/null; then
-              echo "GTK probe: sim STILL ALIVE after 10s with a default GTK theme — STRONG candidate fix; trial the theme install + GTK_THEME in the run step next."
+              echo "GTK probe: sim alive OFFSCREEN — but the run step (same theme+schemas stack) still segfaulted under real Xvfb, so this is an offscreen/Xvfb difference, not the fix. Next lever: L1 (dbus-run-session)."
             else
-              echo "GTK probe: sim still exited — a GTK theme alone is not the fix (see log / the backtrace in group 1)."
+              echo "GTK probe: sim still exited — the GTK theme+schemas stack is not the fix (L0 falsified this run; see group 1). Next lever: L1 (dbus-run-session)."
             fi
             kill -9 "$GPID" 2>/dev/null || true
             tail -60 /tmp/sim.gtk.log 2>/dev/null || true
