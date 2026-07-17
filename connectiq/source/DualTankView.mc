@@ -327,15 +327,16 @@ class DualTankView extends WatchUi.DataField {
     // Public so the app can push live settings changes.
     function reloadSettings() {
         // #42: CP and W' via the null-returning form so we can tell "provided" from "defaulted".
-        // properties.xml declares NO default for these two, so getValue() returns null until the
-        // rider sets them (a non-null default made this always-configured and the guard dead). The
-        // model still gets a safe numeric fallback (250/20000) when unset; #64 already dropped any
-        // NaN/±Inf to null upstream, so a corrupt value can't masquerade as "configured".
+        // properties.xml defaults these two to the sentinel 0 (numeric properties require a default),
+        // so an unconfigured rider reads 0 -> isConfigured() is false and the "SET CP/W'" guard shows
+        // (the former 250/20000 defaults made it always-configured and the guard dead). A 0/unset
+        // (or null) value maps to the model's safe 250/20000 fallback so the FIT streams stay sane
+        // while unconfigured; #64 already dropped any NaN/±Inf to null upstream.
         var rawCP     = propFloatOrNull("CP");
         var rawWprime = propFloatOrNull("Wprime");
         mConfigured   = isConfigured(rawCP, rawWprime);
-        var cp      = (rawCP == null)     ? 250.0   : rawCP;
-        var wprime  = (rawWprime == null) ? 20000.0 : rawWprime;
+        var cp      = (rawCP == null     || rawCP <= 0.0)     ? 250.0   : rawCP;
+        var wprime  = (rawWprime == null || rawWprime <= 0.0) ? 20000.0 : rawWprime;
         var fP      = propFloat("fP", 0.25);
         var pPmax   = propFloat("pPmax", 300.0);
         var tauP    = propFloat("tauP", 27.0);

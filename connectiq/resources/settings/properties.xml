@@ -1,11 +1,12 @@
 <properties>
-    <!-- #42: CP/W' carry NO default so getValue() returns null until the rider actually sets them,
-         letting the "SET CP/W'" guard distinguish "unset" from "provided". (A non-null default here
-         made mConfigured always true and the guard dead.) reloadSettings() supplies a safe numeric
-         fallback (250 / 20000) for the model when unset; isConfigured() treats null OR <=0 as
-         not-provided, so the guard is correct whether the SDK yields null or 0 for an unset key. -->
-    <property id="CP"      type="number"></property>
-    <property id="Wprime"  type="number"></property>
+    <!-- #42: CP/W' default to the SENTINEL 0 (Monkey C requires a default for numeric properties,
+         so a null/empty default won't compile). 0 is below the settings-UI minimums (CP >= 50,
+         W' >= 1000), so a stored 0 unambiguously means "never configured" and lets the "SET CP/W'"
+         guard distinguish "unset" from "provided". (The former 250/20000 defaults made mConfigured
+         always true and the guard dead.) reloadSettings() maps a 0/unset value to the model's safe
+         250/20000 fallback; isConfigured() treats <=0 (or null) as not-provided. -->
+    <property id="CP"      type="number">0</property>
+    <property id="Wprime"  type="number">0</property>
     <property id="fP"      type="float">0.25</property>
     <property id="pPmax"   type="number">300</property>
     <property id="tauP"    type="number">27</property>
