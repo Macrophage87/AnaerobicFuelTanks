@@ -314,16 +314,26 @@ class DualTankView extends WatchUi.DataField {
         return (f == null) ? dflt : f;
     }
 
+    // #42: true only when the rider has actually PROVIDED both CP and W' — present, finite, and > 0.
+    // Static + pure so the mConfigured==false case is unit-testable without device Properties. Treats
+    // BOTH null (unset key, once properties.xml drops the defaults) AND a present <=0 as not-provided,
+    // so the guard is correct whether the SDK returns null or 0 for an unset property. A present
+    // below-floor value (e.g. CP=0.5) still counts as provided; the reloadSettings() clamps then keep
+    // the mCapP/mCapG denominators safe.
+    static function isConfigured(rawCP, rawWprime) {
+        return (rawCP != null && rawCP > 0.0 && rawWprime != null && rawWprime > 0.0);
+    }
+
     // Public so the app can push live settings changes.
     function reloadSettings() {
         // #42: CP and W' via the null-returning form so we can tell "provided" from "defaulted".
-        // A present but non-positive value (<=0) is treated as not-configured (the SET CP/W' prompt
-        // stays up); a present below-floor value (e.g. CP=0.5) still counts as provided — the prompt
-        // hides and the clamps below keep mCapP/mCapG denominators safe. #64 already dropped any
+        // properties.xml declares NO default for these two, so getValue() returns null until the
+        // rider sets them (a non-null default made this always-configured and the guard dead). The
+        // model still gets a safe numeric fallback (250/20000) when unset; #64 already dropped any
         // NaN/±Inf to null upstream, so a corrupt value can't masquerade as "configured".
         var rawCP     = propFloatOrNull("CP");
         var rawWprime = propFloatOrNull("Wprime");
-        mConfigured   = (rawCP != null && rawCP > 0.0 && rawWprime != null && rawWprime > 0.0);
+        mConfigured   = isConfigured(rawCP, rawWprime);
         var cp      = (rawCP == null)     ? 250.0   : rawCP;
         var wprime  = (rawWprime == null) ? 20000.0 : rawWprime;
         var fP      = propFloat("fP", 0.25);

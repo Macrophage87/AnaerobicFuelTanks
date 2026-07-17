@@ -283,3 +283,28 @@ function testCoerceFiniteFloat(logger) {
 
     return true;
 }
+
+// ---- #42: SET CP/W' guard reachability (isConfigured) ----
+//
+// Exercises mConfigured == false directly (the case the inert-guard regression hid): the pure
+// seam behind reloadSettings()'s mConfigured. null models an unset key once properties.xml drops
+// the CP/W' defaults; the guard must also reject a present <=0 so it is right whether the SDK
+// yields null or 0 for an unset property.
+(:test)
+function testIsConfigured(logger) {
+    // Both provided and positive -> configured.
+    Test.assert(DualTankView.isConfigured(250.0, 20000.0));
+    Test.assert(DualTankView.isConfigured(0.5, 1000.0));    // below-floor but PROVIDED -> configured
+
+    // Unset (null) -> NOT configured (properties.xml no-default case; the SET CP/W' prompt stays up).
+    Test.assert(!DualTankView.isConfigured(null, 20000.0));
+    Test.assert(!DualTankView.isConfigured(250.0, null));
+    Test.assert(!DualTankView.isConfigured(null, null));
+
+    // Present but non-positive -> NOT configured (robust if the SDK returns 0 instead of null).
+    Test.assert(!DualTankView.isConfigured(0.0, 20000.0));
+    Test.assert(!DualTankView.isConfigured(250.0, 0.0));
+    Test.assert(!DualTankView.isConfigured(-5.0, 20000.0));
+
+    return true;
+}

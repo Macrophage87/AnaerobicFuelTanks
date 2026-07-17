@@ -1,6 +1,11 @@
 <properties>
-    <property id="CP"      type="number">250</property>
-    <property id="Wprime"  type="number">20000</property>
+    <!-- #42: CP/W' carry NO default so getValue() returns null until the rider actually sets them,
+         letting the "SET CP/W'" guard distinguish "unset" from "provided". (A non-null default here
+         made mConfigured always true and the guard dead.) reloadSettings() supplies a safe numeric
+         fallback (250 / 20000) for the model when unset; isConfigured() treats null OR <=0 as
+         not-provided, so the guard is correct whether the SDK yields null or 0 for an unset key. -->
+    <property id="CP"      type="number"></property>
+    <property id="Wprime"  type="number"></property>
     <property id="fP"      type="float">0.25</property>
     <property id="pPmax"   type="number">300</property>
     <property id="tauP"    type="number">27</property>
