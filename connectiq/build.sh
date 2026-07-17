@@ -3,6 +3,13 @@
 # Requires the Connect IQ SDK (monkeyc/monkeydo on PATH) and a developer key.
 # Usage: ./build.sh [device]      device defaults to edge840
 set -euo pipefail
+# Fail early with an actionable message if the Connect IQ SDK isn't on PATH,
+# rather than a bare "monkeyc: command not found" mid-build.
+command -v monkeyc >/dev/null 2>&1 || {
+  echo "Connect IQ SDK not on PATH (monkeyc not found). Install the SDK and add its bin/ to PATH:"
+  echo "  https://developer.garmin.com/connect-iq/sdk/"
+  exit 1
+}
 DEVICE="${1:-edge840}"
 KEY="${CIQ_KEY:-developer_key.der}"
 mkdir -p bin
