@@ -406,8 +406,8 @@ case (there the caps and spill dominate and the share rule never binds — verif
   then disown it elsewhere — the residual is a model output, motivated by, not validated against, the
   biopsy value. Reviewer 3's "you can't have the mapping both ways" is correct and applied here.)*
 - **Energy conserved even when a cap binds.** Residual `unmet` is banked in a **deficit `D`** (standard
-  W′bal permits a negative balance), so `(R_p + R_g − D)` drops by exactly `Δ`·Δt per second and §6.2
-  holds. `D` clears only below LT1 (Case 2) — it is supra-cap byproduct load and must respect the same
+  W′bal permits a negative balance), so `(R_p + R_g − D)` drops by exactly `Δ`·Δt per second and the §4.4
+  conservation result holds. `D` clears only below LT1 (Case 2) — it is supra-cap byproduct load and must respect the same
   intensity gate as the glycolytic tank. Note the deficit preserves the *aggregate* but not the *split*:
   work booked to `D` never drains a tank, so if `D` is large the two bars read slightly full. `D` is an
   accounting term for the rare supra-flux case, usually signalling a **stale `P₁ₛ`**, not fatigue.
@@ -513,7 +513,7 @@ numbers below use `fatK` and the aerobic ramp on, `g_fat` off.)
 - **Consumption rate** (per system, W) — `take_p/Δt`, `take_g/Δt`, the live draw on each tank.
 - **Combined W′bal** `= (R_p + R_g − D)/W′` — the deficit term keeps this **energy-conserving in
   depletion** (it drops by exactly `Δ`·Δt per second) so it matches a single-tank W′bal reference on
-  above-CP segments. It intentionally **diverges in recovery** (bi-exponential + LT1 gate; §4.4/§6.2),
+  above-CP segments. It intentionally **diverges in recovery** (bi-exponential + LT1 gate; §4.4),
   so it is *depletion-compatible*, not identical everywhere.
 - **Two distinct flags** (the split the code has always made, now stated in the paper — closes the
   round-4/round-5 open item):
@@ -671,7 +671,13 @@ the one test that would actually earn the second tank.
 
 Three reviews converged on the point that the paper validated *plausibility* but never the two cheap,
 data-in-hand questions that decide whether the feature is worth building. Both were run on six real
-interval/VO₂max sessions (the model's best case — a steady endurance ride would score far lower):
+interval/VO₂max sessions — the best case for **informativeness** (the bar is most *live* when the ride
+repeatedly loads and unloads W′; a steady endurance ride would score far lower). **This is a claim about
+information content, not accuracy**, and the two are not the same regime: on **sub-minute-recovery
+intermittent work** (e.g. 30/15 s micro-intervals) the model is *outside its validated domain* — the hard
+CP supply cap over-attributes supra-CP work to the anaerobic tanks and over-drains them (§7; issue #86),
+so a live/diverging bar there is *informative-but-wrong*. The results below (informativeness, R² ≈ 0.03)
+stand; they must not be read as accuracy on the short-recovery subset.
 
 - **How often is the fast-reserve bar informative, and is it a function of W′bal?** Two tests. (a) The bar
   is below 95% (i.e. live) for a per-ride **20 / 31 / 38 / 52 / 61 / 79%** of ride time — median ~45%, range
@@ -912,9 +918,29 @@ bioenergetic one.
   not exclusive, but they have different centres of gravity, and v0.6 blurred them.
 - **Fixed time constants** ignore the documented pH-dependence and bout-to-bout slowing of PCr
   recovery unless the optional fatigue term is enabled.
-- **Hard CP boundary** omits the aerobic slow component and onset kinetics unless the optional
-  aerobic-ramp term is enabled; expect over-attribution to anaerobic tanks in long low-intensity
-  recovery (the same failure mode reported for the EJAP 2023 model).
+- **Hard CP boundary → over-drain on short-recovery intermittent work (tracked limitation, issue #86).**
+  Aerobic `supply` is clamped at CP, so it cannot represent an above-CP aerobic (VO₂ slow-component)
+  contribution during/just-after intervals — the mechanism sub-minute-recovery work exploits. On
+  **short-recovery intermittent** rides (recovery valleys ≲45–60 s, e.g. 30/15 s) the model
+  over-attributes supra-CP work to the anaerobic tanks, drives the glycolytic reserve to the floor, and
+  then under-predicts a subsequent maximal effort — reproduced on a real 30/15 ride (2026-07-20). The
+  pathology is a smooth monotonic function of recovery duration and is essentially gone by ~45–60 s, so
+  the model is **sound on continuous efforts, long-recovery intervals, and isolated sprints** and fails
+  **only** in the short-recovery-intermittent corner. This is the shared W′bal depletion substrate (not
+  the two-tank decomposition), and it is **parameter-proof**: in-range `W′`/`f_p`/valley-refill tuning
+  refills *between* reps but cannot lift the CP cap (companion calibration item #87). It consolidates the
+  caveats scattered across §3 (hydraulic models out-predict W′bal on intermittent recovery), §6.6
+  (out-of-sample intermittent tolerance as the decisive test), and §6.8 (informativeness ≠ accuracy on
+  this subset). **Resolution is a deliberate structural fork, not a parameter change:** either (a) add an
+  above-CP aerobic term for intermittent recovery — which makes `need = (P−supply)·Δt < Δ·Δt`, breaking
+  the §4.4 *CP-referenced W′bal equivalence* (internal energy conservation is retained; the proof must be
+  *re-stated* with aerobic-excess as a supply source) and pulling the model toward the hydraulic family —
+  or (b) bound the stated validity domain and have the tools warn rather than report a spurious "empty"
+  there. The R calibration tool now takes path (b): it flags `short-recovery` rides and marks them
+  outside the validated domain. The above-CP term (a) is tracked separately as issue #88 (Phase 2 of #86).
+  (Also unchanged: the boundary omits onset kinetics unless the optional aerobic-ramp term is enabled,
+  and expect the same over-attribution in long low-intensity recovery — the failure mode reported for the
+  EJAP 2023 model.)
 - **Power is whole-body and mechanical**, not muscle-specific; the model cannot see local fatigue,
   cadence, or fiber-type effects.
 - **Not medical or diagnostic.** This is a training/pacing aid; tank levels are estimates, not

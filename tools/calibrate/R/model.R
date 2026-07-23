@@ -21,6 +21,11 @@ DEFAULTS  <- list(fP = 0.25, pPmax = 300, tauP = 27, tauG = 470,
                   lt1Frac = 0.80, eta = 1.00, fatK = 0.75, gFat = 0.00, tauAer = 25, tauOn = 6)
 GLY_RATE_FRAC <- 0.5   # glycolytic peak rate as a fraction of PCr peak rate (PCr is the higher-power system)
 CP_FLOOR_W <- 50       # CP below this is physically implausible for the tool's use; below 0 it is impossible
+SHORT_REC_S <- 45      # #86: an inter-bout recovery valley shorter than this (s) puts the ride in the
+                       # sub-minute-recovery intermittent regime the model is NOT validated for -- the hard
+                       # CP supply cap over-attributes supra-CP work to the anaerobic tanks and over-drains
+                       # them. Sound by ~45-60 s valleys (issue's sweep). See white-paper §7 and issue #86.
+SHORT_REC_FRAC <- 0.5  # #86: flag the ride when at least this fraction of its valleys are short (<SHORT_REC_S)
 PARAMS <- c("CP","Wprime","pPmax","fP","tauP","tauG","eta")   # the tracked "sprint values"
 
 cv <- function(x) { x <- x[is.finite(x)]; if (length(x) > 1 && mean(x) != 0) sd(x)/abs(mean(x)) else NA_real_ }
@@ -277,6 +282,7 @@ suggest_marks <- function(power, cp, base) {
 ride_diag <- function(power, cp, base) {
   r <- rle(power > cp); ends <- cumsum(r$lengths); starts <- ends - r$lengths + 1L
   bouts <- which(r$values & r$lengths >= 5); nb <- length(bouts); mean_rec <- NA_real_; refill <- NA_real_
+  short_rec <- NA_real_                           # #86: fraction of inter-bout valleys shorter than SHORT_REC_S
   tot <- simulate_tanks(power, cp, base)$total; Wp <- base$Wprime
   if (!is.finite(Wp) || Wp <= 0) Wp <- 1e-6      # defensive: a non-physical W' must not sign-flip the margin/refill ratios
   margin <- min(tot) / Wp                        # lowest reserve reached, as share of W'
@@ -285,8 +291,10 @@ ride_diag <- function(power, cp, base) {
     for (k in seq_len(nb-1)) { b1 <- bouts[k]; b2 <- bouts[k+1]; gaps[k] <- starts[b2]-ends[b1]
       after <- tot[ends[b1]]; before <- tot[starts[b2]]; rf[k] <- (before-after)/max(1e-6, Wp-after) }
     mean_rec <- mean(gaps); refill <- median(pmax(0, pmin(1, rf)))
+    short_rec <- mean(gaps < SHORT_REC_S)        # #86: per-valley test, NOT a mean_rec threshold -- a
+                                                 # long+short mix can average >45 s yet hide an over-drained subset
   }
-  list(n_bouts = nb, mean_rec_s = mean_rec, refill = refill, margin = margin)
+  list(n_bouts = nb, mean_rec_s = mean_rec, refill = refill, margin = margin, short_rec_frac = short_rec)
 }
 ride_flag <- function(dg, fit) {
   fl <- character(0)
@@ -294,6 +302,11 @@ ride_flag <- function(dg, fit) {
   if (!is.null(fit) && fit$conv != 0) fl <- c(fl, "no-converge")
   if (!is.null(fit) && isTRUE(fit$boundary)) fl <- c(fl, "boundary-hit")
   if (is.na(dg$n_bouts) || dg$n_bouts < 3) fl <- c(fl, "few-bouts")
+  # #86: sub-minute-recovery intermittent regime -- the model over-drains here (hard CP cap), so its
+  # reserve trace / "empty" is outside the validated domain. Warn-only: still flagged and shown, but
+  # NOT excluded from the aggregate (that is a Phase-2 call). Mutually exclusive with few-bouts (n>=3).
+  if (!is.null(dg$short_rec_frac) && !is.na(dg$short_rec_frac) &&
+      dg$n_bouts >= 3 && dg$short_rec_frac >= SHORT_REC_FRAC) fl <- c(fl, "short-recovery")
   # A submaximal set is *meant* to leave margin, so "rest-too-long" doesn't apply.
   if (!is.na(dg$refill) && dg$refill > 0.7 && !(!is.null(fit) && isTRUE(fit$submax))) fl <- c(fl, "rest-too-long")
   if (!is.null(fit) && !isTRUE(fit$submax) && fit$obj > 0.05) fl <- c(fl, "poor-fit")
