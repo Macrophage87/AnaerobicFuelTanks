@@ -928,7 +928,9 @@ bioenergetic one.
   the model is **sound on continuous efforts, long-recovery intervals, and isolated sprints** and fails
   **only** in the short-recovery-intermittent corner. This is the shared W′bal depletion substrate (not
   the two-tank decomposition), and it is **parameter-proof**: in-range `W′`/`f_p`/valley-refill tuning
-  refills *between* reps but cannot lift the CP cap (companion calibration item #87). It consolidates the
+  refills *between* reps but cannot lift the CP cap (companion calibration item #87 — note the default
+  `f_p = 0.25` is PCr-light, routing ~75% of W′ into the slow glycolytic vessel, which *amplifies* the
+  symptoms on short-recovery work; the calibration tool now flags PCr-light + single-session fits). It consolidates the
   caveats scattered across §3 (hydraulic models out-predict W′bal on intermittent recovery), §6.6
   (out-of-sample intermittent tolerance as the decisive test), and §6.8 (informativeness ≠ accuracy on
   this subset). **Resolution is a deliberate structural fork, not a parameter change:** either (a) add an
