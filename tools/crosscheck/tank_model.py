@@ -21,6 +21,8 @@ import math
 
 AER_FALL = 6.0
 GLY_RATE_FRAC = 0.5
+TAU_E_ON = 90.0    # #86 Phase 2: above-CP aerobic-excess rise time constant (s)
+TAU_E_OFF = 120.0  # #86 Phase 2: above-CP aerobic-excess decay time constant (s)
 
 
 class TankModel:
@@ -44,6 +46,7 @@ class TankModel:
         self.mGFat = cfg["gFat"]
         self.mTauAer = cfg["tauAer"]
         self.mTauOn = cfg["tauOn"]
+        self.mEAerMax = cfg.get("eAerMax", 0.0)   # #86 Phase 2: above-CP aerobic excess cap (0 = off)
 
         self.mCapP = self.mFP * self.mWprime
         self.mCapG = (1.0 - self.mFP) * self.mWprime
@@ -63,6 +66,7 @@ class TankModel:
         self.mAer = self.mCP        # WARM (test-only) — see module docstring / part C1
         self.mG = 0.0
         self.mDeficit = 0.0
+        self.mE = 0.0               # #86 Phase 2: above-CP aerobic excess (0 until eAerMax > 0)
 
     def clamp_reserves(self):
         if self.mRP < 0.0:
@@ -110,7 +114,15 @@ class TankModel:
                 self.mAer = floorA
             if self.mAer > self.mCP:
                 self.mAer = self.mCP
-            supply = self.mAer if p > self.mCP else p
+            if self.mEAerMax > 0.0:   # #86 Phase 2: above-CP aerobic excess (gated; 0 -> identical)
+                tgtE = self.mEAerMax if p > self.mCP else 0.0
+                kE = (1.0 - math.exp(-dt / TAU_E_ON)) if p > self.mCP else (1.0 - math.exp(-dt / TAU_E_OFF))
+                self.mE += (tgtE - self.mE) * kE
+                if self.mE < 0.0:
+                    self.mE = 0.0
+                if self.mE > self.mEAerMax:
+                    self.mE = self.mEAerMax
+            supply = min(p, self.mAer + self.mE) if p > self.mCP else p   # mE==0 off -> == mAer (identical)
         else:
             self.mAer = self.mCP
 

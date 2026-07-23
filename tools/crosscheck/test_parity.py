@@ -133,6 +133,38 @@ def check_dt(cfg):
     return passed
 
 
+def check_eaer(cfg):
+    """#86 Phase 2: the gated above-CP aerobic-excess term. OFF (eAerMax=0) is byte-identical to the
+    hard-CP model (the fixtures already prove that). ON (eAerMax>0) lets aerobic supply exceed CP
+    during supra-CP work, so the combined reserve depletes LESS. This mirrors the R simulate_tanks
+    term line-for-line; test-aer_excess.R guards R and Tests.mc::testAerExcess guards Monkey C.
+    """
+    P = cfg["cp"] + 150.0                    # supra-CP so the excess ramps in
+
+    def run(eaer):
+        c = dict(cfg)
+        c["eAerMax"] = eaer
+        m = TankModel()
+        m.configure(c)
+        m.reset()
+        for _ in range(300):                 # 5 min above CP
+            m.step(P, 1.0)
+        dep = (m.mCapP - m.mRP) + (m.mCapG - m.mRG) + m.mDeficit
+        return dep, m
+
+    d_off, m_off = run(0.0)
+    d_on, m_on = run(30.0)
+    checks = [
+        ("off: E stays 0", m_off.mE == 0.0),
+        ("on: E ramps up", m_on.mE > 0.0),
+        ("on: E capped", m_on.mE <= 30.0 + 1e-9),
+        ("on depletes less", d_on < d_off),
+    ]
+    passed = all(ok for _, ok in checks)
+    print("[eaer]     " + "  ".join("%s:%s" % (n, "OK" if ok else "FAIL") for n, ok in checks))
+    return passed
+
+
 def main():
     if not os.path.isdir(FIXDIR):
         print("ERROR: fixtures missing — run: Rscript tools/crosscheck/gen_fixtures.R")
@@ -177,6 +209,8 @@ def main():
 
     # #83: dt-scaling / dt<=0 guard on the mirror (the fixtures only ever run dt=1).
     ok = check_dt(cfg) and ok
+    # #86 Phase 2: the gated above-CP aerobic-excess term on the mirror (fixtures keep it off).
+    ok = check_eaer(cfg) and ok
 
     print("\n%s" % ("PASSED — R and the Python mirror agree (Monkey C guarded transitively)" if ok
                     else "FAILED — model divergence exceeds tolerance"))

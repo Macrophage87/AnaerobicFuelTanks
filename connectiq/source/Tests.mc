@@ -232,6 +232,29 @@ function testStepScalesWithDt(logger) {
     return true;
 }
 
+// ---- #86 Phase 2: gated above-CP aerobic-excess term ----
+//
+// The 12-element configure() array (the default everywhere on-device) leaves eAerMax = 0, so the model
+// is byte-identical to the hard-CP boundary (guarded transitively by model-parity). A 13th element > 0
+// enables an above-CP aerobic excess: aerobic supply can exceed CP during supra-CP work, so the tanks
+// deplete LESS. Mirrors R simulate_tanks / the Python step (test-aer_excess.R / test_parity check_eaer).
+(:test)
+function testAerExcess(logger) {
+    var cfg12 = [250.0, 20000.0, 0.25, 300.0, 27.0, 470.0, 0.80, 1.00, 0.75, 0.0, 25.0, 6.0];
+    var off = new TankModel(); off.configure(cfg12); off.resetTanks();
+    var on  = new TankModel();
+    on.configure([250.0, 20000.0, 0.25, 300.0, 27.0, 470.0, 0.80, 1.00, 0.75, 0.0, 25.0, 6.0, 30.0]);
+    on.resetTanks();
+    for (var s = 0; s < 300; s += 1) { off.stepModel(400.0, 1.0); on.stepModel(400.0, 1.0); }
+    var offRes = off.mRP + off.mRG - off.mDeficit;
+    var onRes  = on.mRP + on.mRG - on.mDeficit;
+    logger.debug("aer-excess off=" + offRes + " on=" + onRes + " mE=" + on.mE);
+    Test.assert(off.mE == 0.0);      // 12-element configure -> excess disabled
+    Test.assert(on.mE > 0.0);        // ramped in over the supra-CP effort
+    Test.assert(onRes > offRes);     // excess covered part of the demand -> more reserve left
+    return true;
+}
+
 // ---- validateBlob persistence-seam tests ----
 
 // Build a well-formed, acceptable snapshot: version 2, started, fresh, matching sessId.
