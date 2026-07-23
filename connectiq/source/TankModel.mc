@@ -29,6 +29,9 @@ class TankModel {
     // Glycolytic peak rate as a fraction of PCr peak rate. PCr is the higher-power
     // system, so glycolysis is rate-capped below it (a modeling assumption; ~0.5).
     const GLY_RATE_FRAC = 0.5;
+    // #86 Phase 2: above-CP aerobic-excess (VO2 slow component) rise/decay time constants (s).
+    const TAU_E_ON = 90.0;
+    const TAU_E_OFF = 120.0;
 
     // ---- Settings (public so DualTankView and tests can read/write them) ----
     var mCP, mWprime, mFP, mPPmax, mTauP, mTauG, mLt1Frac, mEta;
@@ -36,6 +39,7 @@ class TankModel {
     var mGFat;    // glycolytic flux fatigue exponent, rate_g *= (rG/cG)^gFat (0 = off)
     var mTauAer;  // aerobic ramp time constant, s (0 = disabled -> hard CP)
     var mTauOn;   // glycolytic activation time constant, s (~6, Parolin 1999)
+    var mEAerMax; // #86 Phase 2: above-CP aerobic excess cap (W); 0 = off (default)
     // ---- Derived capacities ----
     var mCapP, mCapG;
     // ---- State ----
@@ -45,6 +49,7 @@ class TankModel {
     var mAer;            // aerobic supply (W), when ramp enabled
     var mG;              // glycolytic activation (0..1): ramps in over tauOn
     var mDeficit;        // energy debt (J): supra-CP work the rate caps couldn't place
+    var mE;              // #86 Phase 2: above-CP aerobic excess (W); 0 until mEAerMax > 0
 
     function initialize() {
     }
@@ -69,6 +74,7 @@ class TankModel {
         mGFat    = s[9];
         mTauAer  = s[10];
         mTauOn   = s[11];
+        mEAerMax = (s.size() > 12) ? s[12] : 0.0;   // #86 Phase 2: optional 13th element; absent -> off (back-compat)
 
         mCapP = mFP * mWprime;
         mCapG = (1.0 - mFP) * mWprime;
@@ -95,6 +101,7 @@ class TankModel {
         mAer = 0.0;
         mG = 0.0;
         mDeficit = 0.0;
+        mE = 0.0;
     }
 
     // Clamp both reserves into [0, capacity]. Called only when mRP/mRG are non-null.
@@ -180,7 +187,16 @@ class TankModel {
             var floorA = 0.5 * mCP;
             if (mAer < floorA) { mAer = floorA; }
             if (mAer > mCP) { mAer = mCP; }
-            supply = (p > mCP) ? mAer : p;
+            if (mEAerMax > 0.0) {   // #86 Phase 2: above-CP aerobic excess (gated; 0 -> identical)
+                var tgtE = (p > mCP) ? mEAerMax : 0.0;
+                var kE = (p > mCP)
+                    ? (1.0 - Math.pow(Math.E, -dt / TAU_E_ON))
+                    : (1.0 - Math.pow(Math.E, -dt / TAU_E_OFF));
+                mE += (tgtE - mE) * kE;
+                if (mE < 0.0) { mE = 0.0; }
+                if (mE > mEAerMax) { mE = mEAerMax; }
+            }
+            supply = (p > mCP) ? ((p < mAer + mE) ? p : mAer + mE) : p;  // mE==0 off -> mAer (identical)
         } else {
             mAer = mCP;
         }

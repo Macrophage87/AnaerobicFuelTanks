@@ -211,7 +211,7 @@ simulate_tanks <- function(power, cp, par) {
   if (!is.finite(cp) || cp < 1e-6) cp <- 1e-6
   cP <- par$fP * par$Wprime; cG <- (1 - par$fP) * par$Wprime
   if (cP < 1e-6) cP <- 1e-6; if (cG < 1e-6) cG <- 1e-6   # guard f_p at 0/1 (rate taper divides by cP)
-  rP <- cP; rG <- cG; aer <- cp; g <- 0; D <- 0; resTot <- numeric(n); deficit <- numeric(n)
+  rP <- cP; rG <- cG; aer <- cp; g <- 0; D <- 0; E <- 0; resTot <- numeric(n); deficit <- numeric(n)
   rPv <- numeric(n); rGv <- numeric(n)   # per-tank reserve series (for the Monkey C cross-check)
   AER_FALL <- 6
   kUp <- if (par$tauAer > 0) 1 - exp(-1 / par$tauAer) else 1
@@ -219,11 +219,24 @@ simulate_tanks <- function(power, cp, par) {
   bG <- 1 - exp(-1 / par$tauG)
   tauOn <- if (is.null(par$tauOn)) 6 else par$tauOn        # glycolytic activation time constant (s)
   kOn <- if (tauOn > 0) 1 - exp(-1 / tauOn) else 1
+  # #86 Phase 2 (gated; eAerMax = 0 -> OFF -> byte-identical to the hard-CP model, which is why the
+  # fixtures/parity are untouched). An above-CP aerobic excess E (VO2 slow component) lets aerobic
+  # supply exceed CP during/after intervals so short-recovery work isn't over-attributed to the tanks.
+  # E rises toward eAerMax while P > CP (TAU_E_ON) and decays toward 0 while P <= CP (TAU_E_OFF).
+  eAerMax <- if (is.null(par$eAerMax)) 0 else par$eAerMax
+  TAU_E_ON <- 90; TAU_E_OFF <- 120
+  kEon <- 1 - exp(-1 / TAU_E_ON); kEoff <- 1 - exp(-1 / TAU_E_OFF)
   for (i in seq_len(n)) {
     p <- power[i]
     if (par$tauAer > 0) {                     # sticky aerobic, floored; below CP aerobic covers demand
       tgt <- min(p, cp); aer <- aer + (tgt - aer) * (if (tgt > aer) kUp else kDn)
-      aer <- max(0.5 * cp, min(cp, aer)); supply <- if (p > cp) aer else p
+      aer <- max(0.5 * cp, min(cp, aer))
+      if (eAerMax > 0) {                       # above-CP aerobic excess (gated; see setup above)
+        E <- E + ((if (p > cp) eAerMax else 0) - E) * (if (p > cp) kEon else kEoff)
+        if (E < 0) E <- 0
+        if (E > eAerMax) E <- eAerMax
+      }
+      supply <- if (p > cp) min(p, aer + E) else p   # E == 0 when off -> min(p, aer) == aer (identical)
     } else supply <- cp
     delta <- p - supply
     if (delta > 0) {

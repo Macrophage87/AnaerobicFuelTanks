@@ -939,7 +939,13 @@ bioenergetic one.
   *re-stated* with aerobic-excess as a supply source) and pulling the model toward the hydraulic family —
   or (b) bound the stated validity domain and have the tools warn rather than report a spurious "empty"
   there. The R calibration tool now takes path (b): it flags `short-recovery` rides and marks them
-  outside the validated domain. The above-CP term (a) is tracked separately as issue #88 (Phase 2 of #86).
+  outside the validated domain. Path (a) (issue #88, Phase 2 of #86) is now present in all three model
+  implementations as a **gated scaffold**: an above-CP aerobic excess `E` (rising toward `eAerMax` while
+  `P > CP` with `τ_E,on = 90 s`, decaying with `τ_E,off = 120 s`), so `supply = min(P, aer + E)`. It is
+  **off by default** (`eAerMax = 0` → `E ≡ 0` → byte-identical, which is why `model-parity` and the
+  fixtures are unchanged). Turning it on is deferred until the re-derivation above and the full re-anchor
+  (§4.4 tables, §6.8/§6.9, §6.10-primary, the 30/15 ride) are done — at which point `eAerMax` is flipped
+  to a non-zero default or a documented negative result explains why it stays off.
   (Also unchanged: the boundary omits onset kinetics unless the optional aerobic-ramp term is enabled,
   and expect the same over-attribution in long low-intensity recovery — the failure mode reported for the
   EJAP 2023 model.)
