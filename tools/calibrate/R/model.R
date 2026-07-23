@@ -174,8 +174,16 @@ best_mean_power <- function(p, d) { n <- length(p); if (n < d) return(NA_real_)
 mmp_curve <- function(power_list, durations = DURATIONS)
   vapply(durations, function(d) { v <- vapply(power_list, best_mean_power, numeric(1), d = d)
     if (all(is.na(v))) NA_real_ else max(v, na.rm = TRUE) }, numeric(1))
-fit_cp <- function(dur, pw, tmin, tmax) {
+# #87: per-duration provenance — which uploaded file supplied each duration's best mean power.
+# Lets fit_cp() flag a CP/W' fit whose in-window efforts all come from ONE session (soft W').
+mmp_src <- function(power_list, durations = DURATIONS)
+  vapply(durations, function(d) { v <- vapply(power_list, best_mean_power, numeric(1), d = d)
+    if (all(is.na(v))) NA_integer_ else which.max(v) }, integer(1))
+fit_cp <- function(dur, pw, tmin, tmax, src = NULL) {
   keep <- which(dur >= tmin & dur <= tmax & is.finite(pw)); if (length(keep) < 2) return(NULL)
+  # #87: single-session when every in-window effort's best traces to the same file (or only one
+  # file was uploaded). W' rested on one session is soft -- the fit can't average out a bad day.
+  single_session <- !is.null(src) && length(unique(stats::na.omit(src[keep]))) == 1
   t <- dur[keep]; W <- pw[keep] * t; f <- lm(W ~ t)
   CP <- unname(coef(f)[2]); Wprime <- unname(coef(f)[1])
   # Sanity: the CP asymptote must sit below every finite-duration power in the
@@ -194,7 +202,7 @@ fit_cp <- function(dur, pw, tmin, tmax) {
   list(CP = CP, Wprime = Wprime, r2 = if (length(keep) < 3) NA_real_ else summary(f)$r.squared,
        n = length(keep), rng = max(t)/min(t), t = t, W = W,
        impossible = is.finite(CP) && is.finite(minP) && CP >= minP,
-       nonphysical = nonphysical, implausible = implausible)
+       nonphysical = nonphysical, implausible = implausible, single_session = single_session)
 }
 simulate_tanks <- function(power, cp, par) {
   n <- length(power)

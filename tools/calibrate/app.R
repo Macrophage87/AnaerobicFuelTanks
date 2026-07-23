@@ -48,7 +48,7 @@ PARAM_DESC <- c(
   CP      = "Critical power (W): highest sustainable power; linear work model over best 2-12 min efforts.",
   Wprime  = "Anaerobic work capacity above CP (J).",
   pPmax   = "Max PCr (fast) power above CP (W): the immediate rate cap, from the best 1 s power across files.",
-  fP      = "PCr share of W' (0-1): weakly identified; recovery fit across rides, else default (~0.25).",
+  fP      = "PCr share of W' (0-1): weakly identified; recovery fit across rides, else default (~0.25). NOTE: 0.25 is PCr-light -- it routes ~75% of W' into the slow glycolytic vessel, which amplifies low/'empty' readings on short-recovery intervals (#87).",
   tauP    = "PCr recovery time constant (s): fast reconstitution.",
   tauG    = "Glycolytic recovery time constant (s): slow reconstitution.",
   eta     = "PCr recovery-rate efficiency: HELD FIXED at 1.0 (degenerate with tauP) - not fitted; retained for settings/export parity.",
@@ -228,8 +228,8 @@ server <- function(input, output, session) {
     lines <- sprintf("%s  %s  (%s)%s", ifelse(r$ok, "✓", "✗"), r$name,
                      ifelse(r$ok, paste0(r$n, " s of power"), r$reason), warn)
     paste(c(sprintf("%d/%d files loaded", sum(r$ok), length(r$ok)), lines), collapse = "\n") })
-  mmp   <- reactive(data.frame(duration = DURATIONS, power = mmp_curve(powers()$p)))
-  cpfit <- reactive(fit_cp(mmp()$duration, mmp()$power, input$cpwin[1]*60, input$cpwin[2]*60))
+  mmp   <- reactive({ pw <- powers()$p; data.frame(duration = DURATIONS, power = mmp_curve(pw), src = mmp_src(pw)) })
+  cpfit <- reactive(fit_cp(mmp()$duration, mmp()$power, input$cpwin[1]*60, input$cpwin[2]*60, mmp()$src))
   base_par <- reactive({ f <- cpfit(); req(f); modifyList(DEFAULTS, list(Wprime = f$Wprime, fP = input$fP)) })
   interval_idx <- reactive(as.integer(input$intervalrides))
   submax_idx   <- reactive(as.integer(input$submaxrides))
@@ -271,7 +271,8 @@ server <- function(input, output, session) {
       if (isTRUE(f$nonphysical)) "non-physical CP/W' (<= 0) - fit is corrupt, check files/window",
       if (isTRUE(f$implausible)) sprintf("CP implausibly low (< %d W) - verify files/window", CP_FLOOR_W),
       if (isTRUE(f$impossible))  "CP above longest effort - check file/window",
-      if (isTRUE(f$n >= 3 && f$r2 < 0.95)) "low R2", if (isTRUE(f$n < 3)) "few efforts", if (isTRUE(f$rng < 5)) "narrow durations"),
+      if (isTRUE(f$n >= 3 && f$r2 < 0.95)) "low R2", if (isTRUE(f$n < 3)) "few efforts", if (isTRUE(f$rng < 5)) "narrow durations",
+      if (isTRUE(f$single_session)) "single-session (W' may be soft, #87)"),
       collapse = ", ")
     # `a` is non-NULL whenever any ride exists (it now carries failure counts + a defaults
     # sentinel when nothing is usable), so key default substitution off "no usable rows".
@@ -289,14 +290,19 @@ server <- function(input, output, session) {
              tauG = round(if (noRec) DEFAULTS$tauG else a$tauG),
              eta = round(DEFAULTS$eta, 2),
              lt1Frac = DEFAULTS$lt1Frac, fatK = DEFAULTS$fatK, gFat = DEFAULTS$gFat, tauAer = DEFAULTS$tauAer, tauOn = DEFAULTS$tauOn)
+    # #87: a PCr-light split (low fP) amplifies the low / "empty" reading on short-recovery intermittent
+    # rides -- ~75% of W' sits in the slow glycolytic vessel, which pins near-empty across sub-minute
+    # valleys. Note it (don't change the default) when the #86 short-recovery flag fired and fP is low.
+    pcrLight <- if (!is.null(a) && isTRUE(a$n_shortrec > 0) && isTRUE(val[["fP"]] <= 0.30))
+                  sprintf(" | PCr-light fP=%.2f amplifies the low reading on %d short-recovery ride(s); raising fP toward 0.55 (within [0.10,0.60]) treads water across sub-minute valleys (#87)", val[["fP"]], a$n_shortrec) else ""
     src <- c(CP = "best across files", Wprime = "best across files", pPmax = "best 1s - CP",
              fP = src_rec, tauP = src_rec, tauG = src_rec, eta = "fixed (deprecated)",
              lt1Frac = "default", fatK = "default", gFat = "default (off)", tauAer = "default", tauOn = "default (Parolin 1999)")
     unc <- c(CP = nzchar(cpWhy), Wprime = nzchar(cpWhy), pPmax = isTRUE(!is.finite(p1) || p1 < 1.6 * f$CP),
-             fP = recU || spread("fP"), tauP = recU || spread("tauP"), tauG = recU || spread("tauG"),
+             fP = recU || spread("fP") || nzchar(pcrLight), tauP = recU || spread("tauP"), tauG = recU || spread("tauG"),
              eta = TRUE, lt1Frac = TRUE, fatK = TRUE, gFat = TRUE, tauAer = TRUE, tauOn = TRUE)
     note <- c(CP = cpWhy, Wprime = cpWhy, pPmax = "no clear maximal sprint",
-              fP = if (recU) recWhy else paste0("wide spread across rides", failNote),
+              fP = paste0(if (recU) recWhy else paste0("wide spread across rides", failNote), pcrLight),
               tauP = if (recU) recWhy else paste0("wide spread across rides", failNote),
               tauG = if (recU) recWhy else paste0("wide spread across rides", failNote),
               eta = "held fixed at 1.0; degenerate with tauP",
@@ -337,7 +343,7 @@ server <- function(input, output, session) {
       facet_wrap(~param, scales = "free_y") + labs(x = NULL, y = NULL, title = "Estimates over time") + gg_tank() })
 
   output$mmp_plot <- renderPlot(mmp_gg(), bg = "transparent")
-  output$mmp_tbl  <- DT::renderDataTable(DT::datatable(transform(mmp(), power = round(power)), rownames = FALSE, options = list(pageLength = 8, dom = "tp")))
+  output$mmp_tbl  <- DT::renderDataTable(DT::datatable(transform(mmp()[c("duration", "power")], power = round(power)), rownames = FALSE, options = list(pageLength = 8, dom = "tp")))
   output$cp_plot  <- renderPlot({ g <- cp_gg(); validate(need(!is.null(g), "Need >=2 efforts in the window.")); g }, bg = "transparent")
   output$cp_txt   <- renderText({ f <- cpfit(); req(f)
     r2txt <- if (isTRUE(f$n >= 3) && is.finite(f$r2)) sprintf("%.3f", f$r2) else "n/a (<3 efforts)"
