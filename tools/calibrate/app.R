@@ -247,13 +247,17 @@ server <- function(input, output, session) {
     constrained <- nrow(good) > 0
     use <- if (constrained) good else df[!grepl("fit-error|boundary-hit", df$flag), , drop = FALSE]
     n_failed <- sum(df$flag == "fit-error"); n_total <- nrow(df)
+    # #86: count short-recovery rides for the domain warning. Warn-only -- NOT in `excl`, so these
+    # rides still enter the aggregate; the count drives a visible caveat (see agg_txt / est_table).
+    n_shortrec <- sum(grepl("short-recovery", df$flag))
     if (nrow(use) == 0)   # every ride failed / was excluded: report defaults, never median() over nothing
       return(list(fP = DEFAULTS$fP, tauP = DEFAULTS$tauP, tauG = DEFAULTS$tauG,
                   constrained = FALSE, n_used = 0L, n_failed = n_failed, n_total = n_total,
-                  cv = NULL, src = "defaults (all rides failed to fit)"))
+                  n_shortrec = n_shortrec, cv = NULL, src = "defaults (all rides failed to fit)"))
     pick <- function(col) if (input$agg == "best-fit") use[[col]][which.min(use$obj)] else median(use[[col]])
     list(fP = pick("fP"), tauP = pick("tauP"), tauG = pick("tauG"),
          constrained = constrained, n_used = nrow(use), n_failed = n_failed, n_total = n_total,
+         n_shortrec = n_shortrec,
          cv = c(fP = cv(use$fP), tauP = cv(use$tauP), tauG = cv(use$tauG)),
          src = if (input$agg == "best-fit") paste("best-fit:", use$file[which.min(use$obj)]) else sprintf("median of %d rides", nrow(use))) })
 
@@ -357,8 +361,11 @@ server <- function(input, output, session) {
     if (is.null(a) || !length(a)) "no manual anchors (auto/interval-end will be used)" else paste("anchors (s):", paste(a, collapse = ", ")) })
   output$diag_txt <- renderText({ f <- cpfit(); p <- ride_power(); req(f, p); dg <- ride_diag(p, f$CP, base_par())
     warn <- if (!is.na(dg$refill) && dg$refill > 0.7) "  <<= rest too long: does NOT constrain recovery" else ""
-    sprintf("bouts>CP: %d | mean recovery: %s s | between-bout refill: %s%s", dg$n_bouts,
-            ifelse(is.na(dg$mean_rec_s), "-", round(dg$mean_rec_s)), ifelse(is.na(dg$refill), "-", paste0(round(100*dg$refill), "%")), warn) })
+    # #86: short-recovery intermittent -> the model over-drains; flag it on the per-ride diagnostic too.
+    sr <- if (!is.na(dg$short_rec_frac) && dg$n_bouts >= 3 && dg$short_rec_frac >= SHORT_REC_FRAC)
+            sprintf("  <<= short-recovery (%.0f%% of valleys <%d s): model over-drains — outside validated domain (#86)", 100*dg$short_rec_frac, SHORT_REC_S) else ""
+    sprintf("bouts>CP: %d | mean recovery: %s s | between-bout refill: %s%s%s", dg$n_bouts,
+            ifelse(is.na(dg$mean_rec_s), "-", round(dg$mean_rec_s)), ifelse(is.na(dg$refill), "-", paste0(round(100*dg$refill), "%")), warn, sr) })
   output$res_plot <- renderPlot({ f <- cpfit(); p <- ride_power(); req(f, p)
     par <- base_par(); a <- agg(); if (!is.null(a)) par <- modifyList(par, a[c("fP","tauP","tauG")])
     s <- simulate_tanks(p, f$CP, par); df <- data.frame(t = seq_along(p), pct = 100 * s$total / par$Wprime)
@@ -378,7 +385,9 @@ server <- function(input, output, session) {
   output$agg_txt <- renderText({ a <- agg(); if (is.null(a)) return("")
     u <- if (!isTRUE(a$constrained)) "  [HIGH UNCERTAINTY: no ride constrained recovery]" else ""
     fail <- if (isTRUE(a$n_failed > 0)) sprintf("  [%d of %d rides failed to fit]", a$n_failed, a$n_total) else ""
-    sprintf("Chosen (%s):  fP = %.2f  tauP = %.0f s  tauG = %.0f s%s%s", a$src, a$fP, a$tauP, a$tauG, u, fail) })
+    # #86: sub-minute-recovery intermittent rides are outside the model's validated domain (over-drain).
+    sr <- if (isTRUE(a$n_shortrec > 0)) sprintf("\n⚠ %d ride(s) are short-recovery intermittent (<%d s valleys): the model over-drains the tanks there, so their reserve/‘empty’ trace is outside the validated domain — treat their fitted recovery params with caution (issue #86).", a$n_shortrec, SHORT_REC_S) else ""
+    sprintf("Chosen (%s):  fP = %.2f  tauP = %.0f s  tauG = %.0f s%s%s%s", a$src, a$fP, a$tauP, a$tauG, u, fail, sr) })
 
   output$params <- renderText({ et <- est_table(); req(et)
     lines <- vapply(seq_len(nrow(et)), function(i) {
@@ -388,6 +397,7 @@ server <- function(input, output, session) {
   output$caveats <- renderUI(HTML(paste0(
     "<b>CP, W', pPmax</b> take the best across every file. <b>fP, tauP, tauG</b> are fit per ride, then combined (<b>eta</b> is held fixed at 1.0, degenerate with tauP). ",
     "<b>Interval sets</b> only constrain recovery when between-bout refill is low (short rest); &gt;70% refill is flagged. ",
+    "<b>Short-recovery intermittent work</b> (sub-minute recovery valleys, e.g. 30/15s) is <i>outside the model's validated domain</i>: the hard CP supply cap over-drains the anaerobic tanks, so a spuriously ‘empty’ trace there is a known limitation (issue #86), not a real reserve. Such rides are flagged <code>short-recovery</code>. ",
     "Lines marked <i>uncertain</i> are weakly constrained. Export a dated YAML to build history, then re-supply it for trends.")))
 
   # ---- trends ----
