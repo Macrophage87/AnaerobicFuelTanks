@@ -41,11 +41,15 @@ from tank_model import TankModel  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXDIR = os.path.join(HERE, "fixtures")
-TRACES = ["sprint", "supra", "interval"]
+TRACES = ["sprint", "supra", "interval", "aer_excess"]
+# #88 Flip-A: per-trace config routing. `aer_excess` uses its OWN config (config_eaer.csv, with
+# eAerMax/tauE baked in) so the E>0 path is exercised R<->Python WITHOUT turning E on for the other
+# traces — dropping eAerMax>0 into the shared config.csv would break the OFF-path byte-identical parity.
+TRACE_CONFIG = {"aer_excess": "config_eaer"}
 
 
-def load_config():
-    path = os.path.join(FIXDIR, "config.csv")
+def load_config(name="config"):
+    path = os.path.join(FIXDIR, "%s.csv" % name)
     cfg = {}
     with open(path, newline="") as f:
         for row in csv.DictReader(f):
@@ -170,14 +174,18 @@ def main():
         print("ERROR: fixtures missing — run: Rscript tools/crosscheck/gen_fixtures.R")
         return 1
 
-    cfg = load_config()
-    wprime = cfg["Wprime"]
+    base = load_config()                     # config.csv — the OFF-path config for the canonical traces
     tol_J = 0.1                              # reserve tolerance (J) — see module docstring
-    tol_pct = 100.0 * tol_J / (cfg["fP"] * wprime)   # same band expressed in pctP points
 
-    print("config: " + ", ".join("%s=%g" % (k, v) for k, v in sorted(cfg.items())))
-    print("tolerance: reserves +/- %.3f J, pctP +/- %.4f pts (noise floor ~1e-11 J)\n"
-          % (tol_J, tol_pct))
+    _configs = {"config": base}
+    def cfg_for(name):                       # #88 Flip-A: route each trace to its config (default off)
+        cname = TRACE_CONFIG.get(name, "config")
+        if cname not in _configs:
+            _configs[cname] = load_config(cname)
+        return _configs[cname]
+
+    print("config: " + ", ".join("%s=%g" % (k, v) for k, v in sorted(base.items())))
+    print("tolerance: reserves +/- %.3f J (noise floor ~1e-11 J)\n" % tol_J)
 
     ok = True
     for name in TRACES:
@@ -188,6 +196,8 @@ def main():
             ok = False
             continue
 
+        cfg = cfg_for(name)
+        tol_pct = 100.0 * tol_J / (cfg["fP"] * cfg["Wprime"])   # pctP band for THIS trace's config
         got = run_trace(cfg, rows)
         max_dP = max_dG = max_dPct = 0.0
         worst_sec = -1                       # 1-based second with the largest reserve delta
@@ -208,9 +218,9 @@ def main():
                  "OK" if passed else "DIVERGENCE"))
 
     # #83: dt-scaling / dt<=0 guard on the mirror (the fixtures only ever run dt=1).
-    ok = check_dt(cfg) and ok
+    ok = check_dt(base) and ok
     # #86 Phase 2: the gated above-CP aerobic-excess term on the mirror (fixtures keep it off).
-    ok = check_eaer(cfg) and ok
+    ok = check_eaer(base) and ok
 
     print("\n%s" % ("PASSED — R and the Python mirror agree (Monkey C guarded transitively)" if ok
                     else "FAILED — model divergence exceeds tolerance"))

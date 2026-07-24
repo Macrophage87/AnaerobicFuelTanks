@@ -40,6 +40,8 @@ class TankModel {
     var mTauAer;  // aerobic ramp time constant, s (0 = disabled -> hard CP)
     var mTauOn;   // glycolytic activation time constant, s (~6, Parolin 1999)
     var mEAerMax; // #86 Phase 2: above-CP aerobic excess cap (W); 0 = off (default)
+    var mTauEon;  // #88 Flip-A: above-CP aerobic-excess rise time constant (s); default TAU_E_ON
+    var mTauEoff; // #88 Flip-A: above-CP aerobic-excess decay time constant (s); default TAU_E_OFF
     // ---- Derived capacities ----
     var mCapP, mCapG;
     // ---- State ----
@@ -75,6 +77,8 @@ class TankModel {
         mTauAer  = s[10];
         mTauOn   = s[11];
         mEAerMax = (s.size() > 12) ? s[12] : 0.0;   // #86 Phase 2: optional 13th element; absent -> off (back-compat)
+        mTauEon  = (s.size() > 13) ? s[13] : TAU_E_ON;   // #88 Flip-A: optional 14th/15th; absent -> scaffold defaults
+        mTauEoff = (s.size() > 14) ? s[14] : TAU_E_OFF;
 
         mCapP = mFP * mWprime;
         mCapG = (1.0 - mFP) * mWprime;
@@ -190,8 +194,8 @@ class TankModel {
             if (mEAerMax > 0.0) {   // #86 Phase 2: above-CP aerobic excess (gated; 0 -> identical)
                 var tgtE = (p > mCP) ? mEAerMax : 0.0;
                 var kE = (p > mCP)
-                    ? (1.0 - Math.pow(Math.E, -dt / TAU_E_ON))
-                    : (1.0 - Math.pow(Math.E, -dt / TAU_E_OFF));
+                    ? (1.0 - Math.pow(Math.E, -dt / mTauEon))
+                    : (1.0 - Math.pow(Math.E, -dt / mTauEoff));
                 mE += (tgtE - mE) * kE;
                 if (mE < 0.0) { mE = 0.0; }
                 if (mE > mEAerMax) { mE = mEAerMax; }
