@@ -78,6 +78,32 @@ When asked to scan open issues against recent merges:
   finding is an extension of one already tracked.
 - New issues get a `priority:` label per the convention above.
 
+## Post-merge recommendation (standing order)
+
+**Every time a PR is merged**, close the turn with a short forward-looking
+summary, so work never stalls without a clear next step:
+
+1. **Recommend the next issue** (or epic/cluster) to pick up, with a one-line
+   reason (risk, dependency order, parallelism, or maintainer priority).
+2. **State the present state of the relevant open issues/epics** using the
+   pipeline stage each is in:
+
+   | Stage | Meaning |
+   |-------|---------|
+   | **Proposal needed** | Open issue, no solution prompt/plan posted yet. |
+   | **Proposal made** | A solution prompt / plan is posted, not yet reviewed. |
+   | **Proposal reviewed** | Reviewed — note the verdict (Accept → ready to implement; Minor/Major → revision owed, by whom). |
+   | **In PR** | A PR implementing it is open (not yet merged). |
+   | **In review** | An open PR is under the review panel. |
+   | **Merged** | Landed on `main` (member issues auto-closed). |
+
+   Show the stage for the just-affected cluster and for the other open epics, so
+   the board's live state is visible at a glance.
+
+Keep it brief — a recommendation line plus a compact status list, not a full
+report. This applies to merges the reviewer performs *and* merges the maintainer
+does, whenever the reviewer is aware of them.
+
 ## Git
 
 - Develop on the branch designated for the task; create it if absent.
