@@ -68,3 +68,21 @@ for (nm in names(traces)) {
   write.csv(df, file.path(outdir, sprintf("%s.csv", nm)), row.names = FALSE)
   cat("wrote ", nm, ".csv (", nrow(df), " rows)\n", sep = "")
 }
+
+# ---- #88 Flip-A: a SELF-PINNED above-CP aerobic-excess (E>0) cross-check fixture. --------------
+# Its OWN config (config_eaer.csv, with eAerMax + tauEon/tauEoff baked in) so it is decoupled from
+# whatever default Flip-B eventually chooses -- B's default flip must leave this fixture's golden
+# invariant. A dedicated 30/15 micro-interval trace where E ramps in during work and decays in the
+# valleys. test_parity routes THIS trace to config_eaer (per-trace config) and every OTHER trace to
+# config.csv, so the OFF-path fixtures above stay byte-identical (eAerMax absent there -> E == 0).
+par_eaer    <- modifyList(par, list(eAerMax = 25, tauEon = 90, tauEoff = 120))
+config_eaer <- c(config, eAerMax = 25, tauEon = 90, tauEoff = 120)
+write.csv(data.frame(param = names(config_eaer), value = as.numeric(config_eaer)),
+          file.path(outdir, "config_eaer.csv"), row.names = FALSE)
+cat("wrote config_eaer.csv\n")
+
+power <- rep(c(rep(400, 30), rep(120, 15)), 10)   # 30 s @ 400 W / 15 s @ 120 W x10 -> E lives here
+s <- simulate_tanks(power, cp, par_eaer)
+df <- data.frame(sec = seq_along(power), power = power, rP = s$rP, rG = s$rG, pctP = 100 * s$rP / cP)
+write.csv(df, file.path(outdir, "aer_excess.csv"), row.names = FALSE)
+cat("wrote aer_excess.csv (", nrow(df), " rows)\n", sep = "")

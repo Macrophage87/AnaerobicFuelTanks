@@ -21,3 +21,14 @@ test_that("eAerMax > 0 lets supply exceed CP, so the tanks deplete less", {
   # and it holds per-tank on the fast reserve too (some supra-CP work no longer charged to PCr).
   expect_gt(tail(on$rP, 1), tail(off$rP, 1))
 })
+
+test_that("#88 Flip-A: tauEon/tauEoff are tunable config params (absent -> 90/120 default)", {
+  # absent tauE == explicit defaults -> byte-identical (the config-param path defaults correctly).
+  a <- simulate_tanks(trace, cp, modifyList(base, list(eAerMax = 25)))
+  b <- simulate_tanks(trace, cp, modifyList(base, list(eAerMax = 25, tauEon = 90, tauEoff = 120)))
+  expect_equal(a$total, b$total)
+  # a faster rise (smaller tauEon) ramps the excess in sooner -> more reserve spared over the effort.
+  fast <- simulate_tanks(trace, cp, modifyList(base, list(eAerMax = 25, tauEon = 30)))
+  slow <- simulate_tanks(trace, cp, modifyList(base, list(eAerMax = 25, tauEon = 300)))
+  expect_gt(tail(fast$total, 1), tail(slow$total, 1))
+})

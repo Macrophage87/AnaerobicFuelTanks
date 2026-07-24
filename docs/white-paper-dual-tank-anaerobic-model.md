@@ -588,6 +588,23 @@ numbers below use `fatK` and the aerobic ramp on, `g_fat` off.)
   behaviour**, not a strict superset. (We drop the earlier `f_p → 0` argument: with the fullness taper
   `C_p = f_p·W′ = 0` is a division by zero, guarded in code — the limit is not meaningfully computable
   and does not add anything.)
+- **Above-CP aerobic excess — the CP-referenced correspondence re-stated (conditional; #88 Flip-A).**
+  The claim above holds *because* `supply = CP` (below the ceiling) or `supply = aer ≤ CP` (with the
+  ramp). The gated `E` term makes `supply = min(P, aer + E)`, so *with the term enabled* the depletion
+  identity re-states as `Δ(R_p + R_g − D) = −(P − supply)·Δt` — energy is still conserved (`leak = 0`:
+  the excess only *shrinks the scalar `need`*, the tank split is untouched), but `(R_p + R_g − D)` now
+  falls by `(P − CP − E)·Δt < (P − CP)·Δt`, so it tracks **"W′bal credited with an above-CP aerobic
+  supply" (cumulative `∫E dt`)**, not CP-referenced W′bal. This is a *re-statement of the correspondence
+  theorem's reference frame*, not a violated conservation law. Two precisions: (i) `CP + E` is the
+  `aer`-**saturation idealization** — the exact per-second reference is `−(P − aer − E)·Δt` during
+  ramp-in and inside short 30/15 bouts where `aer` may not saturate; (ii) the reference is
+  **asymmetric** — depletion is `CP+E`-referenced, but *recovery stays `CP`-referenced* because
+  `min(P, aer + E) ≤ P` keeps `E` out of the `delta < 0` branch. **At the shipped default `eAerMax = 0`
+  this reduces exactly to the CP-referenced correspondence above** — the term is byte-identical off, so
+  the shipped model's behaviour is unchanged. That default is **provisional pending the #88 re-anchor
+  (Flip-B)**: `eAerMax`/`τ_E,on`/`τ_E,off` are *assumed*, literature-banded VO₂-slow-component constants
+  (§7), not measured, and the flip to a non-zero default is gated on the calibration protocol's
+  acceptance battery (`docs/calibration-protocol.md`), not asserted here.
 
 ---
 

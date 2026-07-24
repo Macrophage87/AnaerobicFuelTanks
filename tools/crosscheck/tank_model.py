@@ -47,6 +47,8 @@ class TankModel:
         self.mTauAer = cfg["tauAer"]
         self.mTauOn = cfg["tauOn"]
         self.mEAerMax = cfg.get("eAerMax", 0.0)   # #86 Phase 2: above-CP aerobic excess cap (0 = off)
+        self.mTauEon = cfg.get("tauEon", TAU_E_ON)      # #88 Flip-A: tunable (default = scaffold constant)
+        self.mTauEoff = cfg.get("tauEoff", TAU_E_OFF)
 
         self.mCapP = self.mFP * self.mWprime
         self.mCapG = (1.0 - self.mFP) * self.mWprime
@@ -116,7 +118,7 @@ class TankModel:
                 self.mAer = self.mCP
             if self.mEAerMax > 0.0:   # #86 Phase 2: above-CP aerobic excess (gated; 0 -> identical)
                 tgtE = self.mEAerMax if p > self.mCP else 0.0
-                kE = (1.0 - math.exp(-dt / TAU_E_ON)) if p > self.mCP else (1.0 - math.exp(-dt / TAU_E_OFF))
+                kE = (1.0 - math.exp(-dt / self.mTauEon)) if p > self.mCP else (1.0 - math.exp(-dt / self.mTauEoff))
                 self.mE += (tgtE - self.mE) * kE
                 if self.mE < 0.0:
                     self.mE = 0.0

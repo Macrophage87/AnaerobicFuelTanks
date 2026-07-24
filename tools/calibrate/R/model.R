@@ -224,8 +224,11 @@ simulate_tanks <- function(power, cp, par) {
   # supply exceed CP during/after intervals so short-recovery work isn't over-attributed to the tanks.
   # E rises toward eAerMax while P > CP (TAU_E_ON) and decays toward 0 while P <= CP (TAU_E_OFF).
   eAerMax <- if (is.null(par$eAerMax)) 0 else par$eAerMax
-  TAU_E_ON <- 90; TAU_E_OFF <- 120
-  kEon <- 1 - exp(-1 / TAU_E_ON); kEoff <- 1 - exp(-1 / TAU_E_OFF)
+  # #88 Flip-A: tauEon/tauEoff are tunable config params (absent -> 90/120 -> byte-identical to the
+  # scaffold constants), so the re-anchor can grid them. On-device settings wiring is deferred to Flip-B.
+  tauEon  <- if (is.null(par$tauEon)) 90 else par$tauEon
+  tauEoff <- if (is.null(par$tauEoff)) 120 else par$tauEoff
+  kEon <- 1 - exp(-1 / tauEon); kEoff <- 1 - exp(-1 / tauEoff)
   for (i in seq_len(n)) {
     p <- power[i]
     if (par$tauAer > 0) {                     # sticky aerobic, floored; below CP aerobic covers demand
