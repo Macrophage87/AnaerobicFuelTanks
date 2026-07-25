@@ -264,25 +264,16 @@ class DualTankView extends WatchUi.DataField {
         mFGlyKj   = createField("GLY_depleted_kJ", FID_GLY_KJ, FitContributor.DATA_TYPE_FLOAT,
             { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "kJ" });
 
-        // Config parameters -> FIT session message. Created ONCE here (a field can't be created
-        // twice); the values are written by writeCfgFields() and RE-written on any live settings
-        // change (#33), so the recorded config reflects the end-of-ride effective settings, not the
-        // init-time snapshot. Field names match the settings keys.
-        mCfgFields = [
-            cfgField("CP",      FID_CFG_CP,      "W"),
-            cfgField("Wprime",  FID_CFG_WPRIME,  "J"),
-            cfgField("fP",      FID_CFG_FP,      null),
-            cfgField("pPmax",   FID_CFG_PPMAX,   "W"),
-            cfgField("tauP",    FID_CFG_TAUP,    "s"),
-            cfgField("tauG",    FID_CFG_TAUG,    "s"),
-            cfgField("lt1Frac", FID_CFG_LT1FRAC, null),
-            cfgField("eta",     FID_CFG_ETA,     null),
-            cfgField("fatK",    FID_CFG_FATK,    null),
-            cfgField("gFat",    FID_CFG_GFAT,    null),
-            cfgField("tauAer",  FID_CFG_TAUAER,  "s"),
-            cfgField("tauOn",   FID_CFG_TAUON,   "s")
-        ];
-        writeCfgFields();   // #33: initial write now that the fields exist (reloadSettings ran earlier)
+        // #96 PR-A (Critical load-crash hotfix): the 12 config parameters are NO LONGER recorded as FIT
+        // SESSION fields. Connect IQ limits developer fields to 32 BYTES PER MESSAGE for data fields;
+        // 12 FLOAT config fields (48 B) + the two *_depleted_kJ SESSION fields (8 B) = 56 B exceeded that
+        // quota, and the overflow aborted initialize() at load on EVERY target — the logged "New Field
+        // out of memory for FIT data", an uncatchable fatal error (NOT a null return; the older #34/#32
+        // comments below assumed a null return, which the SDK does not document). Leaving mCfgFields null
+        // keeps writeCfgFields()/cfgField() inert via the `== null` guard, so SESSION drops to the two
+        // *_depleted_kJ (8 B). Config-to-FIT returns, gated behind a setting and narrowed to fit the byte
+        // budget, in the follow-up (#96 PR-B). See issue #96.
+        mCfgFields = null;
 
         // #32: create the optional Deficit_kJ record stream LAST (highest FID), so on FIT-field
         // budget exhaustion (#34) it's this handle that comes back null and degrades — never a core
