@@ -168,7 +168,7 @@ A custom **data field** (`connectiq/`) that reads `Activity.Info.currentPower` o
   remaining — divide by tank capacity for %) plus live consumption, and per-ride `PCr_depleted_kJ` /
   `GLY_depleted_kJ` session totals — all syncing to Garmin Connect → intervals.icu / Strava. (Recording
   the config parameters to the FIT is temporarily disabled — it exceeded Connect IQ's 32-byte
-  per-message developer-field limit and crashed the field at load; see issue #96.);
+  per-message developer-field limit and crashed the field at load; see issue #96);
 - **adapts its layout** to the data-field cell — **vertical tanks are the standard look on most layouts**:
   - large single field → vertical tanks + a depletion & fatigue summary,
   - any field tall enough → two vertical tanks side by side (the default),
