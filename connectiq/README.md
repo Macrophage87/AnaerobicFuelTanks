@@ -20,10 +20,12 @@ the full field/UI/FIT spec is in
 - **Per second (record stream):** `PCr_J`, `GLY_J` (reserve energy remaining, **joules**), plus `PCr_cons`, `GLY_cons` (live W).
 - **Per ride (session summary):** `PCr_depleted_kJ`, `GLY_depleted_kJ` — total energy drawn from each
   system over the ride. These sync to Garmin Connect and flow on to intervals.icu / Strava.
-- **Config parameters (session summary):** the settings the ride actually ran with —
-  `CP`, `Wprime`, `fP`, `pPmax`, `tauP`, `tauG`, `lt1Frac`, `eta`, `fatK`, `gFat`, `tauAer`, `tauOn` —
-  written once to the session message so a post-ride tool can pull them out, review, and adjust
-  (field names match the settings keys).
+- **Config parameters (session summary):** _temporarily not recorded._ Recording the 12 config
+  parameters (`CP`, `Wprime`, `fP`, `pPmax`, `tauP`, `tauG`, `lt1Frac`, `eta`, `fatK`, `gFat`,
+  `tauAer`, `tauOn`) pushed the FIT session developer-fields over Connect IQ's 32-byte-per-message
+  limit for data fields, which crashed the field at load on every device. They are dropped for now
+  (issue #96) and will return, gated behind a setting and narrowed to fit the byte budget, in a
+  follow-up.
 
 ## Project layout
 
