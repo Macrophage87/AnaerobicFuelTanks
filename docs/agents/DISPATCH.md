@@ -211,7 +211,7 @@ the "name it" rules above.
 
 | # | Title (short) | R | V | S | P | I | Σ | Band | Named reason for the non-obvious axis |
 |---:|---|---:|---:|---:|---:|---:|---:|---|---|
-| **new** | **Prune FIT writes to the display minimum** (maintainer, 2026-09-05) | 2 | 2 | 2 | 3 | 3 | **12** | **Heavy** | R2: shipped builds stop recording streams files already carry; P3: README, `connectiq/README.md`, store description, white paper §7 all advertise them; I3: developer field ids retired |
+| **new** | **Prune FIT writes to the display minimum** (maintainer, 2026-09-05) | 3 | 3 | 2 | 3 | 3 | **14** | **Critical** | R3: five developer field ids retired permanently (§1's own anchor); V3: the acceptance test is a FIT decode nothing here can perform; P3: eight published documents incl. the Store description. First scored R2 V2 = 12 Heavy on 2026-09-05; the round-1 design review (S6) caught that the row contradicted §1, and it is corrected here — the histogram below excludes this row |
 | 96 | v0.6 load crash — remaining: release + store resubmission | 3 | 3 | 0 | 3 | 0 | 9 | Standard | the code landed; what remains is `rituals/RELEASE.md`, and R3/V3 are the release's, not a patch's |
 | 99 | PR-B: restore config recording, gated + narrowed | 2 | 2 | 1 | 3 | 3 | 11 | Heavy | worked in §3 |
 | 98 | PR-A follow-ups: byte-budget guard, checklist, release gate | 1 | 1 | 1 | 3 | 3 | 9 | Standard | I3: `ci.yml`'s `manifest-lint` job; P3: the calibration checklist and release process are published |
@@ -248,6 +248,8 @@ wrong") passes narrowly; the V cells are where the next calibration pass goes.
   (`dispatch_rescore.py`, not installed here). With 12 issues there is no
   "before"; the table in §4 **is** the worksheet, and the first re-anchoring
   pass should start by committing it as one and diffing against it.
-* **`ultracode` has not been used** and no issue reaches Critical on the
-  opening scoring. A developer-field-id change is the one shape that would
-  (R3 V3 P3 I3 = 12 before S).
+* **`ultracode` has not been used.** No *existing* issue reaches Critical on
+  the opening scoring; the new FIT-prune task does (14), because it retires
+  developer field ids — the one shape §1 says reaches Critical on its own — and
+  its first scoring missed that by inheriting R2 from the "changes what a
+  shipped build records" cell instead of the id cell. Score the id axis first.
