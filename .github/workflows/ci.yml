@@ -75,12 +75,18 @@ jobs:
   #   4. monkeydo the -t build and tee stdout to a log;
   #   5. kill the simulator.
   # The whole run is under `timeout` so a hang fails fast instead of stalling to
-  # the job timeout. monkeydo can exit 0 even on test failure, so the gate is the
-  # PARSED log: require the Run-No-Evil PASSED summary AND no FAILED/ERROR line.
+  # the job timeout. monkeydo returns non-zero even when every test passes (upstream's
+  # own tester.sh documents it), so the verdict is the PARSED log and never `$?`:
+  # scripts/check_ciq_tests.py is the verdict, and the gate block at the end of the run
+  # step turns its exit code into one of three outcomes, each printed in words —
+  # PASS / FAIL / SKIP. See #61 item 2.
   #
   # BEST-EFFORT and NOT in ci-required. The job is GREEN unless a (:test) genuinely runs
-  # and FAILS; it SKIPS green when the headless simulator can't come up (the known crash
-  # below), so it doesn't put a spurious red on the board for infra we can't yet fix.
+  # and FAILS; it SKIPS green when the captured log holds no summary line at all, so it
+  # doesn't put a spurious red on the board for infra we can't yet fix. A green ciq-test
+  # is therefore WEAK evidence and a red one is strong. Promoting this job into
+  # ci-required.needs must FIRST flip the SKIP branch to a failure, or a crash becomes a
+  # false green on a required check (#61 item 3, deliberately not done here).
   # Enforced two-implementation equality is provided by the REQUIRED `model-parity`
   # numeric guard — a Python mirror of TankModel cross-checked against the R reference
   # fixtures (issue #27 part C). Runs on ONE device (edge1050); the two-device compile
@@ -93,15 +99,22 @@ jobs:
   #   ✓ HOME repointed at the SDK device data (Actions forces HOME=/github/home, so the
   #     sim otherwise can't load Devices/edge1050/compiler.json and monkeydo hangs)
   #   ✓ simulator launches, its shell socket connects in ~2 s, monkeydo deploys
-  #   ✗ the Qt `simulator` binary then SEGFAULTS ~13 s in, right after "SetLayout":
+  #   ✗ HISTORICALLY the Qt `simulator` binary SEGFAULTED ~13 s in, right after "SetLayout":
   #       /connectiq/bin/connectiq: Segmentation fault (core dumped) "$MB_HOME"/simulator
-  #     Forcing software GL (LIBGL_ALWAYS_SOFTWARE / llvmpipe / QT_OPENGL=software) did NOT
-  #     change it, so it is not the GL path (those env vars were removed as ineffective).
-  #     This is a native Qt-under-Xvfb crash in this image that needs a core-dump backtrace /
-  #     Qt platform-plugin investigation in the actual container (not fixable by blind CI
-  #     iteration). Until then the suite is enforced numerically by `model-parity`. Root-cause
-  #     + the promotion checklist (harden the log gate, then add to ci-required.needs) are
-  #     tracked in #61.
+  #     and the suite never executed. Forcing software GL (LIBGL_ALWAYS_SOFTWARE / llvmpipe /
+  #     QT_OPENGL=software) did NOT change it, so it is not the GL path (those env vars were
+  #     removed as ineffective); the GTK theme+schemas lever (PR #84) and the dbus session-bus
+  #     lever (PR #85) were both falsified.
+  #   ! RETRACTED 2026-09-05 — "the suite does not execute here" is no longer true of the RUN
+  #     step. On three consecutive runs of PR #105 this step ran the suite and its verdict
+  #     tracked the result: 33990588668 (PASSED 16/16), 33990860226 (one ERROR -> job red),
+  #     33991598740 (PASSED 17/17). No `Segmentation fault` appears in the run step on any of
+  #     the three; the SIGSEGV this job's header is named for still appears in the separate
+  #     DIAGNOSTIC step below, which launches the simulator standalone on purpose.
+  #     N = 3 runs, one branch, one day, and NO root cause for the change — which is why this
+  #     job is still best-effort, still out of ci-required, and why the SKIP branch below is
+  #     retained rather than being turned into a failure. Equality meanwhile stays enforced by
+  #     the required `model-parity` guard. Root-cause + promotion are tracked in #61.
   # ------------------------------------------------------------------
   ciq-test:
     name: CIQ (:test) headless (best-effort)
@@ -230,45 +243,68 @@ jobs:
           cat /tmp/sim.log 2>/dev/null || true
           echo "-----------------------------"
 
-          # Three outcomes, distinguished so this best-effort job is GREEN unless a test
-          # genuinely fails (monkeydo exits 0 even on failure, so parse the log, not $?):
-          #   1. PASSED + no FAILED/ERROR   -> success (the suite ran and passed).
-          #   2. the suite actually ran and reported FAILED/ERROR -> real failure, exit 1.
-          #   3. the sim never produced test output (headless segfault / launch failure /
-          #      hang) -> SKIP, exit 0. This is the known, documented headless-sim crash
-          #      (see job header); failing the board on infra we can't yet fix would be
-          #      noise. Equality is still enforced by the required `model-parity` job.
-          # #61 hardened gate — three DISTINCT outcomes, PASS anchored on an observed==expected
-          # count (not a bare "PASSED" substring, which a single per-test line can satisfy mid-crash):
-          #   1. no FAILED/ERROR AND observed PASSED count >= the number of (:test) cases in source
-          #      -> the whole suite ran and passed                     -> exit 0
-          #   2. the suite reported FAILED/ERROR                       -> a test genuinely failed -> exit 1
-          #   3. neither (segfault / hang / truncated run: fewer PASSED than expected, no error)
-          #      -> SKIP, exit 0 (the known headless-sim crash; equality still enforced by the
-          #      required model-parity job).
-          # CRITICAL (promotion guardrail): a no-output segfault MUST land in (3), never in (2) —
-          # this hardening changed PASS PRECISION only, not the skip disposition. FAILED/ERROR stay
-          # case-sensitive + word-bounded so benign summary text ("Errors: 0") can't false-fail.
-          # EXPECTED is derived from source so adding a (:test) can't silently leave a stale gate.
-          # (Anchoring PASS on the terminal Run-No-Evil summary STRING is deferred until the sim
-          # actually runs and the real marker can be pinned against captured output — see #61.)
-          # Count (:test) annotations robustly: recurse (a .mc in a subdir counts), allow leading
-          # indentation, and match combined forms like `(:test :debug)` — an UNDERCOUNT would lower
-          # the pass threshold, so this errs toward matching. (A source-vs-gate unit check is a hard
-          # precondition before this job is ever promoted to ci-required — see #61.)
-          EXPECTED="$(grep -rhoE '^[[:space:]]*\(:test\b' source | wc -l | tr -d ' ')"
-          PASSES="$(grep -Ec '\bPASSED\b' "$LOG" || true)"
-          FAILS="$(grep -Ec '\b(FAILED|ERROR)\b' "$LOG" || true)"
-          echo "gate: expected (:test) cases=${EXPECTED:-0}  observed PASSED=${PASSES:-0}  FAILED/ERROR=${FAILS:-0}"
-          if [ "${FAILS:-0}" -gt 0 ]; then
-            echo "::error::(:test) reported FAILED/ERROR — a test genuinely failed"
+          # ------------------------- THE GATE (#61 item 2) -------------------------
+          # monkeydo returns non-zero even when every test passes, so $? is ignored by
+          # design and the LOG is the verdict. Three outcomes, each printed in words:
+          #
+          #   PASS  scripts/check_ciq_tests.py exits 0                          -> exit 0
+          #   FAIL  a summary line exists and the parser rejects it   ::error::  -> exit 1
+          #   SKIP  no summary line at all in the captured log       ::warning:: -> exit 0
+          #
+          # WHY THE OLD GATE IS GONE. It counted lines matching \bPASSED\b and required
+          # that count to reach the (:test) count grepped out of source/. The simulator
+          # prints per-test status as `PASS`, not `PASSED`, so the ONLY matching line is
+          # the terminal summary: observed was always 1. Measured on run 33991598740,
+          # a run in which the suite passed 17/17 — the gate printed
+          #   gate: expected (:test) cases=17  observed PASSED=1  FAILED/ERROR=0
+          # and took the SKIP branch. The job could red but could never pass. Its
+          # FAILED/ERROR branch also counted every line containing the word ERROR, so a
+          # single failing case scored 4 (run 33990860226) — right verdict, wrong reason.
+          #
+          # WHAT REPLACES IT. scripts/check_ciq_tests.py is the sole verdict: exactly one
+          # summary line, starting PASSED, no `FAILED (passed=` anywhere, passed ==
+          # expected, failed == errors == 0, `Ran N` agreeing, and a RESULTS table listing
+          # EXACTLY the pinned names with every status PASS. Expectation comes from
+          # scripts/expected_tests.txt, which the REQUIRED test-tooling job proves equal to
+          # the declarations under connectiq/source/ (check_expected_tests.sh) — a stronger
+          # chain than re-grepping source here, and one that cannot drift silently. The
+          # parser has its own hermetic RED/GREEN suite in the same required job, built on
+          # two real captures of this job's own output (green and red).
+          #
+          # THE SKIP BRANCH IS DELIBERATELY UNCHANGED. A no-output crash must land in SKIP,
+          # never in FAIL, while this job is best-effort — and it must be flipped to a
+          # failure BEFORE the job is ever added to ci-required.needs (#61 item 3).
+          # Detection is unanchored on purpose: a summary in an unexpected SHAPE (leading
+          # text on the line, say) is output, so it goes to the parser and is refused,
+          # rather than being laundered into "the simulator never ran".
+          #
+          # The console log is NOT passed to the parser. On all three runs that executed
+          # the suite (33990588668, 33990860226, 33991598740) monkeydo emitted the complete
+          # RESULTS block — header, rows, tally, summary — contiguously to its own stdout,
+          # which `tee` captured into $LOG; /tmp/sim.log carries Qt chatter only. Feeding it
+          # in would add a fallback nothing needs and a second stream that could disagree.
+          if ! command -v python3 >/dev/null 2>&1; then
+            # Not one of the three outcomes: the gate could not render a verdict at all.
+            # Fail loudly rather than skip green — this can only mean the pinned image
+            # changed under us (python3 3.10.12 is present in the pinned digest).
+            echo "::error::python3 is not available in the pinned container image — the (:test) gate cannot render a verdict"
             exit 1
           fi
-          if [ "${EXPECTED:-0}" -gt 0 ] && [ "${PASSES:-0}" -ge "${EXPECTED:-0}" ]; then
-            echo "CIQ (:test) suite passed headless (${PASSES}/${EXPECTED} cases)"
-            exit 0
+          # [[:space:]], not [ \t]: GNU grep does not honour \t inside a bracket
+          # expression, so [ \t] silently means {space, backslash, t}.
+          if grep -qE '(PASSED|FAILED)[[:space:]]*\(passed=' "$LOG"; then
+            if python3 ../scripts/check_ciq_tests.py \
+                 --monkeydo-log "$LOG" \
+                 --expected-file ../scripts/expected_tests.txt; then
+              echo "gate: PASS — the (:test) suite ran headless and check_ciq_tests.py accepted the log"
+              exit 0
+            fi
+            echo "gate: FAIL — a summary line is present and check_ciq_tests.py rejected it (reasons above)"
+            echo "::error::(:test) reported a failing run — see the check_ciq_tests.py diagnostics above"
+            exit 1
           fi
-          echo "::warning::headless simulator did not run the full (:test) suite (${PASSES:-0}/${EXPECTED:-0} cases passed; known Qt segfault under Xvfb — see job header). Skipping — model equality is enforced by the required model-parity job."
+          echo "gate: SKIP — no test-summary line in the captured log; the headless simulator did not run the suite (see the job header and #61). Model equality is still enforced by the required model-parity job."
+          echo "::warning::headless simulator produced no (:test) summary line — skipping (best-effort job; see #61)"
           exit 0
 
       # #61 diagnostics — root-causes the post-SetLayout SIGSEGV. Best-effort and NON-FATAL
@@ -470,6 +506,17 @@ jobs:
       # #42: CP/W' must keep the sentinel 0 default or the SET CP/W' guard silently re-inerts.
       # Enforced here (a required job) because the headless (:test) suite segfault-skips in CI.
       - run: ./scripts/check_settings_defaults.sh connectiq/resources/settings/properties.xml
+      # #98 item 2 / #96: the FIT developer-field BYTE budget. Connect IQ caps a
+      # data field at 32 B per message type; v0.6 shipped SESSION at 56 B and could
+      # not load on ANY device -- and the compile matrix was green throughout,
+      # because createField failure is a runtime condition and no (:test) can reach
+      # it. The arithmetic is static, so it is guarded here, in a required job.
+      # The hermetic self-test runs FIRST, so a tool defect reds under its own name
+      # instead of masquerading as a repository defect.
+      - name: FIT byte-budget checker self-test (RED/GREEN)
+        run: python3 scripts/test_check_fit_budget.py
+      - name: FIT developer fields fit the 32 B per-message-type quota
+        run: python3 scripts/check_fit_budget.py
 
   # ------------------------------------------------------------------
   # Runner-free proof of the agent-loop tooling (docs/agents/, scripts/).
@@ -493,6 +540,14 @@ jobs:
         # (process substitution).
         shell: bash
         run: bash scripts/check_expected_tests.sh
+      - name: (:test) log-parser self-test (RED/GREEN)
+        # scripts/check_ciq_tests.py carries the whole PASS/FAIL verdict of the
+        # best-effort ciq-test job, but it is pure Python: no container, no SDK,
+        # no Xvfb. So its correctness is proven HERE, in a required job, on two
+        # real captures of ciq-test's own output (green and red) plus synthetic
+        # perturbations. SELF-TEST ONLY — this step never runs the simulator and
+        # says nothing about whether the suite executes in CI.
+        run: python3 scripts/test_check_ciq_tests.py
       - name: Ceiling-note checker self-test (RED/GREEN)
         run: python3 scripts/test_check_ceiling_notes.py
       - name: Globals-ceiling note arithmetic closes and copies agree

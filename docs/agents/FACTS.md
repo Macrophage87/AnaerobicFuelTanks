@@ -45,9 +45,11 @@ The SDK is installed on the maintainer's machine. Verified 2026-09-05:
 (it needs Java — Temurin 17 is installed). `openssl` is at `/mingw64/bin/openssl`
 (3.5.6). `python3` is 3.14 via the Windows Store shim.
 
-`README.md:218` says the Monkey C is "Not compiled in CI". **That claim is
-false at `30b2b99`** (§1.2) and should be corrected at its source, not
-propagated.
+`README.md:211` said the Monkey C was "Not compiled in CI". **That claim was
+false from PR #48 (2026-07-16)** (§1.2) and was corrected at its source in
+#103 / PR #107; the bullet now there describes what CI does and does not
+prove. Retained as the worked example of §6's "a documentation claim about
+the environment that is false".
 
 ### 1.2 What CI runs, and what it does NOT run
 
@@ -57,86 +59,86 @@ for that commit (`gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<sha>/che
 | Check name (as GitHub reports it) | Job id | Required? | What it proves |
 |---|---|---|---|
 | `Compile (edge1050)`, `Compile (fenix6pro)` | `test` | yes | `monkeyc -t -l 1` **compiles** — the `(:test)` sources included — on those two devices only |
-| `CIQ (:test) headless (best-effort)` | `ciq-test` | **no** | **executes** the suite under Xvfb. It was recorded here as always segfault-skipping; that is retracted below — measured 2026-09-05 on PR #105, it ran the suite and its verdict tracked the suite's **red** (its green exits via the skip branch) (#61, two levers falsified in PRs #81 and #84; PR #110 is open to replace this gate) |
+| `CIQ (:test) headless (best-effort)` | `ciq-test` | **no** | tries to **execute** the suite under Xvfb. It **did** execute it on the three runs measured 2026-09-05; historically the simulator segfaulted after `SetLayout` and the job skipped green (#61; levers falsified in PRs #81 and #84). Read the retraction below before citing this row |
 | `R parse + lint` | `r-lint` | yes | R syntax + the deploy-manifest freshness gate |
 | `R model tests (testthat)` | `r-test` | yes | the R model suite, and that `tools/crosscheck/fixtures/` regenerate byte-identical |
 | `Model parity (R vs Python mirror)` | `model-parity` | yes | the Python mirror of `TankModel` matches the R reference within 0.1 J per second |
-| `Manifest app-id lint` | `manifest-lint` | yes | app id shape; CP/W′ keep the sentinel-0 default (#42) |
-| `Agent-loop tooling (runner-free)` | `test-tooling` | yes | this file's `AGENTFACT` lines, the `(:test)` pin, the ceiling note, the literal check — each behind its own RED/GREEN self-test |
+| `Manifest app-id lint` | `manifest-lint` | yes | app id shape; CP/W′ keep the sentinel-0 default (#42); the FIT developer-field byte budget — ≤ 32 B per message type for a data field, summed over the `createField` call sites in every `.mc` under `connectiq/source/` (#98 item 2) |
+| `Agent-loop tooling (runner-free)` | `test-tooling` | yes | this file's `AGENTFACT` lines, the `(:test)` pin, the ceiling note, the literal check, and the `(:test)` log parser `ciq-test` gates on — each behind its own RED/GREEN self-test |
 | `ci-required` | `ci-required` | **the only name branch protection requires** | aggregator over the required jobs (`needs:`), strict up-to-date, admins enforced |
 
-**CORRECTION, 2026-09-05 (PR #105).** This paragraph used to open "**The
-`(:test)` suite does not execute in CI**", and the table row above used to say
-the simulator "segfaults after `SetLayout` and the job skips green". Both are
-**false on the two runs measured on PR #105**, and are retracted by name here
-rather than edited away (§3.1):
+> **RETRACTION, 2026-09-05 (PR for #61 item 2).** This paragraph used to open
+> "**The `(:test)` suite does not execute in CI.**" **That claim is withdrawn.**
+> On three consecutive `ciq-test` runs on 2026-09-05, on branch
+> `claude/fit-prune-102`, the `Run (:test) headless under xvfb` step executed the
+> suite: run [33990588668](https://github.com/Macrophage87/AnaerobicFuelTanks/actions/runs/33990588668)
+> printed `PASSED (passed=16, failed=0, errors=0)`,
+> [33990860226](https://github.com/Macrophage87/AnaerobicFuelTanks/actions/runs/33990860226)
+> printed `FAILED (passed=16, failed=0, errors=1)` and reddened the job, and
+> [33991598740](https://github.com/Macrophage87/AnaerobicFuelTanks/actions/runs/33991598740)
+> printed `PASSED (passed=17, failed=0, errors=0)`. **N = 3 runs, one branch, one
+> day, and nobody knows why it changed** — the `SetLayout` segfault is still
+> visible in the job's separate diagnostic step, which runs the simulator
+> standalone. So: do not cite a green `ciq-test` as evidence that a `(:test)`
+> ran; the job's SKIP branch is still green, and the job is still not required.
+> A **red** `ciq-test` is strong evidence; a green one is weak.
 
-* run `33990588668` (`ee09dce`) — the `Run (:test) headless under xvfb` step
-  printed the full RESULTS table and `PASSED (passed=16, failed=0, errors=0)`;
-  its gate line read `gate: expected (:test) cases=16  observed PASSED=1
-  FAILED/ERROR=0`; the check concluded **success**.
-* run `33990860226` (`b5de5f2`) — the same step printed
-  `FAILED (passed=16, failed=0, errors=1)` with `testFitRecordSettingCoerces
-  ERROR`, and the check concluded **failure**. It saw the same red the local
-  simulator did, on a Linux container, independently.
+**Six other copies of the retracted claim survive and are deliberately not
+corrected here**, re-derived on the merged tree (PR #105 round 3; the count was
+five before PR #106 and PR #110 landed):
+`connectiq/source/Tests.mc:443`, the comment above
+`testCpWprimeDefaultUnconfigured`; `scripts/check_settings_defaults.sh:8`;
+`scripts/check_fit_budget.py:15` ("`ciq-test` is best-effort and skips green"),
+**new with PR #106**; `docs/agents/DISPATCH.md:232` ("a repository whose test
+suite does not execute in CI"), which is the V-axis rationale of the dispatch
+rubric; `docs/agents/rituals/LANDING.md:47-49`, which tells a landing agent the
+job "will also read `success`" — falsified by run `33990860226`, conclusion
+`failure`; and `.github/workflows/ci.yml:507`. All are reported on #61.
+`ci.yml:85`'s copy is **conditional** — it skips green "when the captured log
+holds no summary line at all" — and is not falsified, so it is not counted. A
+further copy is in PR #105's own `b5de5f2` commit message; it is landed history,
+cited by SHA from this section, and is corrected forward rather than rewritten.
 
-**What that does and does not establish.** It establishes that the job executed
-the suite on those two runs. Its conclusion tracked the suite only in the **red**
-direction: on `33990860226` the gate saw `FAILED/ERROR=4` and exited 1. On
-`33990588668` it exited 0 through the **skip** branch, not the pass branch —
-`PASSES` counts `PASSED` *lines*, not cases (`ci.yml:260`), so `[ 1 -ge 16 ]` is
-false and the job annotated itself `headless simulator did not run the full
-(:test) suite (1/16 cases passed ...)` while the suite had in fact just printed
-`PASSED (passed=16, failed=0, errors=0)`. A green conclusion from this job is
-produced by the same code path a crash produces.
-
-It does **not** establish reliability: three runs (`33990588668`, `33990860226`,
-`33991598740`), one branch, one day. The job is
-still **not required** — `ci-required`'s `needs:` list is
-`[test, r-lint, r-test, manifest-lint, model-parity, test-tooling]` and does not
-name it — and its own gate script still exits 0 on the no-output/crash path, so
-a future skip is still green and a green `ciq-test` remains weak evidence. A
-**red** one is strong: the gate exits 1 only on an observed `FAILED`/`ERROR`.
-No `Segmentation fault`/`SIGSEGV` appears in the run step on either run; the
-`SetLayout` debug line still does, and the SIGSEGV that #61 is named for appears
-in the separate *diagnostic* step, which deliberately runs the simulator binary
-standalone. **Keep treating a local `monkeydo` log as the measurement of record
-until #61 promotes this job.**
-
-**Five other copies of the retracted claim survive and are deliberately not
-corrected here:** the comment above `testCpWprimeDefaultUnconfigured` in
-`connectiq/source/Tests.mc:443`; the header of
-`scripts/check_settings_defaults.sh:8`; `docs/agents/DISPATCH.md:232` ("a
-repository whose test suite does not execute in CI"), which is the V-axis
-rationale of the dispatch rubric; `docs/agents/rituals/LANDING.md:47-49`, which
-tells a landing agent the job "will also read `success`" — falsified by run
-`33990860226`; and `.github/workflows/ci.yml:471`. All five are reported on #61
-and pinned at `918fbd9`. Until #61 resolves them, treat this section as the
-current text and those five as stale. (`ci.yml:82`'s copy is **conditional** —
-"it SKIPS green when the headless simulator can't come up" — and is not
-falsified, so it is not counted here.) A **sixth** copy is in this branch's own
-`b5de5f2` commit message; it is landed history, cited by SHA from this section
-and from PR #105, and is corrected forward here rather than rewritten.
-
-A green `Compile` is compile-only evidence. The enforced numeric guard on the
-model is
-`model-parity`, and it guards the Monkey C **transitively** through a
-line-for-line Python port (`tools/crosscheck/test_parity.py`'s own docstring
+**A green `Compile` is compile-only evidence.** The enforced numeric guard on
+the model is `model-parity`, and it guards the Monkey C **transitively** through
+a line-for-line Python port (`tools/crosscheck/test_parity.py`'s own docstring
 says so). Anything a `(:test)` asserts that the mirror does not (persistence
-`validateBlob`, `decideDropout`, `writeField` null-safety, settings
-finiteness) is proven only by a **local** simulator run:
+`validateBlob`, `decideDropout`, `writeField` null-safety, settings finiteness)
+is proven either by that best-effort CI job — weakly, per the retraction above —
+or by a **local** simulator run:
 
 ```sh
 cd connectiq
 <sdk>/bin/monkeyc.bat -f monkey.jungle -d edge1050 -o bin/app-test.prg -y <key>.der -t -l 1
-<sdk>/bin/connectiq.bat &            # once
-<sdk>/bin/monkeydo.bat bin/app-test.prg edge1050 -t
+<sdk>/bin/connectiq.bat &            # once; never kill a simulator you did not start (§4.5)
+<sdk>/bin/monkeydo.bat bin/app-test.prg edge1050 /t
 ```
+
+**The test flag is `/t` on Windows and `-t` in the container.** Verified
+2026-09-05 by reading `<sdk>/bin/monkeydo.bat`: its third argument must be `/n`,
+`/a` or `/t`, and anything else jumps straight to `usage` — a `-t` there prints
+the usage text and runs nothing. The Linux `monkeydo` in the CI container takes
+`-t` (`ci.yml`'s `ciq-test` run step, which executed the suite on the three runs
+above).
 
 `monkeydo` returns non-zero **even when every test passes** (upstream's
 `tester.sh` documents it). Read the `PASSED (passed=N, failed=0, errors=0)`
-line, never the exit code. No committed script parses that line yet; the
-kit's `check_ciq_tests.py` is the candidate when #61 promotes `ciq-test`.
+line, never the exit code. **`scripts/check_ciq_tests.py` now parses that line**
+— it is the whole verdict of the `ciq-test` gate, and it is what a local run
+should be judged by too:
+
+```sh
+python3 scripts/check_ciq_tests.py --monkeydo-log <log> \
+    --expected-file scripts/expected_tests.txt
+```
+
+It requires exactly one summary line starting `PASSED`, no `FAILED (passed=`
+anywhere, `passed` equal to the pin, `failed == errors == 0`, `Ran N` agreeing,
+and a RESULTS table listing exactly the pinned names all `PASS`. Its hermetic
+RED/GREEN suite (`scripts/test_check_ciq_tests.py`) runs in the required
+`test-tooling` job and is built on two real captures of `ciq-test`'s own output
+under `scripts/fixtures/`. **It is runner-free: a green `test-tooling` proves
+the parser, never that the simulator ran.**
 
 `ci-required` uses the default `if: success()` — so when an upstream job
 **fails**, the aggregator is **skipped**, and branch protection treats a
@@ -319,9 +321,11 @@ and `writeField` skips, so no partial timeline can be produced.
 
 Until a `[Local]` simulator or decoder session has measured it. `[Local]`
 issues carry: the `[Local]` title prefix, an opening ⚠️ blockquote, the
-`local-test` label, and byte-exact pass criteria. **The `local-test` label does
-not exist in this repository yet** (13 labels at `30b2b99`, none of them);
-create it before filing the first one.
+`local-test` label, and byte-exact pass criteria. (This paragraph said the
+`local-test` label **did not exist** — 13 labels at `30b2b99`, none of them.
+Re-measured 2026-09-05: there are now **14** labels and `local-test` is one
+of them, so it no longer has to be created first. #109 is the first issue
+filed under it.)
 
 ### 3.5 Clocks
 
@@ -352,12 +356,11 @@ followed" — with `OSError(22, 'A required privilege is not held by the client'
 because Windows withholds the symlink-creation privilege. 34/35 locally; 35/35
 in CI is the expectation. **Do not "fix" it and do not report it as a
 regression.** The other suites (`test_check_ceiling_notes` 10/10,
-`test_check_mc_literals` 8/8, `test_check_agent_facts` **25/25**) are green on
-both. The `test_check_agent_facts` figure was **21/21** here until PR #105
-re-measured it: the checker gained four self-tests when the kit landed in
-`cea95c8` and this line was not bumped with them. Re-measured on the #105 head:
-`python3 scripts/test_check_agent_facts.py` → "25/25 agent-facts checker tests
-passed".
+`test_check_mc_literals` 8/8, `test_check_agent_facts` 25/25,
+`test_check_fit_budget` 30/30) are green on both. (This line read
+`test_check_agent_facts` **21/21** when it landed; the suite in the tree at
+`cea95c8` has 25 cases, so the figure was stale on arrival. Re-measured
+2026-09-05 — the tree wins.)
 
 `scripts/check_mc_literals.py` exists because `monkeyc` accepts a raw newline
 inside a string literal with no diagnostic; on a CRLF checkout that ships a
@@ -481,6 +484,26 @@ fields installed, and that observation is field data this repository cannot yet
 regenerate. #102 cuts this app's contribution unconditionally, which helps under
 either mechanism; which mechanism is right is still open.
 
+**The byte budget is machine-checked** since #98 item 2.
+`scripts/check_fit_budget.py` re-derives the per-message-type totals from the
+`createField` call sites in **every `.mc` file under `connectiq/source/`** —
+reading each twice, raw and comment-stripped, and refusing a disagreement, as
+`check_agent_facts.py` does — and fails if any message type exceeds 32 B. It
+runs in the required `manifest-lint` job behind its own hermetic RED/GREEN
+self-test. No filename is pinned: the totals are summed across files, because
+the quota is per app per message type, and an id re-used across two files is
+refused. It **runs nothing**: it is the arithmetic #96 got wrong, not evidence
+that a device accepted the fields (§3.2 — only a record-and-save session
+answers that).
+
+One blind spot remains, and it is deliberate: **a `createField` whose *name
+argument is a variable* is not counted.** Such a call creates no field the
+checker can name, so its bytes are invisible. At `cea95c8` the only instance
+is the inert `cfgField()` helper (`DualTankView.mc:332` at `cea95c8`, no call
+sites); PR #105 deletes it, so the instance may disappear while the blind spot
+does not. **#99 has to extend the checker before reviving any variable-named
+create path, not after.**
+
 ### 5.4 Backlog size
 
 **12** open issues at `30b2b99`, **0** of them carrying a `Dispatch:` header,
@@ -528,8 +551,11 @@ ship in the `-r` image (verified: `tmMake` absent from the release `.prg`).
   ("returns null on exhaustion" — an inference no SDK page documents).
 * **A number nothing committed can regenerate.** #100's cross-correlation
   table and threshold fit came from a saved FIT decoded outside the tree.
-* **A documentation claim about the environment that is false.** `README.md:218`
-  "Not compiled in CI", eight weeks after PR #48 made it compile.
+* **A documentation claim about the environment that is false.** `README.md`
+  said "Not compiled in CI" for eight weeks after PR #48 made it compile.
+  Corrected at its source in #103 / PR #107; the bullet now at `README.md:219`
+  says "Compiled in CI, but no required check executes it". Kept as the worked
+  example (§1.1), stated in the past tense because the line no longer says it.
 * **A test that re-implements logic instead of calling it pins nothing.** The
   parity mirror is a port, not the shipping code; it guards Monkey C only
   transitively, and its docstring says so. A `(:test)` that drives `TankModel`
@@ -584,7 +610,9 @@ The ceiling line in §5.1 is additionally checked by
 its copy in `connectiq/source/Tests.mc`.
 
 **What is NOT machine-checked**, so nobody reads more into a green run: every
-prose claim in §1–§4, §6 and §7, the byte and type columns of §5.3, the
+prose claim in §1–§4, §6 and §7, the byte and type columns of §5.3 (a
+`check_fit_budget.py` run re-derives those numbers from source and enforces the
+32 B quota, but it never compares them with the table above), the
 backlog and release figures in §5.4–§5.5, and every `file:line` citation.
 Those carry a commit pin and nothing more. Line numbers shift — re-verify
 before quoting one.
