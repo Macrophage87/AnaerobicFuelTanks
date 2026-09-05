@@ -189,6 +189,25 @@ def derive_pinned_tests(root, problems):
     return n
 
 
+def resolve_field_id(tok, consts, path, problems):
+    """A createField id token -> int, or None with `problems` appended to.
+
+    At module scope rather than a closure because scripts/check_fit_budget.py
+    resolves the same ids out of the same file and IMPORTS this instead of
+    growing a second resolver: a second copy of a rule is a second thing to get
+    wrong. `consts` is the {name: int} map read from the COMMENT-STRIPPED text,
+    so a const mentioned only in a comment cannot supply a value."""
+    if tok.isdigit():
+        return int(tok)
+    if tok in consts:
+        return consts[tok]
+    problems.append(
+        "%s: createField id %r is neither an integer literal nor a "
+        "`const NAME = <int>;` declared in the file, so the binding cannot "
+        "be derived." % (path, tok))
+    return None
+
+
 def derive_devfields(root, problems):
     """{id: name} for every literal createField call, read twice and required
     to agree."""
@@ -203,15 +222,7 @@ def derive_devfields(root, problems):
               for m in CONST_RE.finditer(stripped)}
 
     def resolve(tok):
-        if tok.isdigit():
-            return int(tok)
-        if tok in consts:
-            return consts[tok]
-        problems.append(
-            "%s: createField id %r is neither an integer literal nor a "
-            "`const NAME = <int>;` declared in the file, so the binding cannot "
-            "be derived." % (path, tok))
-        return None
+        return resolve_field_id(tok, consts, path, problems)
 
     raw = {}
     dupes = []
