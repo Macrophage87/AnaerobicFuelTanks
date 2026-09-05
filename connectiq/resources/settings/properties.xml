@@ -17,4 +17,11 @@
     <property id="gFat"    type="float">0.00</property>
     <property id="tauAer"  type="number">25</property>
     <property id="tauOn"   type="number">6</property>
+    <!-- #102: whether the field writes its two reserve RECORD streams (PCr_J, GLY_J) into the
+         ride's FIT file. DEFAULT TRUE (the owner's decision, 2026-09-05): the streams are the
+         minimal basis calibration works from, and losing them by default would make #95/#100/#92
+         depend on remembering a setting. Appended after the model parameters on purpose, so the
+         physiology parameter ORDER that README.md / connectiq/README.md /
+         docs/llm-calibration-context.md all mirror is untouched. -->
+    <property id="fitRecord" type="boolean">true</property>
 </properties>

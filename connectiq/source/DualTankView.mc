@@ -201,6 +201,10 @@ class DualTankView extends WatchUi.DataField {
     hidden var mFDeficit;   // #32: Deficit_kJ record stream (optional; created last)
     hidden var mLastTimerTime;   // #31: previous info.timerTime (ms) for the real-dt step; null until first tick
     hidden var mCfgFields;   // retained config session fields (CP, W', taus, ...)
+    hidden var mFitRecord;   // #102: the "fitRecord" setting — whether this load creates the FIT
+                             // record streams at all. Set in reloadSettings(), which runs from
+                             // initialize() BEFORE the createField block. Fields are created once
+                             // per load, so a mid-ride change only bites at the NEXT load.
     // ---- Draw resources ----
     hidden var mFontLabel, mFontValue, mFontSmall;
 
@@ -354,6 +358,22 @@ class DualTankView extends WatchUi.DataField {
         return f;
     }
 
+    // #102: coerce a settings value to a Boolean, substituting dflt for anything that is not one
+    // (null / unset key, a Number, a String). Deliberately NOT routed through propFloat: that
+    // chain (propFloatOrNull -> coerceFiniteFloat, above) has no Boolean arm and returns the
+    // default for `true` and `false` alike, which would leave the setting permanently inert.
+    // Static and pure (no Properties, no members) so it is unit-testable directly, the way
+    // coerceFiniteFloat and isConfigured are. Returning dflt rather than false on a malformed
+    // value means a corrupt property keeps the shipped behaviour instead of silently changing it.
+    //
+    // c1 STUB — THIS BODY IS DELIBERATELY WRONG AND IS FIXED IN c3. It ignores v and returns dflt
+    // unconditionally, so the seam exists (c1 stays behaviour-preserving: nothing reads
+    // mFitRecord yet) while c2's testFitRecordSettingCoerces can be RED FOR BEHAVIOUR — a stored
+    // `false` not being honoured — rather than red for a missing symbol. Do not ship c1 alone.
+    static function coerceBool(v, dflt) {
+        return dflt;
+    }
+
     // #42: like propFloat but returns null when the key is unset / non-numeric / non-finite, so
     // reloadSettings() can tell "the user actually provided CP/W'" from "defaulted" — the numeric
     // clamps force CP,W' >= 1 and propFloat substitutes defaults, which is exactly why the old
@@ -365,6 +385,12 @@ class DualTankView extends WatchUi.DataField {
     hidden function propFloat(key, dflt) {
         var f = propFloatOrNull(key);
         return (f == null) ? dflt : f;
+    }
+
+    // #102: the Boolean counterpart of propFloat. The instance half (it touches Properties);
+    // the decision half is the static coerceBool above, which is what the (:test) drives.
+    hidden function propBool(key, dflt) {
+        return coerceBool(Application.Properties.getValue(key), dflt);
     }
 
     // #42: true only when the rider has actually PROVIDED both CP and W' — present, finite, and > 0.
@@ -379,6 +405,11 @@ class DualTankView extends WatchUi.DataField {
 
     // Public so the app can push live settings changes.
     function reloadSettings() {
+        // #102: whether this load contributes the two reserve RECORD streams to the FIT file.
+        // Read here because reloadSettings() runs from initialize() BEFORE the createField block,
+        // so the gate is decided before the fields would be created. Default TRUE: a missing or
+        // malformed property records rather than silently stopping recording.
+        mFitRecord = propBool("fitRecord", true);
         // #42: CP and W' via the null-returning form so we can tell "provided" from "defaulted".
         // properties.xml defaults these two to the sentinel 0 (numeric properties require a default),
         // so an unconfigured rider reads 0 -> isConfigured() is false and the "SET CP/W'" guard shows
