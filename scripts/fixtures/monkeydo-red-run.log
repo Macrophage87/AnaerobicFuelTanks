@@ -1,0 +1,128 @@
+# PROVENANCE -- real captured output of a genuinely FAILING run.
+#
+#   repository  Macrophage87/AnaerobicFuelTanks
+#   workflow    CI, job "CIQ (:test) headless (best-effort)" (ciq-test)
+#   step        "Run (:test) headless under xvfb", the `cat /tmp/ciq-test.log`
+#               echo -- i.e. the bytes monkeydo wrote through `tee`
+#   run         33990860226   (2026-09-05)
+#   commit      b5de5f2, branch claude/fit-prune-102 (PR #105's deliberate red)
+#   device      edge1050, same digest-pinned container as the green capture
+#
+# TWO transformations, both stated because neither is invisible:
+#   1. the `<job>\t<step>\t<timestamp> ` prefix that `gh run view --log` prepends
+#      to every line, removed (as in monkeydo-green-run.log);
+#   2. two `set -x` trace lines the JOB's own shell emitted --
+#        + echo '----- simulator log -----'
+#        + cat /tmp/sim.log
+#      -- which the runner interleaved into this region of the job-log stream on
+#      this run. They are not monkeydo output and are not in /tmp/ciq-test.log;
+#      a file fed to --monkeydo-log must be the monkeydo stream, so they are
+#      dropped. The green capture needed no such removal: its region of the
+#      stream carries no trace lines.
+# Nothing else was edited -- no line reordered, reflowed or re-spaced -- and the
+# ERROR row and the FAILED summary are the simulator's own bytes.
+#
+# WHY A RED FIXTURE IS COMMITTED. The green capture proves the parser accepts a
+# real pass. Only a real failing transcript proves it rejects a real failure at
+# the bytes the simulator actually emits -- a synthetic FAIL row cannot, because
+# the suite's own builder wrote it. This one carries the shape that matters:
+# a clean-looking `Ran 17 tests` and sixteen PASS rows, with the failure visible
+# only in one ERROR row and in `FAILED (passed=16, failed=0, errors=1)`.
+#
+# Judged, like the green capture, against a pin derived from its OWN rows.
+------------------------------------------------------------------------------
+Executing test testHarnessSmoke...
+DEBUG (20:42): CI (:test) harness reached
+PASS
+------------------------------------------------------------------------------
+Executing test testHardPunchThenRecover...
+DEBUG (20:42): after 5s@800: rP=3669.520020 rG=14717.633789
+DEBUG (20:42): after 60s@100: rP=4639.564941
+PASS
+------------------------------------------------------------------------------
+Executing test testSustainedOverCP...
+DEBUG (20:42): after 180s@300: fillP=0.307547 fillG=0.418449
+PASS
+------------------------------------------------------------------------------
+Executing test testBelowCPStaysFull...
+DEBUG (20:42): below-CP: rP=5000.000000 rG=15000.000000 minRG=15000.000000
+PASS
+------------------------------------------------------------------------------
+Executing test testDeficitBanksThenDecays...
+DEBUG (20:42): deficit after effort=12619.730469
+DEBUG (20:42): deficit after recovery=9965.961914
+PASS
+------------------------------------------------------------------------------
+Executing test testRestRecoveryClosedForm...
+DEBUG (20:42): closed rP=4248.225586 iter rP=4232.974121
+DEBUG (20:42): closed rG=10402.115234 iter rG=10402.113281
+PASS
+------------------------------------------------------------------------------
+Executing test testStepScalesWithDt...
+DEBUG (20:42): dep 0.5/1/2 = 100.000488/199.999512/400.000488
+PASS
+------------------------------------------------------------------------------
+Executing test testAerExcess...
+DEBUG (20:42): aer-excess off=-28187.902344 on=-21777.138672 mE=28.929779
+PASS
+------------------------------------------------------------------------------
+Executing test testValidateBlobAccepts...
+PASS
+------------------------------------------------------------------------------
+Executing test testValidateBlobRejects...
+PASS
+------------------------------------------------------------------------------
+Executing test testDecideDropout...
+PASS
+------------------------------------------------------------------------------
+Executing test testCoerceFiniteFloat...
+PASS
+------------------------------------------------------------------------------
+Executing test testIsConfigured...
+PASS
+------------------------------------------------------------------------------
+Executing test testCpWprimeDefaultUnconfigured...
+DEBUG (20:42): default CP=0 Wprime=0
+PASS
+------------------------------------------------------------------------------
+Executing test testFitRecordSettingCoerces...
+
+Error: Unhandled Exception
+Exception: ASSERTION FAILED
+Stack: 
+  - API code 0x30000203 
+  - API code 0x30000174 
+  - testFitRecordSettingCoerces() at /__w/AnaerobicFuelTanks/AnaerobicFuelTanks/connectiq/source/Tests.mc:480 0x10000718 
+  - evaluate_test_entries_0_to_17() at /__w/AnaerobicFuelTanks/AnaerobicFuelTanks/connectiq/bin/gen/006-B4440-00/source/UnitTests.mcgen:95 0x1000436f 
+  - runTest() at /__w/AnaerobicFuelTanks/AnaerobicFuelTanks/connectiq/bin/gen/006-B4440-00/source/UnitTests.mcgen:114 0x10004407 
+ERROR
+------------------------------------------------------------------------------
+Executing test testWriteFieldNullSafe...
+PASS
+------------------------------------------------------------------------------
+Executing test testShouldShowNoPower...
+PASS
+
+==============================================================================
+RESULTS
+Test:                               Status:
+testHarnessSmoke                    PASS
+testHardPunchThenRecover            PASS
+testSustainedOverCP                 PASS
+testBelowCPStaysFull                PASS
+testDeficitBanksThenDecays          PASS
+testRestRecoveryClosedForm          PASS
+testStepScalesWithDt                PASS
+testAerExcess                       PASS
+testValidateBlobAccepts             PASS
+testValidateBlobRejects             PASS
+testDecideDropout                   PASS
+testCoerceFiniteFloat               PASS
+testIsConfigured                    PASS
+testCpWprimeDefaultUnconfigured     PASS
+testFitRecordSettingCoerces         ERROR
+testWriteFieldNullSafe              PASS
+testShouldShowNoPower               PASS
+Ran 17 tests
+
+FAILED (passed=16, failed=0, errors=1)

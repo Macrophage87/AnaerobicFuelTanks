@@ -59,33 +59,70 @@ for that commit (`gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<sha>/che
 | Check name (as GitHub reports it) | Job id | Required? | What it proves |
 |---|---|---|---|
 | `Compile (edge1050)`, `Compile (fenix6pro)` | `test` | yes | `monkeyc -t -l 1` **compiles** — the `(:test)` sources included — on those two devices only |
-| `CIQ (:test) headless (best-effort)` | `ciq-test` | **no** | tries to **execute** the suite under Xvfb; the simulator **segfaults after `SetLayout`** and the job skips green (#61, two levers falsified in PRs #81 and #84) |
+| `CIQ (:test) headless (best-effort)` | `ciq-test` | **no** | tries to **execute** the suite under Xvfb. It **did** execute it on the three runs measured 2026-09-05; historically the simulator segfaulted after `SetLayout` and the job skipped green (#61; levers falsified in PRs #81 and #84). Read the retraction below before citing this row |
 | `R parse + lint` | `r-lint` | yes | R syntax + the deploy-manifest freshness gate |
 | `R model tests (testthat)` | `r-test` | yes | the R model suite, and that `tools/crosscheck/fixtures/` regenerate byte-identical |
 | `Model parity (R vs Python mirror)` | `model-parity` | yes | the Python mirror of `TankModel` matches the R reference within 0.1 J per second |
 | `Manifest app-id lint` | `manifest-lint` | yes | app id shape; CP/W′ keep the sentinel-0 default (#42); the FIT developer-field byte budget — ≤ 32 B per message type for a data field, summed over the `createField` call sites in every `.mc` under `connectiq/source/` (#98 item 2) |
-| `Agent-loop tooling (runner-free)` | `test-tooling` | yes | this file's `AGENTFACT` lines, the `(:test)` pin, the ceiling note, the literal check — each behind its own RED/GREEN self-test |
+| `Agent-loop tooling (runner-free)` | `test-tooling` | yes | this file's `AGENTFACT` lines, the `(:test)` pin, the ceiling note, the literal check, and the `(:test)` log parser `ciq-test` gates on — each behind its own RED/GREEN self-test |
 | `ci-required` | `ci-required` | **the only name branch protection requires** | aggregator over the required jobs (`needs:`), strict up-to-date, admins enforced |
 
-**The `(:test)` suite does not execute in CI.** A green `Compile` is
-compile-only evidence. The enforced numeric guard on the model is
-`model-parity`, and it guards the Monkey C **transitively** through a
-line-for-line Python port (`tools/crosscheck/test_parity.py`'s own docstring
+> **RETRACTION, 2026-09-05 (PR for #61 item 2).** This paragraph used to open
+> "**The `(:test)` suite does not execute in CI.**" **That claim is withdrawn.**
+> On three consecutive `ciq-test` runs on 2026-09-05, on branch
+> `claude/fit-prune-102`, the `Run (:test) headless under xvfb` step executed the
+> suite: run [33990588668](https://github.com/Macrophage87/AnaerobicFuelTanks/actions/runs/33990588668)
+> printed `PASSED (passed=16, failed=0, errors=0)`,
+> [33990860226](https://github.com/Macrophage87/AnaerobicFuelTanks/actions/runs/33990860226)
+> printed `FAILED (passed=16, failed=0, errors=1)` and reddened the job, and
+> [33991598740](https://github.com/Macrophage87/AnaerobicFuelTanks/actions/runs/33991598740)
+> printed `PASSED (passed=17, failed=0, errors=0)`. **N = 3 runs, one branch, one
+> day, and nobody knows why it changed** — the `SetLayout` segfault is still
+> visible in the job's separate diagnostic step, which runs the simulator
+> standalone. So: do not cite a green `ciq-test` as evidence that a `(:test)`
+> ran; the job's SKIP branch is still green, and the job is still not required.
+> A **red** `ciq-test` is strong evidence; a green one is weak.
+
+**A green `Compile` is compile-only evidence.** The enforced numeric guard on
+the model is `model-parity`, and it guards the Monkey C **transitively** through
+a line-for-line Python port (`tools/crosscheck/test_parity.py`'s own docstring
 says so). Anything a `(:test)` asserts that the mirror does not (persistence
-`validateBlob`, `decideDropout`, `writeField` null-safety, settings
-finiteness) is proven only by a **local** simulator run:
+`validateBlob`, `decideDropout`, `writeField` null-safety, settings finiteness)
+is proven either by that best-effort CI job — weakly, per the retraction above —
+or by a **local** simulator run:
 
 ```sh
 cd connectiq
 <sdk>/bin/monkeyc.bat -f monkey.jungle -d edge1050 -o bin/app-test.prg -y <key>.der -t -l 1
-<sdk>/bin/connectiq.bat &            # once
-<sdk>/bin/monkeydo.bat bin/app-test.prg edge1050 -t
+<sdk>/bin/connectiq.bat &            # once; never kill a simulator you did not start (§4.5)
+<sdk>/bin/monkeydo.bat bin/app-test.prg edge1050 /t
 ```
+
+**The test flag is `/t` on Windows and `-t` in the container.** Verified
+2026-09-05 by reading `<sdk>/bin/monkeydo.bat`: its third argument must be `/n`,
+`/a` or `/t`, and anything else jumps straight to `usage` — a `-t` there prints
+the usage text and runs nothing. The Linux `monkeydo` in the CI container takes
+`-t` (`ci.yml`'s `ciq-test` run step, which executed the suite on the three runs
+above).
 
 `monkeydo` returns non-zero **even when every test passes** (upstream's
 `tester.sh` documents it). Read the `PASSED (passed=N, failed=0, errors=0)`
-line, never the exit code. No committed script parses that line yet; the
-kit's `check_ciq_tests.py` is the candidate when #61 promotes `ciq-test`.
+line, never the exit code. **`scripts/check_ciq_tests.py` now parses that line**
+— it is the whole verdict of the `ciq-test` gate, and it is what a local run
+should be judged by too:
+
+```sh
+python3 scripts/check_ciq_tests.py --monkeydo-log <log> \
+    --expected-file scripts/expected_tests.txt
+```
+
+It requires exactly one summary line starting `PASSED`, no `FAILED (passed=`
+anywhere, `passed` equal to the pin, `failed == errors == 0`, `Ran N` agreeing,
+and a RESULTS table listing exactly the pinned names all `PASS`. Its hermetic
+RED/GREEN suite (`scripts/test_check_ciq_tests.py`) runs in the required
+`test-tooling` job and is built on two real captures of `ciq-test`'s own output
+under `scripts/fixtures/`. **It is runner-free: a green `test-tooling` proves
+the parser, never that the simulator ran.**
 
 `ci-required` uses the default `if: success()` — so when an upstream job
 **fails**, the aggregator is **skipped**, and branch protection treats a
