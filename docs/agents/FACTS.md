@@ -338,12 +338,17 @@ you started.
 
 `fenix6pro` caps module `globals` at **253** members (inclusive); a file-scope
 `(:test)` costs one member; a `(:test)` inside a `module { }` block costs none.
-Measured by bisection on a clean archive of `30b2b99`, SDK 9.2.0, 2026-09-05
-(§2.7 recipe): 400 stubs reported `Found 427 members`; 226 stubs `BUILD
-SUCCESSFUL`; 227 stubs `Found 254 members in module 'globals', exceeding the
-limit of 253`. The single copy in source, `connectiq/source/Tests.mc`, reads:
+**Re-measured 2026-09-05** by bisection on a clean archive of the #102 c2 tree
+(the commit that adds `testFitRecordSettingCoerces`, PR #105), SDK 9.2.0, §2.7
+recipe: 400 stubs reported `Found 428 members` (428 − 400 = 28 used); 225 stubs
+`BUILD SUCCESSFUL`; 226 stubs `Found 254 members in module 'globals', exceeding
+the limit of 253`. The single copy in source, `connectiq/source/Tests.mc`, reads:
 
-    CEILING 30b2b99 fenix6pro: 27 used of 253, 226 free -- the 227th file-scope (:test) added reds
+    CEILING fit-prune-102 fenix6pro: 28 used of 253, 225 free -- the 226th file-scope (:test) added reds
+
+The **superseded** figure, measured at `30b2b99`, was 27 used of 253, 226 free.
+One file-scope declaration has been added since — the `(:test)` above — and the
+re-measurement confirms the count moved by exactly that one.
 
 `scripts/check_ceiling_notes.py` enforces the arithmetic and that this
 quotation is byte-identical to the source copy; `scripts/check_agent_facts.py`
@@ -353,10 +358,12 @@ does not bind; a green `edge1050` build says nothing about this.
 
 ### 5.2 Pinned test count
 
-**16** `(:test)` functions, all file-scope in `connectiq/source/Tests.mc`,
+**17** `(:test)` functions, all file-scope in `connectiq/source/Tests.mc`,
 matching `scripts/expected_tests.txt` exactly (`bash scripts/check_expected_tests.sh`
-at `30b2b99`: "OK: 16 (:test) function(s) under connectiq/source/ match
-scripts/expected_tests.txt exactly."). Measured with `scripts/list_tests.py`,
+on the #102 c2 tree: "OK: 17 (:test) function(s) under connectiq/source/ match
+scripts/expected_tests.txt exactly."). It was **16** at `30b2b99`; #102 c2 added
+`testFitRecordSettingCoerces`, which is also the one file-scope declaration
+behind the §5.1 ceiling re-measurement. Measured with `scripts/list_tests.py`,
 never added up.
 
 Any `(:test)` addition, removal or rename edits `scripts/expected_tests.txt`
@@ -481,8 +488,8 @@ prose above is the explanation.
 
     AGENTFACT ci-container sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
     AGENTFACT manifest-devices 15
-    AGENTFACT pinned-tests 16
-    AGENTFACT ceiling 30b2b99 27 253 226
+    AGENTFACT pinned-tests 17
+    AGENTFACT ceiling fit-prune-102 28 253 225
     AGENTFACT devfield 0 PCr_J
     AGENTFACT devfield 1 GLY_J
     AGENTFACT devfield 2 PCr_cons

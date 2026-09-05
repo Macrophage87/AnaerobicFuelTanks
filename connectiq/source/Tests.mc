@@ -16,15 +16,20 @@ using Toybox.Application;
 //
 // GLOBALS CEILING. fenix6pro caps module 'globals' at 253 members, and every file-scope
 // (:test) or helper function in this file costs one; a (:test) inside a `module { }` block
-// costs none. monkeyc prints the count only once the build is ALREADY over, so it was
-// measured by bisection on a clean archive of 30b2b99 (SDK 9.2.0, `monkeyc -t -l 1
-// -d fenix6pro`, throwaway stubs in a scratch source file; 2026-09-05):
-//   CEILING 30b2b99 fenix6pro: 27 used of 253, 226 free -- the 227th file-scope (:test) added reds
-// The limit is INCLUSIVE: 226 stubs BUILD SUCCESSFUL, 227 -> "Found 254 members in module
-// 'globals', exceeding the limit of 253". edge1050 (the other CI compile target) stays green,
-// so a green edge1050 build proves nothing here. The line above is machine-checked --
-// scripts/check_ceiling_notes.py (arithmetic, copies agree) and scripts/check_agent_facts.py
-// (docs/agents/FACTS.md quotes it). Re-measure when file-scope declarations are added.
+// costs none. monkeyc prints the count only once the build is ALREADY over, so it can only be
+// learned by bisecting throwaway stubs against a real compile (SDK 9.2.0, `monkeyc -t -l 1
+// -d fenix6pro`, stubs in a scratch source file under source/). RE-MEASURED 2026-09-05 on a
+// clean archive of the #102 c2 tree, which adds testFitRecordSettingCoerces and so spends one
+// slot (27 used -> 28):
+//   CEILING fit-prune-102 fenix6pro: 28 used of 253, 225 free -- the 226th file-scope (:test) added reds
+// The limit is INCLUSIVE. Bisection outputs: 400 stubs -> "Found 428 members in module
+// 'globals', exceeding the limit of 253" (428 - 400 = 28 used); 225 stubs -> BUILD SUCCESSFUL;
+// 226 stubs -> "Found 254 members in module 'globals', exceeding the limit of 253". The
+// superseded measurement, taken at 30b2b99, read 27 used and 226 free. edge1050 (the other CI
+// compile target) stays green, so a green edge1050 build proves nothing here. The line above is
+// machine-checked -- scripts/check_ceiling_notes.py (arithmetic, copies agree) and
+// scripts/check_agent_facts.py (docs/agents/FACTS.md quotes it). Re-measure when file-scope
+// declarations are added.
 
 // ---- Shared helpers ----
 //
@@ -448,6 +453,32 @@ function testCpWprimeDefaultUnconfigured(logger) {
     Test.assert(wp == null || wp <= 0);
     // And it must resolve to "not configured" through the same predicate reloadSettings() uses.
     Test.assert(!DualTankView.isConfigured(cp, wp));
+    return true;
+}
+
+// ---- #102: the fitRecord setting's Boolean coercion seam ----
+//
+// coerceBool is the single choke point between Application.Properties and the mFitRecord gate
+// that decides whether initialize() creates the two reserve RECORD fields at all. Two properties
+// have to hold: a real stored Boolean is honoured in BOTH directions, and anything that is NOT a
+// Boolean (unset key -> null, a Number, a String) falls back to the CALLER'S DEFAULT rather than
+// to false — so a missing or corrupt property keeps recording instead of silently stopping it.
+//
+// This drives the SHIPPING static, not a re-implementation of it: propBool() calls exactly
+// DualTankView.coerceBool with Application.Properties.getValue(key) (FIX_ROUND.md section 4).
+// What it CANNOT reach, stated so a green run is not over-read: whether the SDK actually hands
+// back a Lang.Boolean for a <property type="boolean"> — no (:test) here reads that property, and
+// compile-clean is not read-correct. That is the simulator round-trip in #102 section 6.
+(:test)
+function testFitRecordSettingCoerces(logger) {
+    // Not a Boolean -> the caller's default, in both directions.
+    Test.assert(DualTankView.coerceBool(null, true));       // unset / missing key
+    Test.assert(DualTankView.coerceBool(0, true));          // a Number is not a Boolean
+    Test.assert(DualTankView.coerceBool("false", true));    // a String is NOT parsed
+    Test.assert(!DualTankView.coerceBool(null, false));     // the default is what is returned
+    // A real Boolean OVERRIDES the default. These two are the cases the c1 stub fails.
+    Test.assert(!DualTankView.coerceBool(false, true));     // stored false must stop recording
+    Test.assert(DualTankView.coerceBool(true, false));      // stored true must start it
     return true;
 }
 
