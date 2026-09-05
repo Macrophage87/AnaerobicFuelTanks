@@ -61,7 +61,7 @@ for that commit (`gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<sha>/che
 | `R parse + lint` | `r-lint` | yes | R syntax + the deploy-manifest freshness gate |
 | `R model tests (testthat)` | `r-test` | yes | the R model suite, and that `tools/crosscheck/fixtures/` regenerate byte-identical |
 | `Model parity (R vs Python mirror)` | `model-parity` | yes | the Python mirror of `TankModel` matches the R reference within 0.1 J per second |
-| `Manifest app-id lint` | `manifest-lint` | yes | app id shape; CP/W′ keep the sentinel-0 default (#42) |
+| `Manifest app-id lint` | `manifest-lint` | yes | app id shape; CP/W′ keep the sentinel-0 default (#42); the FIT developer-field byte budget — ≤ 32 B per message type for a data field, summed over the `createField` call sites in every `.mc` under `connectiq/source/` (#98 item 2) |
 | `Agent-loop tooling (runner-free)` | `test-tooling` | yes | this file's `AGENTFACT` lines, the `(:test)` pin, the ceiling note, the literal check, and the `(:test)` log parser `ciq-test` gates on — each behind its own RED/GREEN self-test |
 | `ci-required` | `ci-required` | **the only name branch protection requires** | aggregator over the required jobs (`needs:`), strict up-to-date, admins enforced |
 
@@ -327,7 +327,11 @@ followed" — with `OSError(22, 'A required privilege is not held by the client'
 because Windows withholds the symlink-creation privilege. 34/35 locally; 35/35
 in CI is the expectation. **Do not "fix" it and do not report it as a
 regression.** The other suites (`test_check_ceiling_notes` 10/10,
-`test_check_mc_literals` 8/8, `test_check_agent_facts` 21/21) are green on both.
+`test_check_mc_literals` 8/8, `test_check_agent_facts` 25/25,
+`test_check_fit_budget` 30/30) are green on both. (This line read
+`test_check_agent_facts` **21/21** when it landed; the suite in the tree at
+`cea95c8` has 25 cases, so the figure was stale on arrival. Re-measured
+2026-09-05 — the tree wins.)
 
 `scripts/check_mc_literals.py` exists because `monkeyc` accepts a raw newline
 inside a string literal with no diagnostic; on a CRLF checkout that ships a
@@ -424,6 +428,26 @@ it. The budget is **per app**, not shared across co-installed data fields
 (#96, from a saved FIT with four apps writing 53 B to RECORD) — but the
 maintainer reports memory failures with several data fields installed, and
 that observation is field data this repository cannot yet regenerate.
+
+**The byte budget is machine-checked** since #98 item 2.
+`scripts/check_fit_budget.py` re-derives the per-message-type totals from the
+`createField` call sites in **every `.mc` file under `connectiq/source/`** —
+reading each twice, raw and comment-stripped, and refusing a disagreement, as
+`check_agent_facts.py` does — and fails if any message type exceeds 32 B. It
+runs in the required `manifest-lint` job behind its own hermetic RED/GREEN
+self-test. No filename is pinned: the totals are summed across files, because
+the quota is per app per message type, and an id re-used across two files is
+refused. It **runs nothing**: it is the arithmetic #96 got wrong, not evidence
+that a device accepted the fields (§3.2 — only a record-and-save session
+answers that).
+
+One blind spot remains, and it is deliberate: **a `createField` whose *name
+argument is a variable* is not counted.** Such a call creates no field the
+checker can name, so its bytes are invisible. At `cea95c8` the only instance
+is the inert `cfgField()` helper (`DualTankView.mc:332` at `cea95c8`, no call
+sites); PR #105 deletes it, so the instance may disappear while the blind spot
+does not. **#99 has to extend the checker before reviving any variable-named
+create path, not after.**
 
 ### 5.4 Backlog size
 
@@ -533,7 +557,9 @@ The ceiling line in §5.1 is additionally checked by
 its copy in `connectiq/source/Tests.mc`.
 
 **What is NOT machine-checked**, so nobody reads more into a green run: every
-prose claim in §1–§4, §6 and §7, the byte and type columns of §5.3, the
+prose claim in §1–§4, §6 and §7, the byte and type columns of §5.3 (a
+`check_fit_budget.py` run re-derives those numbers from source and enforces the
+32 B quota, but it never compares them with the table above), the
 backlog and release figures in §5.4–§5.5, and every `file:line` citation.
 Those carry a commit pin and nothing more. Line numbers shift — re-verify
 before quoting one.
