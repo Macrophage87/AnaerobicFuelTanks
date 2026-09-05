@@ -172,7 +172,8 @@ A custom **data field** (`connectiq/`) that reads `Activity.Info.currentPower` o
   device running several Connect IQ data fields has more of the budget left: the live-consumption
   streams (`PCr_cons`, `GLY_cons`), the session totals (`PCr_depleted_kJ`, `GLY_depleted_kJ`) and
   `Deficit_kJ` are **no longer recorded**. The draws and the depleted totals can be reconstructed
-  from the two reserve streams as `max(0, −ΔR)` and its running sum — but only between pauses,
+  from the two reserve streams — `max(0, −ΔR)/Δt` for a draw in watts, `Σ max(0, −ΔR)` for the
+  joules — but only between pauses,
   mid-ride restores and live settings changes, which move a reserve with no draw and leave no
   marker in the file. Recording the **config parameters** is not coming back (it superseded #99);
   keep the settings a calibration ride ran with out of band;

@@ -45,7 +45,7 @@ The SDK is installed on the maintainer's machine. Verified 2026-09-05:
 (it needs Java — Temurin 17 is installed). `openssl` is at `/mingw64/bin/openssl`
 (3.5.6). `python3` is 3.14 via the Windows Store shim.
 
-`README.md:211` says the Monkey C is "Not compiled in CI". **That claim is
+`README.md:218` says the Monkey C is "Not compiled in CI". **That claim is
 false at `30b2b99`** (§1.2) and should be corrected at its source, not
 propagated.
 
@@ -57,7 +57,7 @@ for that commit (`gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<sha>/che
 | Check name (as GitHub reports it) | Job id | Required? | What it proves |
 |---|---|---|---|
 | `Compile (edge1050)`, `Compile (fenix6pro)` | `test` | yes | `monkeyc -t -l 1` **compiles** — the `(:test)` sources included — on those two devices only |
-| `CIQ (:test) headless (best-effort)` | `ciq-test` | **no** | **executes** the suite under Xvfb. It was recorded here as always segfault-skipping; that is retracted below — measured 2026-09-05 on PR #105, it ran the suite and its verdict tracked the suite's (#61, two levers falsified in PRs #81 and #84) |
+| `CIQ (:test) headless (best-effort)` | `ciq-test` | **no** | **executes** the suite under Xvfb. It was recorded here as always segfault-skipping; that is retracted below — measured 2026-09-05 on PR #105, it ran the suite and its verdict tracked the suite's **red** (its green exits via the skip branch) (#61, two levers falsified in PRs #81 and #84; PR #110 is open to replace this gate) |
 | `R parse + lint` | `r-lint` | yes | R syntax + the deploy-manifest freshness gate |
 | `R model tests (testthat)` | `r-test` | yes | the R model suite, and that `tools/crosscheck/fixtures/` regenerate byte-identical |
 | `Model parity (R vs Python mirror)` | `model-parity` | yes | the Python mirror of `TankModel` matches the R reference within 0.1 J per second |
@@ -81,8 +81,17 @@ rather than edited away (§3.1):
   simulator did, on a Linux container, independently.
 
 **What that does and does not establish.** It establishes that the job executed
-the suite on those two runs and that its conclusion tracked the suite's result.
-It does **not** establish reliability: N = 2, one branch, one day. The job is
+the suite on those two runs. Its conclusion tracked the suite only in the **red**
+direction: on `33990860226` the gate saw `FAILED/ERROR=4` and exited 1. On
+`33990588668` it exited 0 through the **skip** branch, not the pass branch —
+`PASSES` counts `PASSED` *lines*, not cases (`ci.yml:260`), so `[ 1 -ge 16 ]` is
+false and the job annotated itself `headless simulator did not run the full
+(:test) suite (1/16 cases passed ...)` while the suite had in fact just printed
+`PASSED (passed=16, failed=0, errors=0)`. A green conclusion from this job is
+produced by the same code path a crash produces.
+
+It does **not** establish reliability: three runs (`33990588668`, `33990860226`,
+`33991598740`), one branch, one day. The job is
 still **not required** — `ci-required`'s `needs:` list is
 `[test, r-lint, r-test, manifest-lint, model-parity, test-tooling]` and does not
 name it — and its own gate script still exits 0 on the no-output/crash path, so
@@ -92,10 +101,22 @@ No `Segmentation fault`/`SIGSEGV` appears in the run step on either run; the
 `SetLayout` debug line still does, and the SIGSEGV that #61 is named for appears
 in the separate *diagnostic* step, which deliberately runs the simulator binary
 standalone. **Keep treating a local `monkeydo` log as the measurement of record
-until #61 promotes this job.** Two other copies of the retracted claim survive
-and are deliberately **not** corrected here: the comment above
-`testCpWprimeDefaultUnconfigured` in `connectiq/source/Tests.mc` and the header
-of `scripts/check_settings_defaults.sh`. Reported on #61.
+until #61 promotes this job.**
+
+**Five other copies of the retracted claim survive and are deliberately not
+corrected here:** the comment above `testCpWprimeDefaultUnconfigured` in
+`connectiq/source/Tests.mc:443`; the header of
+`scripts/check_settings_defaults.sh:8`; `docs/agents/DISPATCH.md:232` ("a
+repository whose test suite does not execute in CI"), which is the V-axis
+rationale of the dispatch rubric; `docs/agents/rituals/LANDING.md:47-49`, which
+tells a landing agent the job "will also read `success`" — falsified by run
+`33990860226`; and `.github/workflows/ci.yml:471`. All five are reported on #61
+and pinned at `918fbd9`. Until #61 resolves them, treat this section as the
+current text and those five as stale. (`ci.yml:82`'s copy is **conditional** —
+"it SKIPS green when the headless simulator can't come up" — and is not
+falsified, so it is not counted here.) A **sixth** copy is in this branch's own
+`b5de5f2` commit message; it is landed history, cited by SHA from this section
+and from PR #105, and is corrected forward here rather than rewritten.
 
 A green `Compile` is compile-only evidence. The enforced numeric guard on the
 model is
@@ -306,7 +327,7 @@ create it before filing the first one.
 
 `nowSec()` is `Time.now().value()` (unix seconds) — wall clock, not
 `System.getTimer()`. The one `System.getTimer()` use is `mPauseAtMono`
-(`DualTankView.mc:667`, #41), tested with `mPauseAtMono >= 0` at `:682` and
+(`DualTankView.mc:654`, #41; re-pinned on PR #105), tested with `mPauseAtMono >= 0` at `:669` and
 `-1` as "not set". `System.getTimer()` is a **signed 32-bit** millisecond
 counter and is **negative from 24.9 to 49.7 days of device uptime**; during
 that half the `>= 0` test reads a valid stamp as "not set" and the resume path
@@ -331,7 +352,12 @@ followed" — with `OSError(22, 'A required privilege is not held by the client'
 because Windows withholds the symlink-creation privilege. 34/35 locally; 35/35
 in CI is the expectation. **Do not "fix" it and do not report it as a
 regression.** The other suites (`test_check_ceiling_notes` 10/10,
-`test_check_mc_literals` 8/8, `test_check_agent_facts` 21/21) are green on both.
+`test_check_mc_literals` 8/8, `test_check_agent_facts` **25/25**) are green on
+both. The `test_check_agent_facts` figure was **21/21** here until PR #105
+re-measured it: the checker gained four self-tests when the kit landed in
+`cea95c8` and this line was not bumped with them. Re-measured on the #105 head:
+`python3 scripts/test_check_agent_facts.py` → "25/25 agent-facts checker tests
+passed".
 
 `scripts/check_mc_literals.py` exists because `monkeyc` accepts a raw newline
 inside a string literal with no diagnostic; on a CRLF checkout that ships a
@@ -433,7 +459,10 @@ NOT measured** — no `(:test)` can obtain a `Session` (§3.2) — and is owed t
 Ids **2, 3, 4, 5, 18** (`PCr_cons`, `GLY_cons`, `PCr_depleted_kJ`,
 `GLY_depleted_kJ`, `Deficit_kJ`) are **retired and must never be reused**: all
 five shipped in released builds, so files in the wild carry their
-`field_description`s. Ids **6–17** were the `FID_CFG_*` config session fields;
+`field_description`s. **This is decoded evidence, not inference** — #98's
+2026-07-26 comment reports a saved Edge 1050 FIT in which "All seven developer
+fields are declared and populated" (875 RECORD samples each, both SESSION
+totals present). Ids **6–17** were the `FID_CFG_*` config session fields;
 they are **deleted from source and available for reuse**, because #98 item 4
 establishes that `b5198e1` added the twelve creates and took SESSION to 56 B in
 the same commit, so config-in-FIT never ran on any device and no saved file
@@ -499,7 +528,7 @@ ship in the `-r` image (verified: `tmMake` absent from the release `.prg`).
   ("returns null on exhaustion" — an inference no SDK page documents).
 * **A number nothing committed can regenerate.** #100's cross-correlation
   table and threshold fit came from a saved FIT decoded outside the tree.
-* **A documentation claim about the environment that is false.** `README.md:211`
+* **A documentation claim about the environment that is false.** `README.md:218`
   "Not compiled in CI", eight weeks after PR #48 made it compile.
 * **A test that re-implements logic instead of calling it pins nothing.** The
   parity mirror is a port, not the shipping code; it guards Monkey C only

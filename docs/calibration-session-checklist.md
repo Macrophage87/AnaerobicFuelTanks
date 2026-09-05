@@ -77,7 +77,9 @@ all — don't design the session around them.
   stopped being true at #97.)
 - The FIT will carry exactly two developer streams: `PCr_J` and `GLY_J` (reserve energy remaining,
   joules, once per second). The per-second draws and the per-system totals are **derived** from
-  them — `max(0, −ΔR)` and its running sum — and that derivation is exact only between out-of-band
+  them — `max(0, −ΔR)/Δt` for a draw in watts, `Σ max(0, −ΔR)` for the joules; note the `/Δt`,
+  because a smart-recording watch does not sample at 1 Hz — and that derivation is exact only
+  between out-of-band
   reserve moves (a pause and its rest recovery, a mid-ride restore, a settings change mid-ride).
   Avoid those inside a calibration effort.
 

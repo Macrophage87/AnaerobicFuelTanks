@@ -28,7 +28,8 @@ Issue #102 cut this from seven fields to two, so a device running several Connec
 keeps more of the budget. **Retired, and the ids are never reused:** `PCr_cons` / `GLY_cons` (live
 W, ids 2/3), `PCr_depleted_kJ` / `GLY_depleted_kJ` (session totals, ids 4/5) and `Deficit_kJ`
 (id 18). The per-second draws and the depleted totals are reconstructible from the two reserve
-streams as `max(0, −ΔR)` and its running sum — **exact only between out-of-band reserve moves**
+streams — `max(0, −ΔR)/Δt` for a draw in watts, `Σ max(0, −ΔR)` for the joules — **exact only
+between out-of-band reserve moves**
 (a pause and its rest recovery, a mid-ride restore, a live settings change), which move a reserve
 with no draw and leave no marker in the file. The banked deficit is not reconstructible from the
 reserves at all; it needs a replay from power plus the config.

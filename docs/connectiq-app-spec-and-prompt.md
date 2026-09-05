@@ -23,8 +23,9 @@ Before the prompt, the design decisions it encodes, so you can adjust them:
   but gives full drawing control.
 - **Settings via `Application.Properties` + `settings.xml`/`properties.xml`** so `CP`, `W′`, and
   the tank constants are entered in Garmin Connect / Connect IQ app store settings, not hard-coded.
-- **FIT recording via `FitContributor`** — expose PCr%, glycolytic%, and consumption as recorded
-  fields so they land in Garmin Connect and sync onward to intervals.icu / Strava for post-ride review.
+- **FIT recording via `FitContributor`** — expose the two per-second reserve streams (`PCr_J`,
+  `GLY_J`, in joules) as recorded fields so they land in Garmin Connect and sync onward to
+  intervals.icu / Strava for post-ride review. See "FIT recording" below for the full, minimal list.
 - **State = two `Float`s** (`rP`, `rG`) held on the field instance. Persist to `Storage` in
   `onTimerLap`/`onTimerStop` optionally; a fresh ride starts full.
 - **Language = Monkey C**, min SDK targeting devices with power + Connect IQ 3.x+ (Edge 530/540/830/840/1030/1040, Forerunner 255/955/965, etc.).
@@ -151,7 +152,8 @@ Base hues are fixed per system — **PCr = purple, GLY = green**:
   ("-180W") shown only while that bar is depleting.
 - Optional thin combined-W'bal tick/number (pctW) in a corner; keep it small.
 - Optional (if space): show running session totals "PCr N.n kJ / GLY N.n kJ" (depP/1000, depG/1000)
-  as small text — the same numbers written to the session FIT fields.
+  as small text — display only; since #102 nothing per-ride is written to the FIT file (see
+  "FIT recording" below: SESSION-level is none).
 - Respect getObscurityFlags()/full-screen vs partial layouts; use dc.getWidth()/getHeight();
   precompute fonts/colors in onLayout, no allocation inside onUpdate.
 - Handle dark/light device themes via getBackgroundColor() (the dull hues above read on a dark
