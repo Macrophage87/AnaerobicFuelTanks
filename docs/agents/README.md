@@ -22,9 +22,9 @@ Two rules govern how these files relate to the definitions that point at them.
 its role-specific behaviour, and a one-line pointer per topic. A paraphrase
 kept "for convenience" is a second copy that drifts independently — the exact
 failure this split exists to prevent. This repository already has one instance
-of the adjacent failure: `README.md` states the Monkey C is "Not compiled in
+of the adjacent failure: `README.md` said the Monkey C was "Not compiled in
 CI" while `.github/workflows/ci.yml` has compiled it on two devices since
-PR #48 (`FACTS.md` §6).
+PR #48 (`FACTS.md` §6) (corrected in #103 / PR #107).
 
 **Pointers bind to the verb, not to self-assessment.** "When landing, read the
 landing ritual" — not "read it if the landing looks tricky". The rounds that

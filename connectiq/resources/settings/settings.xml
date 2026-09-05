@@ -35,4 +35,7 @@
     <setting propertyKey="@Properties.tauOn" title="@Strings.sTauOn" prompt="@Strings.sTauOnp">
         <settingConfig type="numeric" min="0" max="60"/>
     </setting>
+    <setting propertyKey="@Properties.fitRecord" title="@Strings.sFitRecord" prompt="@Strings.sFitRecordp">
+        <settingConfig type="boolean"/>
+    </setting>
 </settings>

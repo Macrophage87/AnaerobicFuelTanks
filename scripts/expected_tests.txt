@@ -15,5 +15,6 @@ testDecideDropout
 testCoerceFiniteFloat
 testIsConfigured
 testCpWprimeDefaultUnconfigured
+testFitRecordSettingCoerces
 testWriteFieldNullSafe
 testShouldShowNoPower

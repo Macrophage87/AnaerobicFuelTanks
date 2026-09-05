@@ -64,10 +64,24 @@ ceiling (`pPmax`), the capacity (`W′`), and the recovery (`tauG`) in a single 
 all — don't design the session around them.
 
 ## Before the ride — data capture
-- **Rebuild/reinstall the data field** first (`connectiq/build.sh`) so the ride embeds the config
-  parameters in the FIT session message.
-- The FIT will then carry: `PCr_J` / `GLY_J` (reserve energy, J), `PCr_cons` / `GLY_cons` (live W),
-  `PCr_depleted_kJ` / `GLY_depleted_kJ` (session totals), **and** the config parameters the ride ran with.
+- **Rebuild/reinstall the data field** first (`connectiq/build.sh`) so the ride runs the build you
+  are calibrating.
+- **Check the field's settings: `Record reserves to FIT` must be ON** (it is on by default). It is
+  read once when the field loads, so switch it before the ride, not during it. With it off the ride
+  carries no data from this app at all.
+- **Write the config parameters down.** The FIT does **not** carry them and will not: recording the
+  12 config parameters crashed the field at load (issue #96) and issue #102 removed the session
+  fields for good. Nothing in the file records what `CP`, `W′`, `fP`, `pPmax`, `tauP`, `tauG`,
+  `lt1Frac`, `eta`, `fatK`, `gFat`, `tauAer` and `tauOn` were set to; if you do not note them, the
+  ride cannot be replayed. (This step was described as automatic here until #102 — it had already
+  stopped being true at #97.)
+- The FIT will carry exactly two developer streams: `PCr_J` and `GLY_J` (reserve energy remaining,
+  joules, once per second). The per-second draws and the per-system totals are **derived** from
+  them — `max(0, −ΔR)/Δt` for a draw in watts, `Σ max(0, −ΔR)` for the joules; note the `/Δt`,
+  because a smart-recording watch does not sample at 1 Hz — and that derivation is exact only
+  between out-of-band
+  reserve moves (a pause and its rest recovery, a mid-ride restore, a settings change mid-ride).
+  Avoid those inside a calibration effort.
 
 ## After the ride
 Send the `.FIT`. With a genuine max effort in it, `pPmax` can be read directly (best 1 s − CP), `CP / W′`

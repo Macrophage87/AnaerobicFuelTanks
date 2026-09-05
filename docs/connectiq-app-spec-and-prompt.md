@@ -13,9 +13,9 @@ Companion to `white-paper-dual-tank-anaerobic-model.md` (the model this app impl
 Before the prompt, the design decisions it encodes, so you can adjust them:
 
 - **App type = custom Data Field**, not a widget or full app. A `Toybox.WatchUi.DataField`
-  runs *inside* the native activity recording, so it gets live sensor data, records to the FIT
-  file automatically, and its `compute(info)` is invoked **once per second** — which is exactly
-  the model's `Δt = 1 s` integration step. No custom timer needed.
+  runs *inside* the native activity recording, so it gets live sensor data, can contribute
+  developer fields to the FIT file, and its `compute(info)` is invoked **once per second** —
+  which is exactly the model's `Δt = 1 s` integration step. No custom timer needed.
 - **Power source = `Activity.Info.currentPower`** (Watts, from a paired power meter). Guard for
   `null` (coasting, sensor dropout) by treating it as 0 W.
 - **Custom rendering** via `onUpdate(dc)` because we draw two gauges, not a single number. This
@@ -23,8 +23,9 @@ Before the prompt, the design decisions it encodes, so you can adjust them:
   but gives full drawing control.
 - **Settings via `Application.Properties` + `settings.xml`/`properties.xml`** so `CP`, `W′`, and
   the tank constants are entered in Garmin Connect / Connect IQ app store settings, not hard-coded.
-- **FIT recording via `FitContributor`** — expose PCr%, glycolytic%, and consumption as recorded
-  fields so they land in Garmin Connect and sync onward to intervals.icu / Strava for post-ride review.
+- **FIT recording via `FitContributor`** — expose the two per-second reserve streams (`PCr_J`,
+  `GLY_J`, in joules) as recorded fields so they land in Garmin Connect and sync onward to
+  intervals.icu / Strava for post-ride review. See "FIT recording" below for the full, minimal list.
 - **State = two `Float`s** (`rP`, `rG`) held on the field instance. Persist to `Storage` in
   `onTimerLap`/`onTimerStop` optionally; a fresh ride starts full.
 - **Language = Monkey C**, min SDK targeting devices with power + Connect IQ 3.x+ (Edge 530/540/830/840/1030/1040, Forerunner 255/955/965, etc.).
@@ -151,33 +152,43 @@ Base hues are fixed per system — **PCr = purple, GLY = green**:
   ("-180W") shown only while that bar is depleting.
 - Optional thin combined-W'bal tick/number (pctW) in a corner; keep it small.
 - Optional (if space): show running session totals "PCr N.n kJ / GLY N.n kJ" (depP/1000, depG/1000)
-  as small text — the same numbers written to the session FIT fields.
+  as small text — display only; since #102 nothing per-ride is written to the FIT file (see
+  "FIT recording" below: SESSION-level is none).
 - Respect getObscurityFlags()/full-screen vs partial layouts; use dc.getWidth()/getHeight();
   precompute fonts/colors in onLayout, no allocation inside onUpdate.
 - Handle dark/light device themes via getBackgroundColor() (the dull hues above read on a dark
   background; if background is white, darken the dull fills ~15% for contrast).
 
-## FIT recording (FitContributor) — REQUIRED
-Create fields in initialize() via createField(...). Two kinds:
+## FIT recording (FitContributor) — MINIMAL, and opt-out
+Connect IQ gives a **data field** 32 bytes of developer fields **per message type**, and a device
+carrying several data fields is where that budget bites. Recording is therefore cut to the smallest
+set the model cannot be reconstructed without (issue #102).
 
-RECORD-level (written EVERY compute() = once per second, so they become 1 Hz streams in the FIT):
-  - "PCr_pct"  FLOAT, units "%",  MESG_TYPE_RECORD  → PCr reserve level each second
-  - "GLY_pct"  FLOAT, units "%",  MESG_TYPE_RECORD  → glycolytic reserve level each second
-  - "PCr_cons" SINT16, units "W", MESG_TYPE_RECORD  → live PCr draw (optional but useful)
-  - "GLY_cons" SINT16, units "W", MESG_TYPE_RECORD  → live glycolytic draw (optional)
-  You MUST call setData() on the two *_pct fields on every compute() tick (even during recovery
-  and when paused-but-recording is false, guard so you only write while the activity is recording),
-  guaranteeing a per-second reserve trace for the whole ride.
+Read a boolean setting `fitRecord` (default **true**) in initialize(), BEFORE creating anything,
+and create fields only when it is true. Fields are created exactly once per load, so the setting's
+prompt must say the change applies at the next load.
 
-SESSION-level (single summary value finalized at ride end):
-  - "PCr_depleted_kJ" FLOAT, units "kJ", MESG_TYPE_SESSION → total energy drawn from PCr = depP/1000
-  - "GLY_depleted_kJ" FLOAT, units "kJ", MESG_TYPE_SESSION → total energy drawn from glycolytic = depG/1000
-  Update these each compute() with the running depP/1000 and depG/1000; the FIT SDK keeps the last
-  value as the session summary, so the recorded totals reflect the whole session at save time.
-  Optionally also add session mins: "PCr_min_pct", "GLY_min_pct".
+RECORD-level, and this is the whole list (written EVERY compute() = once per second, so they become
+1 Hz streams in the FIT):
+  - "PCr_J"  FLOAT, units "J", MESG_TYPE_RECORD, id 0 → PCr reserve energy remaining each second
+  - "GLY_J"  FLOAT, units "J", MESG_TYPE_RECORD, id 1 → glycolytic reserve energy each second
+  You MUST call setData() on both on every compute() tick — including the paused, timer-off,
+  dropout-freeze and skipped-tick paths. Record-scope fields LATCH: a skipped write re-emits the
+  previous value rather than leaving a gap, so "stop writing during X" fabricates a timeline
+  instead of omitting one. Write in JOULES, not %: the % is a display convention and the raw
+  joules are what a consumer can divide by capacity.
 
-Field IDs must be unique small integers. These record-level streams and session totals sync to
-Garmin Connect and flow on to intervals.icu / Strava as custom data.
+SESSION-level: **none.** The per-ride totals are a running sum of `max(0, −ΔR)` over the reserve
+stream and do not need to be in the file.
+
+Do NOT add: live-consumption streams, per-system depleted totals, a deficit stream, or the config
+parameters. Those were ids 2, 3, 4, 5 and 18, and 6–17 for the config; ids 2/3/4/5/18 shipped and
+are **retired forever** (a developer field id is unique per field_description, so re-using one
+silently re-labels every file already recorded with it). The config fields never ran on a device
+and their ids are reusable, with the caveat recorded in `connectiq/source/DualTankView.mc`.
+
+Field IDs must be unique small integers. The record-level streams sync to Garmin Connect and flow
+on to intervals.icu / Strava as custom data.
 
 ## Settings (settings.xml / properties.xml)
 Expose CP, Wprime, fP, pPmax, tauP, tauG, lt1Frac, eta as editable properties with the defaults

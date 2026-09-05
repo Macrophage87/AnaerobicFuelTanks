@@ -4,6 +4,38 @@ Revision history for `white-paper-dual-tank-anaerobic-model.md` and the model im
 `connectiq/source/DualTankView.mc` and `tools/calibrate/app.R`. Full point-by-point review responses
 live in `white-paper-review-response*.md`.
 
+## v0.7.1 — 2026-09-05 (FIT recording pruned to the two reserve streams — issue #102)
+**The white paper's model revision stays 0.7.** No model, parameter, coefficient or result changed;
+three recording sentences in the paper did, and this is the code/recording entry for them.
+- **What the field stops recording.** Seven developer fields become **two**: `PCr_J` and `GLY_J`
+  (reserve energy remaining, joules, FLOAT, RECORD, ids 0 and 1). Retired, ids never to be reused:
+  `PCr_cons` / `GLY_cons` (live W, ids 2/3), `PCr_depleted_kJ` / `GLY_depleted_kJ` (session totals,
+  ids 4/5) and `Deficit_kJ` (id 18). RECORD drops 16 B → 8 B and SESSION 8 B → 0 B against Connect
+  IQ's 32 bytes per message type for a data field. Whether that budget is per app or contended
+  across co-installed data fields is **open** (#96 measured per-app on one saved file; the
+  maintainer reports failures with several fields installed) — the cut helps under either reading,
+  which is why it was made without settling the question. A `fitRecord` setting (**on by
+  default**) takes it to zero fields; it is read once per load.
+- **No model change.** This is a recording change only: `TankModel` and both mirrors are untouched,
+  and the parity suite is unaffected. Every retired quantity is still computed, still displayed
+  where it was displayed, and still persisted across a mid-ride reload.
+- **What is lost, stated as a loss.** The draws and the depleted totals are reconstructible from the
+  reserve streams — `max(0, −ΔR)/Δt` for a draw in watts, `Σ max(0, −ΔR)` for the joules — but
+  **only between out-of-band reserve
+  moves** — a pause and its rest recovery, a mid-ride restore, and a live settings change all move a
+  reserve with no draw, are indistinguishable from a draw in the file, and carry no marker. The
+  banked deficit `D` is **not** reconstructible from the reserves at all (it is independent state
+  with its own decay), and it is rendered nowhere, so retiring `Deficit_kJ` makes it unobservable
+  outside the model. §6.9's training-load argument now rests on a derived quantity rather than a
+  recorded one; §6.9 itself is unchanged.
+- **Not established by this change:** that this app's developer fields were the cause of the
+  maintainer's multi-field crashes (only an on/off A/B on the device can say), any runtime heap
+  figure, and that the two streams are few enough. No file written by the pruned build has been
+  decoded yet.
+- **Docs:** the v0.6 entry below is left standing as the historical record and is **not** rewritten;
+  its "already recorded as `PCr_depleted_kJ`/`GLY_depleted_kJ`" was true of the build it describes
+  and stops being true of the build described here.
+
 ## v0.7 — 2026-07-12 (review round 5 / Reviewer 2 3rd / Reviewer 3 — recovery-law fix + reframe)
 - **Recovery-law fix (both codebases).** The linear LT1 gate `(LT1−P)/LT1` — whose rate went to zero at
   LT1, so the effective recovery constant diverged to ∞ and the model **could not complete a 4×4** — is
@@ -42,6 +74,10 @@ live in `white-paper-review-response*.md`.
   Bogdanis 1995 (PMID 7714837), Gaitanos 1993 (PMID 8226455), Sci Rep 2024 (full entry).
 
 ## v0.6 — 2026-07-12 (training-load use case)
+> **Superseded in part by v0.7.1 (#102).** The bracketed claim below that the cumulative
+> per-system load is "already recorded as `PCr_depleted_kJ`/`GLY_depleted_kJ`" was true of the
+> build this entry describes and is false of the current one; the quantity is now derived from
+> the reserve streams. The entry is left byte-intact as the dated historical record.
 - **Added §6.9 — training-load partitioning.** The reviews evaluated the model as a *pacing* aid; this
   adds the *training* use case, where the cumulative per-system load (already recorded as
   `PCr_depleted_kJ`/`GLY_depleted_kJ`) distinguishes an alactic session (~76% PCr) from a glycolytic one
