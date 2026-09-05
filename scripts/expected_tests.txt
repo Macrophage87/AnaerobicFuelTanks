@@ -1,0 +1,19 @@
+# Pinned (:test) names under connectiq/source/, one per line.
+# Update this file in the SAME commit as any (:test) addition, removal or rename.
+# Cross-checked by scripts/check_expected_tests.sh; counted by scripts/check_agent_facts.py.
+testHarnessSmoke
+testHardPunchThenRecover
+testSustainedOverCP
+testBelowCPStaysFull
+testDeficitBanksThenDecays
+testRestRecoveryClosedForm
+testStepScalesWithDt
+testAerExcess
+testValidateBlobAccepts
+testValidateBlobRejects
+testDecideDropout
+testCoerceFiniteFloat
+testIsConfigured
+testCpWprimeDefaultUnconfigured
+testWriteFieldNullSafe
+testShouldShowNoPower

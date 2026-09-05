@@ -1,0 +1,8 @@
+# Nested agent worktrees live INSIDE the repository root (git worktree add
+# under .claude/worktrees/). They are other sessions' in-flight checkouts of
+# this same repository: never stage them, and never `git add .` / `-A`.
+.claude/worktrees/
+# Per-machine Claude Code overrides; the shared allowlist is .claude/settings.json.
+.claude/settings.local.json
+# Python bytecode from the scripts/ checkers.
+__pycache__/

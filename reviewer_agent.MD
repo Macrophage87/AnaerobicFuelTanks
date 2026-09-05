@@ -29,6 +29,14 @@ standing instruction; hold it against future requests too.
 
 ## Standing review protocol
 
+> **Lens count is band-governed since the agent loop landed.** The fixed
+> "at least 5 agents" below is the pre-loop rule. When the `ciq-reviewer`
+> agent runs a review, the issue's `Dispatch:` band decides the lens count
+> (`docs/agents/DISPATCH.md`: Standard one, Heavy three plus a consolidator,
+> Critical four to five) and the verdict format follows
+> `docs/agents/GATE_PROTOCOL.md`. Everything else in this file still applies.
+
+
 Whenever the maintainer says "review" (a PR or an issue proposal):
 
 1. Dispatch **at least 5 agents** to review independently.

@@ -13,6 +13,18 @@ using Toybox.Application;
 // seam with plain Lang arrays. Tolerances are physiology-appropriate: the traces assert
 // the documented QUALITATIVE behaviour (which tank drains, recovers, empties first), not
 // bit-exact joules.
+//
+// GLOBALS CEILING. fenix6pro caps module 'globals' at 253 members, and every file-scope
+// (:test) or helper function in this file costs one; a (:test) inside a `module { }` block
+// costs none. monkeyc prints the count only once the build is ALREADY over, so it was
+// measured by bisection on a clean archive of 30b2b99 (SDK 9.2.0, `monkeyc -t -l 1
+// -d fenix6pro`, throwaway stubs in a scratch source file; 2026-09-05):
+//   CEILING 30b2b99 fenix6pro: 27 used of 253, 226 free -- the 227th file-scope (:test) added reds
+// The limit is INCLUSIVE: 226 stubs BUILD SUCCESSFUL, 227 -> "Found 254 members in module
+// 'globals', exceeding the limit of 253". edge1050 (the other CI compile target) stays green,
+// so a green edge1050 build proves nothing here. The line above is machine-checked --
+// scripts/check_ceiling_notes.py (arithmetic, copies agree) and scripts/check_agent_facts.py
+// (docs/agents/FACTS.md quotes it). Re-measure when file-scope declarations are added.
 
 // ---- Shared helpers ----
 //
