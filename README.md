@@ -168,8 +168,8 @@ A custom **data field** (`connectiq/`) that reads `Activity.Info.currentPower` o
   streams **in joules** (raw energy remaining — divide by tank capacity for %), syncing to Garmin
   Connect → intervals.icu / Strava. A **Record reserves to FIT** setting turns even those off; it is
   **on by default**, and a change to it applies the next time the field loads. Issue #102 pruned the
-  app from seven developer fields to these two (RECORD 16 B → 8 B, SESSION 8 B → 0 B) so that a
-  device running several Connect IQ data fields has more of the budget left: the live-consumption
+  app from seven developer fields to these two (RECORD 16 B → 8 B, SESSION 8 B → 0 B), cutting what
+  it contributes to the ride file: the live-consumption
   streams (`PCr_cons`, `GLY_cons`), the session totals (`PCr_depleted_kJ`, `GLY_depleted_kJ`) and
   `Deficit_kJ` are **no longer recorded**. The draws and the depleted totals can be reconstructed
   from the two reserve streams — `max(0, −ΔR)/Δt` for a draw in watts, `Σ max(0, −ΔR)` for the

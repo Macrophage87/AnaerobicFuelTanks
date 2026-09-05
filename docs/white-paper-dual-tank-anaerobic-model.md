@@ -626,9 +626,13 @@ specification and a ready-to-use build prompt. Summary of the target design:
   such or omitted.
 - **Recording:** write the two reserves — and nothing else — to the FIT file via `FitContributor`
   fields, so they sync to Garmin Connect / intervals.icu / Strava for post-ride analysis. Connect IQ
-  allows a data field only 32 bytes of developer fields per message type, so consumption and the
-  per-system totals are **derived** on the way out — `max(0, −ΔR)/Δt` for the per-sample draw in
-  watts, `Σ max(0, −ΔR)` for the joules — rather than recorded.
+  allows a data field only 32 bytes of developer fields per message type; to keep this field's
+  contribution to the ride file small, consumption and the per-system totals are **derived** on the
+  way out — `max(0, −ΔR)/Δt` for the per-sample draw in watts, `Σ max(0, −ΔR)` for the joules —
+  rather than recorded. The seven fields the field used to write **fit** inside the quota (RECORD
+  16 of 32 B, SESSION 8 of 32 B); the reason for cutting to two is the maintainer's goal of
+  reducing this app's footprint on a device carrying several data fields (#102), and **whether the
+  developer fields were the cause of the memory failures reported there is unmeasured** (#112).
 - **Footprint:** a handful of scalar state variables (`R_p`, `R_g`, the activation `g`, the deficit
   `D`), no arrays — well within Connect IQ memory budgets. Per-second cost is still a few multiplies
   and one `exp()` per tank.

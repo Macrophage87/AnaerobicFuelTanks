@@ -27,5 +27,5 @@
     <string id="sTauOn">Glycolytic activation tau (s)</string>
     <string id="sTauOnp">How fast glycolysis ramps in at effort onset; PCr covers the first seconds (~6, Parolin 1999).</string>
     <string id="sFitRecord">Record reserves to FIT</string>
-    <string id="sFitRecordp">Write the two reserve streams (PCr_J, GLY_J) into the ride file. Turn off to give the developer-field budget back to your other data fields. Takes effect the next time the field is loaded - start a new ride.</string>
+    <string id="sFitRecordp">Write the two reserve streams (PCr_J, GLY_J) into the ride file. Turn off to stop this field writing to the ride file - it then creates no FIT developer fields at all. Takes effect the next time the field is loaded - start a new ride.</string>
 </strings>

@@ -24,8 +24,11 @@ default**; the fields are created once at load, so a change applies at the next 
   ids 0 and 1. 8 B of Connect IQ's 32-byte-per-message developer-field budget for data fields.
 - **Per ride (session summary):** _nothing._ SESSION contributions are 0 B.
 
-Issue #102 cut this from seven fields to two, so a device running several Connect IQ data fields
-keeps more of the budget. **Retired, and the ids are never reused:** `PCr_cons` / `GLY_cons` (live
+Issue #102 cut this from seven fields to two (RECORD 16 B → 8 B, SESSION 8 B → 0 B). Whether the
+32 B per-message-type budget is per app or contended across co-installed data fields is open
+(`../docs/agents/FACTS.md` §5.3); the cut helps under either reading.
+
+**Retired, and the ids are never reused:** `PCr_cons` / `GLY_cons` (live
 W, ids 2/3), `PCr_depleted_kJ` / `GLY_depleted_kJ` (session totals, ids 4/5) and `Deficit_kJ`
 (id 18). The per-second draws and the depleted totals are reconstructible from the two reserve
 streams — `max(0, −ΔR)/Δt` for a draw in watts, `Σ max(0, −ΔR)` for the joules — **exact only
