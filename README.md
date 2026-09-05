@@ -164,11 +164,18 @@ A custom **data field** (`connectiq/`) that reads `Activity.Info.currentPower` o
 - runs the dual-tank model (aerobic ramp, fatigue-slowed PCr recovery, pause/resume rest recovery);
 - draws two tanks — **dull** when idle, **bright** when draining, **red flash** when spent — labelled
   on-screen with the reserve **%**;
-- **records to the FIT file**: per-second `PCr_J` / `GLY_J` reserve streams **in joules** (raw energy
-  remaining — divide by tank capacity for %) plus live consumption, and per-ride `PCr_depleted_kJ` /
-  `GLY_depleted_kJ` session totals — all syncing to Garmin Connect → intervals.icu / Strava. (Recording
-  the config parameters to the FIT is temporarily disabled — it exceeded Connect IQ's 32-byte
-  per-message developer-field limit and crashed the field at load; see issue #96);
+- **records to the FIT file** — two streams and nothing else: per-second `PCr_J` / `GLY_J` reserve
+  streams **in joules** (raw energy remaining — divide by tank capacity for %), syncing to Garmin
+  Connect → intervals.icu / Strava. A **Record reserves to FIT** setting turns even those off; it is
+  **on by default**, and a change to it applies the next time the field loads. Issue #102 pruned the
+  app from seven developer fields to these two (RECORD 16 B → 8 B, SESSION 8 B → 0 B) so that a
+  device running several Connect IQ data fields has more of the budget left: the live-consumption
+  streams (`PCr_cons`, `GLY_cons`), the session totals (`PCr_depleted_kJ`, `GLY_depleted_kJ`) and
+  `Deficit_kJ` are **no longer recorded**. The draws and the depleted totals can be reconstructed
+  from the two reserve streams as `max(0, −ΔR)` and its running sum — but only between pauses,
+  mid-ride restores and live settings changes, which move a reserve with no draw and leave no
+  marker in the file. Recording the **config parameters** is not coming back (it superseded #99);
+  keep the settings a calibration ride ran with out of band;
 - **adapts its layout** to the data-field cell — **vertical tanks are the standard look on most layouts**:
   - large single field → vertical tanks + a depletion & fatigue summary,
   - any field tall enough → two vertical tanks side by side (the default),

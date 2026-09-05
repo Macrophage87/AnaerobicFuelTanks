@@ -57,7 +57,7 @@ for that commit (`gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<sha>/che
 | Check name (as GitHub reports it) | Job id | Required? | What it proves |
 |---|---|---|---|
 | `Compile (edge1050)`, `Compile (fenix6pro)` | `test` | yes | `monkeyc -t -l 1` **compiles** — the `(:test)` sources included — on those two devices only |
-| `CIQ (:test) headless (best-effort)` | `ciq-test` | **no** | tries to **execute** the suite under Xvfb; the simulator **segfaults after `SetLayout`** and the job skips green (#61, two levers falsified in PRs #81 and #84) |
+| `CIQ (:test) headless (best-effort)` | `ciq-test` | **no** | **executes** the suite under Xvfb. It was recorded here as always segfault-skipping; that is retracted below — measured 2026-09-05 on PR #105, it ran the suite and its verdict tracked the suite's (#61, two levers falsified in PRs #81 and #84) |
 | `R parse + lint` | `r-lint` | yes | R syntax + the deploy-manifest freshness gate |
 | `R model tests (testthat)` | `r-test` | yes | the R model suite, and that `tools/crosscheck/fixtures/` regenerate byte-identical |
 | `Model parity (R vs Python mirror)` | `model-parity` | yes | the Python mirror of `TankModel` matches the R reference within 0.1 J per second |
@@ -65,8 +65,40 @@ for that commit (`gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<sha>/che
 | `Agent-loop tooling (runner-free)` | `test-tooling` | yes | this file's `AGENTFACT` lines, the `(:test)` pin, the ceiling note, the literal check — each behind its own RED/GREEN self-test |
 | `ci-required` | `ci-required` | **the only name branch protection requires** | aggregator over the required jobs (`needs:`), strict up-to-date, admins enforced |
 
-**The `(:test)` suite does not execute in CI.** A green `Compile` is
-compile-only evidence. The enforced numeric guard on the model is
+**CORRECTION, 2026-09-05 (PR #105).** This paragraph used to open "**The
+`(:test)` suite does not execute in CI**", and the table row above used to say
+the simulator "segfaults after `SetLayout` and the job skips green". Both are
+**false on the two runs measured on PR #105**, and are retracted by name here
+rather than edited away (§3.1):
+
+* run `33990588668` (`ee09dce`) — the `Run (:test) headless under xvfb` step
+  printed the full RESULTS table and `PASSED (passed=16, failed=0, errors=0)`;
+  its gate line read `gate: expected (:test) cases=16  observed PASSED=1
+  FAILED/ERROR=0`; the check concluded **success**.
+* run `33990860226` (`b5de5f2`) — the same step printed
+  `FAILED (passed=16, failed=0, errors=1)` with `testFitRecordSettingCoerces
+  ERROR`, and the check concluded **failure**. It saw the same red the local
+  simulator did, on a Linux container, independently.
+
+**What that does and does not establish.** It establishes that the job executed
+the suite on those two runs and that its conclusion tracked the suite's result.
+It does **not** establish reliability: N = 2, one branch, one day. The job is
+still **not required** — `ci-required`'s `needs:` list is
+`[test, r-lint, r-test, manifest-lint, model-parity, test-tooling]` and does not
+name it — and its own gate script still exits 0 on the no-output/crash path, so
+a future skip is still green and a green `ciq-test` remains weak evidence. A
+**red** one is strong: the gate exits 1 only on an observed `FAILED`/`ERROR`.
+No `Segmentation fault`/`SIGSEGV` appears in the run step on either run; the
+`SetLayout` debug line still does, and the SIGSEGV that #61 is named for appears
+in the separate *diagnostic* step, which deliberately runs the simulator binary
+standalone. **Keep treating a local `monkeydo` log as the measurement of record
+until #61 promotes this job.** Two other copies of the retracted claim survive
+and are deliberately **not** corrected here: the comment above
+`testCpWprimeDefaultUnconfigured` in `connectiq/source/Tests.mc` and the header
+of `scripts/check_settings_defaults.sh`. Reported on #61.
+
+A green `Compile` is compile-only evidence. The enforced numeric guard on the
+model is
 `model-parity`, and it guards the Monkey C **transitively** through a
 line-for-line Python port (`tools/crosscheck/test_parity.py`'s own docstring
 says so). Anything a `(:test)` asserts that the mirror does not (persistence
@@ -223,17 +255,23 @@ were wrong (memory pressure, "throws", the #32 attribution, the shared budget,
 ### 3.2 What no `(:test)` in this repository can reach
 
 * **No `(:test)` can obtain a `Session`**, so `createField` is unreachable from
-  the suite. `Tests.mc:444-458` (`testWriteFieldNullSafe`) exercises the static
+  the suite. `Tests.mc:485-502` (`testWriteFieldNullSafe`, re-pinned on PR #105
+  — line numbers shift, this citation has moved twice) exercises the static
   `writeField` seam with a `null` handle; it cannot create a field. **The v0.6
   load crash (#96) was invisible to every test and to CI** for this reason: it
   fired inside `initialize()` on the device, on every target, deterministically.
+  Measured on PR #105: deleting the `if (mFitRecord)` gate around the two
+  surviving `createField` calls leaves the suite at `PASSED (passed=17,
+  failed=0, errors=0)` — the gate is invisible to every test there is.
 * **No `(:test)` can obtain a graphics `Dc`.** Layout selection and rendering
   (`onUpdate`, `drawVertical`, `drawFull`) are field-only.
 * **A comment cannot be red by any test.** Comments are stripped from the
-  build. `DualTankView.mc:296` still says `createField()` "returns null when the
-  FIT field budget/memory is exhausted" — #96 established that it raises an
-  **uncatchable** `Out Of Memory Error` instead; the sentence beside the #97
-  fix says so, the older one three lines above it does not (tracked in #98).
+  build. The two surviving copies of the false claim that `createField()`
+  "returns null when the FIT field budget/memory is exhausted" — above
+  `writeField` in `DualTankView.mc` and above `testWriteFieldNullSafe` in
+  `Tests.mc` — were **corrected on PR #105** (#98 item 5's remaining two sites);
+  #96 established that the SDK raises an **uncatchable** `Out Of Memory Error`
+  instead. Nothing enforces that they stay corrected.
 * **Nothing here decodes a file this app wrote.** `tools/calibrate/R/model.R`'s
   `read_power_raw()` **skips** developer-field definitions by size
   (`test-read_power_raw.R` pins it); `tools/crosscheck/` reads only R-generated
@@ -246,12 +284,15 @@ were wrong (memory pressure, "throws", the #32 attribution, the shared budget,
 ### 3.3 Record-scope FitContributor fields LATCH
 
 Skipping a `setData` **re-emits the previous value** on every subsequent
-record. It never produces a gap. This repository already writes every record
-field on every tick, including the held and skipped paths
-(`DualTankView.mc:812-816`, `:836-840`, `:876-880`, `:914-918`, live at
-`:926-933`), with the comment "gap-free deficit stream (held)". Keep it that
-way: a gate on a FIT write fails **open**, and "stop writing during X"
-fabricates a timeline rather than omitting one.
+record. It never produces a gap. This repository writes every record field on
+every tick, including the held and skipped paths. Re-pinned on PR #105 after
+#102 cut the seven fields to two: `DualTankView.mc:799-800`, `:820-821`,
+`:857-858`, `:892-893`, live at `:907-908` (and the `initialize()` seed at
+`:275-276`). Keep it that way: a gate on a FIT
+write fails **open**, and "stop writing during X" fabricates a timeline rather
+than omitting one. #102's `fitRecord` gate is therefore on **creation**
+(`initialize()`), not on the writes — with the setting off the handles are null
+and `writeField` skips, so no partial timeline can be produced.
 
 ### 3.4 A comment may state what the code CALLS, never what a decoder SEES
 
@@ -371,29 +412,45 @@ Any `(:test)` addition, removal or rename edits `scripts/expected_tests.txt`
 
 ### 5.3 The developer-field id map and the byte budget
 
-**7** live developer fields at `30b2b99`, parsed from the literal
-`createField` calls in `connectiq/source/DualTankView.mc`:
+**2** live developer fields since #102 (PR #105), parsed from the literal
+`createField` calls in `connectiq/source/DualTankView.mc`. It was **7** at
+`30b2b99`:
 
 | id | name | type | message | bytes |
 |---:|---|---|---|---:|
 | 0 | `PCr_J` | FLOAT | RECORD | 4 |
 | 1 | `GLY_J` | FLOAT | RECORD | 4 |
-| 2 | `PCr_cons` | SINT16 | RECORD | 2 |
-| 3 | `GLY_cons` | SINT16 | RECORD | 2 |
-| 4 | `PCr_depleted_kJ` | FLOAT | SESSION | 4 |
-| 5 | `GLY_depleted_kJ` | FLOAT | SESSION | 4 |
-| 18 | `Deficit_kJ` | FLOAT | RECORD | 4 |
 
-**RECORD = 16 B, SESSION = 8 B, against 32 B per message type** — the data-field
-quota confirmed on hardware in #96 (a full app gets 256 B). Ids **6–17** are
-declared as `FID_CFG_*` constants for the twelve config session fields removed
-in #97 and are **reserved, not live**; `cfgField()` and `writeCfgFields()` are
-inert while `mCfgFields == null`. A developer field id is unique per
-`field_description`; re-using one silently re-labels every file recorded with
-it. The budget is **per app**, not shared across co-installed data fields
-(#96, from a saved FIT with four apps writing 53 B to RECORD) — but the
-maintainer reports memory failures with several data fields installed, and
-that observation is field data this repository cannot yet regenerate.
+**RECORD = 8 B, SESSION = 0 B, against 32 B per message type** — the data-field
+quota confirmed on hardware in #96 (a full app gets 256 B). It was RECORD 16 B /
+SESSION 8 B at `30b2b99`. Both calls are gated on the `fitRecord` setting
+(boolean, **default true**), read once per load in `reloadSettings()` before the
+`createField` block: with it OFF neither call runs and this app defines **zero**
+developer fields. **That the OFF build defines zero fields in a saved file is
+NOT measured** — no `(:test)` can obtain a `Session` (§3.2) — and is owed to the
+`[Local]` record-and-save gate.
+
+Ids **2, 3, 4, 5, 18** (`PCr_cons`, `GLY_cons`, `PCr_depleted_kJ`,
+`GLY_depleted_kJ`, `Deficit_kJ`) are **retired and must never be reused**: all
+five shipped in released builds, so files in the wild carry their
+`field_description`s. Ids **6–17** were the `FID_CFG_*` config session fields;
+they are **deleted from source and available for reuse**, because #98 item 4
+establishes that `b5198e1` added the twelve creates and took SESSION to 56 B in
+the same commit, so config-in-FIT never ran on any device and no saved file
+carries config *values*. Caveat, stated because it is not established: #96's
+arithmetic says `createField` for ids **6–11** succeeded before `lt1Frac`
+(id 12) overflowed, so whether a partial `developer_data_index` /
+`field_description` set for 6–11 was ever flushed into a v0.6 file is unknown
+and cannot be checked from this repository. The source-of-truth copy of this
+table is the comment beside `FID_PCR_J`/`FID_GLY_J` in `DualTankView.mc`.
+
+A developer field id is unique per `field_description`; re-using one silently
+re-labels every file recorded with it. The budget is **per app**, not shared
+across co-installed data fields (#96, from a saved FIT with four apps writing
+53 B to RECORD) — but the maintainer reports memory failures with several data
+fields installed, and that observation is field data this repository cannot yet
+regenerate. #102 cuts this app's contribution unconditionally, which helps under
+either mechanism; which mechanism is right is still open.
 
 ### 5.4 Backlog size
 
@@ -492,11 +549,6 @@ prose above is the explanation.
     AGENTFACT ceiling fit-prune-102 28 253 225
     AGENTFACT devfield 0 PCr_J
     AGENTFACT devfield 1 GLY_J
-    AGENTFACT devfield 2 PCr_cons
-    AGENTFACT devfield 3 GLY_cons
-    AGENTFACT devfield 4 PCr_depleted_kJ
-    AGENTFACT devfield 5 GLY_depleted_kJ
-    AGENTFACT devfield 18 Deficit_kJ
 
 The ceiling line in §5.1 is additionally checked by
 `scripts/check_ceiling_notes.py`, which requires it to be byte-identical to

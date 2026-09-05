@@ -656,8 +656,11 @@ called once per second (a natural fit for $\Delta t = 1~\mathrm{s}$), reading
 constants) is exposed via Connect~IQ application properties. The display is two vertical bar gauges
 (fast and slow reserve) with numeric \% and colour bands; per-system live consumption is a
 \emph{modelled share}, not a reading, because when the ceiling is slack it is merely $(P - \CP)$ split by a
-fixed fraction (\cref{sec:assumptions}), and is labelled as such or omitted. Both reserves and consumption
-are written to the FIT file via \texttt{FitContributor} fields for post-ride analysis. The state is a
+fixed fraction (\cref{sec:assumptions}), and is labelled as such or omitted. The two reserves---and only
+those---are written to the FIT file via \texttt{FitContributor} fields for post-ride analysis; Connect~IQ
+budgets a data field 32~bytes of developer fields per message type, shared with any other installed
+fields, so the per-system consumption and depleted totals are derived from the reserve streams
+($\max(0, -\Delta R)$ and its running sum) rather than recorded. The state is a
 handful of scalars ($\Rp$, $\Rg$, the activation $g$, the deficit $D$)---no arrays---well within Connect~IQ
 memory budgets.
 

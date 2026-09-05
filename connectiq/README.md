@@ -9,7 +9,7 @@ anaerobic energy systems live from cycling power:
 Each tank fills with the reserve fraction and is labelled on-screen with the reserve **%**; it is
 **dull** when idle/recovering, **bright** when that system is actively being drained, and turns
 **solid red and flashes** when the tank empties. The bars have rounded, tank-like ends. (The raw
-reserve in joules is written to the FIT file — see below.)
+reserve in joules is what goes to the FIT file — see below.)
 It implements the reduced dual-tank model in
 [`../docs/white-paper-dual-tank-anaerobic-model.md`](../docs/white-paper-dual-tank-anaerobic-model.md);
 the full field/UI/FIT spec is in
@@ -17,15 +17,27 @@ the full field/UI/FIT spec is in
 
 ## What it records to the FIT file
 
-- **Per second (record stream):** `PCr_J`, `GLY_J` (reserve energy remaining, **joules**), plus `PCr_cons`, `GLY_cons` (live W).
-- **Per ride (session summary):** `PCr_depleted_kJ`, `GLY_depleted_kJ` — total energy drawn from each
-  system over the ride. These sync to Garmin Connect and flow on to intervals.icu / Strava.
-- **Config parameters (session summary):** _temporarily not recorded._ Recording the 12 config
-  parameters (`CP`, `Wprime`, `fP`, `pPmax`, `tauP`, `tauG`, `lt1Frac`, `eta`, `fatK`, `gFat`,
-  `tauAer`, `tauOn`) pushed the FIT session developer-fields over Connect IQ's 32-byte-per-message
-  limit for data fields, which crashed the field at load on every device. They are dropped for now
-  (issue #96) and will return, gated behind a setting and narrowed to fit the byte budget, in a
-  follow-up.
+Two developer fields, and only while the **Record reserves to FIT** setting is on (it is **on by
+default**; the fields are created once at load, so a change applies at the next load):
+
+- **Per second (record stream):** `PCr_J`, `GLY_J` — reserve energy remaining, **joules**, FLOAT,
+  ids 0 and 1. 8 B of Connect IQ's 32-byte-per-message developer-field budget for data fields.
+- **Per ride (session summary):** _nothing._ SESSION contributions are 0 B.
+
+Issue #102 cut this from seven fields to two, so a device running several Connect IQ data fields
+keeps more of the budget. **Retired, and the ids are never reused:** `PCr_cons` / `GLY_cons` (live
+W, ids 2/3), `PCr_depleted_kJ` / `GLY_depleted_kJ` (session totals, ids 4/5) and `Deficit_kJ`
+(id 18). The per-second draws and the depleted totals are reconstructible from the two reserve
+streams as `max(0, −ΔR)` and its running sum — **exact only between out-of-band reserve moves**
+(a pause and its rest recovery, a mid-ride restore, a live settings change), which move a reserve
+with no draw and leave no marker in the file. The banked deficit is not reconstructible from the
+reserves at all; it needs a replay from power plus the config.
+
+- **Config parameters (session summary):** _not recorded, and not returning._ Recording the 12
+  config parameters pushed the session developer-fields over the 32-byte limit and crashed the
+  field at load on every device (issue #96); #102 chose not to bring them back in any form, which
+  supersedes #99. A calibration ride's settings have to be kept out of band — see
+  [`../docs/calibration-session-checklist.md`](../docs/calibration-session-checklist.md).
 
 ## Project layout
 

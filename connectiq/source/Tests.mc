@@ -484,9 +484,16 @@ function testFitRecordSettingCoerces(logger) {
 
 // ---- #34: writeField null-safety ----
 //
-// createField() returns null when the FIT field budget is exhausted; writeField must skip a
-// null handle instead of throwing (which would take down compute()/onTimerStart/initialize).
-// The assertion is implicit: if the guarded call threw, the test would fault before returning.
+// writeField must skip a null handle instead of throwing (which would take down compute()/
+// onTimerStart/initialize). The assertion is implicit: if the guarded call threw, the test would
+// fault before returning.
+//
+// CORRECTION (#96, #98 item 5). This comment used to say "createField() returns null when the FIT
+// field budget is exhausted". That was an inference no SDK page documents, and it is WRONG: on
+// exhaustion the SDK raises an UNCATCHABLE Out Of Memory Error that aborts initialize() before any
+// handle comes back — the v0.6 load crash. So a null handle is NOT the budget-exhaustion path. It
+// is the #102 "fitRecord" OFF path (the createField calls never run) plus ordinary defensive null
+// handling, and this case pins that both payload types survive it.
 (:test)
 function testWriteFieldNullSafe(logger) {
     DualTankView.writeField(null, 5.0);   // Float payload, null handle -> no-op, no throw

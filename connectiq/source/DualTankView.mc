@@ -21,8 +21,8 @@ using Toybox.System;
 //     in. The SHARE of submaximal demand is capacity-proportional (both tanks track
 //     W'bal in steady effort); the peak-flux RATE CEILING (pPmax, tapered with
 //     fullness) governs maximal efforts, where PCr dominance emerges. Unmet demand is
-//     banked as a deficit D, REPORTED as a separate third quantity (the Deficit_kJ FIT
-//     stream) and NOT re-drained from the tanks (white paper §4.3/§6.9) — so the COMBINED
+//     banked as a deficit D, kept as a separate third quantity and NOT re-drained from the
+//     tanks (white paper §4.3/§6.9) — so the COMBINED
 //     readout (Rp + Rg - D) stays energy-conserving, while the two bars may read slightly full.
 //   - Below supply: PCr recovers (tauP, efficiency eta); glycolytic (and the
 //     deficit) recover whenever P < CP at Skiba's intensity-dependent W'bal rate
@@ -47,9 +47,10 @@ using Toybox.System;
 //   short & wide strip (w>=2h): two HORIZONTAL bars SIDE BY SIDE;
 //   short strip: two HORIZONTAL bars STACKED.
 //   The large single field's summary panel shows per-system depleted kJ and a fatigue level.
-// On-screen tank labels show reserve % ; the raw reserve in JOULES is written to the FIT
-//   file (PCr_J / GLY_J record streams). Foreground color adapts to background luminance,
-//   so it reads on light and dark themes.
+// On-screen tank labels show reserve % ; the raw reserve in JOULES goes to the FIT file as the
+//   PCr_J / GLY_J record streams — the app's ONLY developer fields since #102, and only when the
+//   "fitRecord" setting is on (it is on by default). Foreground color adapts to background
+//   luminance, so it reads on light and dark themes.
 //
 // Implements the model in docs/white-paper-dual-tank-anaerobic-model.md.
 //
@@ -132,32 +133,33 @@ class DualTankView extends WatchUi.DataField {
     const COL_RED        = 0xFF0000;  // depleted, flashing
 
     // ---- FIT field ids ----
+    //
+    // #102 pruned this app's developer fields from seven to TWO. A developer field id is unique
+    // per field_description: re-using one silently RE-LABELS every file already recorded under
+    // the old definition, so the table below is a contract, not bookkeeping.
+    //
+    //   LIVE           0  PCr_J   FLOAT  RECORD  units J
+    //                  1  GLY_J   FLOAT  RECORD  units J          -> 8 B of the 32 B RECORD quota
+    //   RETIRED, NEVER REUSE
+    //                  2  PCr_cons         SINT16 RECORD  W
+    //                  3  GLY_cons         SINT16 RECORD  W
+    //                  4  PCr_depleted_kJ  FLOAT  SESSION kJ
+    //                  5  GLY_depleted_kJ  FLOAT  SESSION kJ
+    //                  18 Deficit_kJ       FLOAT  RECORD  kJ
+    //     All five shipped in released builds and are present in saved files, so any id here
+    //     carries a live field_description in the wild. Do not re-use them for anything.
+    //   REUSABLE       6..17 (the former FID_CFG_* config session fields)
+    //     Reason, recorded so a later change need not re-derive it (#98 item 4): b5198e1 added
+    //     the twelve creates AND took SESSION to 56 B in the SAME commit, over the 32 B
+    //     per-message data-field quota, so config-in-FIT aborted initialize() at load on every
+    //     target and NEVER RAN on any device -- no saved file carries config VALUES.
+    //     CAVEAT, stated because it is not established: #96's arithmetic says createField for
+    //     ids 6..11 SUCCEEDED before lt1Frac (id 12) overflowed, so whether a partial
+    //     developer_data_index / field_description set for 6..11 was ever flushed into a v0.6
+    //     file is UNKNOWN and cannot be checked from this repository. Treat 6..11 as reusable
+    //     only if you are willing to accept that.
     const FID_PCR_J  = 0;
     const FID_GLY_J  = 1;
-    const FID_PCR_CONS = 2;
-    const FID_GLY_CONS = 3;
-    const FID_PCR_KJ   = 4;
-    const FID_GLY_KJ   = 5;
-    // Config parameters written to the FIT session message (so the settings the ride
-    // ran with can be pulled back out and adjusted). IDs 6..17.
-    const FID_CFG_CP      = 6;
-    const FID_CFG_WPRIME  = 7;
-    const FID_CFG_FP      = 8;
-    const FID_CFG_PPMAX   = 9;
-    const FID_CFG_TAUP    = 10;
-    const FID_CFG_TAUG    = 11;
-    const FID_CFG_LT1FRAC = 12;
-    const FID_CFG_ETA     = 13;
-    const FID_CFG_FATK    = 14;
-    const FID_CFG_GFAT    = 15;
-    const FID_CFG_TAUAER  = 16;
-    const FID_CFG_TAUON   = 17;
-
-    // #32: banked deficit D as kJ — the "third quantity" the white paper (§4.3/§6.9) prescribes:
-    // work booked to neither tank, decayed on recovery, REPORTED (not re-drained). Highest FID,
-    // and created LAST, so if the FIT field budget is exhausted (#34) it's this OPTIONAL field's
-    // handle that comes back null and degrades — never a core reserve/config stream.
-    const FID_DEFICIT_KJ  = 18;
 
     // Guard: cap a single pause's recovery to 24 h of rest (clock-change safety).
     const MAX_PAUSE_SEC = 86400;
@@ -197,10 +199,10 @@ class DualTankView extends WatchUi.DataField {
     // dirty-check — a change smaller than STATE_EPS_J is not worth a flash write.
     hidden var mSavRP, mSavRG, mSavDepP, mSavDepG, mSavDeficit;
     // ---- FIT fields ----
-    hidden var mFPcrJ, mFGlyJ, mFPcrCons, mFGlyCons, mFPcrKj, mFGlyKj;
-    hidden var mFDeficit;   // #32: Deficit_kJ record stream (optional; created last)
+    // #102: two handles, both RECORD, both created only when mFitRecord is true (so with the
+    // setting OFF they stay null and writeField's guard makes every call site a no-op).
+    hidden var mFPcrJ, mFGlyJ;
     hidden var mLastTimerTime;   // #31: previous info.timerTime (ms) for the real-dt step; null until first tick
-    hidden var mCfgFields;   // retained config session fields (CP, W', taus, ...)
     hidden var mFitRecord;   // #102: the "fitRecord" setting — whether this load creates the FIT
                              // record streams at all. Set in reloadSettings(), which runs from
                              // initialize() BEFORE the createField block. Fields are created once
@@ -252,91 +254,44 @@ class DualTankView extends WatchUi.DataField {
         mFontValue = Graphics.FONT_TINY;
         mFontSmall = Graphics.FONT_XTINY;
 
-        // Per-second record streams
-        // Reserve energy remaining per tank, in joules (raw; divide by tank capacity for %)
-        mFPcrJ  = createField("PCr_J",  FID_PCR_J,  FitContributor.DATA_TYPE_FLOAT,
-            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "J" });
-        mFGlyJ  = createField("GLY_J",  FID_GLY_J,  FitContributor.DATA_TYPE_FLOAT,
-            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "J" });
-        mFPcrCons = createField("PCr_cons", FID_PCR_CONS, FitContributor.DATA_TYPE_SINT16,
-            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "W" });
-        mFGlyCons = createField("GLY_cons", FID_GLY_CONS, FitContributor.DATA_TYPE_SINT16,
-            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "W" });
-        // Session totals (kJ) — finalized at ride save
-        mFPcrKj   = createField("PCr_depleted_kJ", FID_PCR_KJ, FitContributor.DATA_TYPE_FLOAT,
-            { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "kJ" });
-        mFGlyKj   = createField("GLY_depleted_kJ", FID_GLY_KJ, FitContributor.DATA_TYPE_FLOAT,
-            { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "kJ" });
+        // #102: the ONLY createField calls this app makes. Reserve energy remaining per tank, in
+        // joules (raw; divide by tank capacity for %). 8 B of the 32 B RECORD quota; SESSION 0 B.
+        // Gated on mFitRecord (the "fitRecord" setting, default true, read in reloadSettings()
+        // above): with the setting OFF the calls do not run, the handles stay null, and this app
+        // contributes ZERO developer field definitions to the file. Fields are created exactly
+        // once per load, which is why the setting's prompt says it applies at the next load.
+        // Every subsequent write goes through the null-safe writeField, so OFF needs no further
+        // gating -- and that is deliberate: a gate on a FIT write fails OPEN (FACTS.md 3.3).
+        if (mFitRecord) {
+            mFPcrJ = createField("PCr_J", FID_PCR_J, FitContributor.DATA_TYPE_FLOAT,
+                { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "J" });
+            mFGlyJ = createField("GLY_J", FID_GLY_J, FitContributor.DATA_TYPE_FLOAT,
+                { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "J" });
+        }
 
-        // #96 PR-A (Critical load-crash hotfix): the 12 config parameters are NO LONGER recorded as FIT
-        // SESSION fields. Connect IQ limits developer fields to 32 BYTES PER MESSAGE for data fields;
-        // 12 FLOAT config fields (48 B) + the two *_depleted_kJ SESSION fields (8 B) = 56 B exceeded that
-        // quota, and the overflow aborted initialize() at load on EVERY target — the logged "New Field
-        // out of memory for FIT data", an uncatchable fatal error (NOT a null return; the older #34/#32
-        // comments below assumed a null return, which the SDK does not document). Leaving mCfgFields null
-        // keeps writeCfgFields()/cfgField() inert via the `== null` guard, so SESSION drops to the two
-        // *_depleted_kJ (8 B). Config-to-FIT returns, gated behind a setting and narrowed to fit the byte
-        // budget, in the follow-up (#96 PR-B). See issue #96.
-        mCfgFields = null;
-
-        // #32: create the optional Deficit_kJ record stream LAST (highest FID), so on FIT-field
-        // budget exhaustion (#34) it's this handle that comes back null and degrades — never a core
-        // field. Per-second kJ (mDeficit is J); written every compute() so the stream has no gaps.
-        mFDeficit = createField("Deficit_kJ", FID_DEFICIT_KJ, FitContributor.DATA_TYPE_FLOAT,
-            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "kJ" });
-
-        // Seed from current (possibly RESTORED) state so the session-total kJ fields
-        // resume from the running total rather than restarting at 0 after a reload.
-        // All writes go through writeField (#34) so a null handle can't fault init.
+        // Seed from current (possibly RESTORED) state so the streams resume from the running
+        // reserves rather than restarting at capacity after a reload. Both writes go through
+        // writeField (#34), so a null handle -- OFF, or an SDK failure -- can't fault init.
         writeField(mFPcrJ, mModel.mRP);
         writeField(mFGlyJ, mModel.mRG);
-        writeField(mFPcrCons, 0);
-        writeField(mFGlyCons, 0);
-        writeField(mFPcrKj, mModel.mDepP / 1000.0);
-        writeField(mFGlyKj, mModel.mDepG / 1000.0);
-        writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: seed the deficit stream
     }
 
-    // #34: createField() returns null when the FIT field budget/memory is exhausted; a bare
-    // handle.setData() then throws and can take down compute()/onTimerStart/initialize. Route
-    // EVERY write through this null-safe helper so a null handle just skips (that one field
-    // doesn't record) instead of faulting — each field is guarded independently, so partial
-    // recording survives. value may be a Float or an Int; both are valid setData payloads.
-    // Static (no instance state) so a (:test) can exercise the null path without a DataField.
+    // Null-safe FIT write. A handle is null on two paths now: the #102 "fitRecord" setting is OFF,
+    // so the createField calls above never ran; or the SDK failed the creation. Route EVERY write
+    // through here so a null handle just skips instead of faulting compute()/onTimerStart/
+    // initialize. value may be a Float or an Int; both are valid setData payloads. Static (no
+    // instance state) so a (:test) can exercise the null path without a DataField.
+    //
+    // WHAT createField DOES ON EXHAUSTION, corrected (#96, #98 item 5): the older #34/#32 comments
+    // asserted it "returns null when the FIT field budget/memory is exhausted". That was an
+    // inference no SDK page documents, and it is WRONG -- #96 established that the SDK raises an
+    // UNCATCHABLE Out Of Memory Error ("New Field out of memory for FIT data") that aborts
+    // initialize() before any handle comes back, which is exactly why the v0.6 build could not
+    // load on any device while CI compiled it green. So this guard is not a budget-exhaustion
+    // safety net; it is the OFF path and ordinary defensive null handling. Staying under the
+    // quota is what prevents exhaustion, and nothing here can catch it if it happens.
     static function writeField(f, value) {
         if (f != null) { f.setData(value); }
-    }
-
-    // #33: (re)write the 12 config SESSION fields from the CURRENT model values. Split from
-    // creation (cfgField, once in initialize()) so a live onSettingsChanged -> reloadSettings()
-    // keeps the recorded config in sync instead of reporting the init-time snapshot. SESSION
-    // fields keep only their final value, so re-writing is cheap and the saved config reflects
-    // the end-of-ride effective settings. Guarded because reloadSettings() runs from initialize()
-    // BEFORE the fields exist. Index order matches the mCfgFields build below.
-    hidden function writeCfgFields() {
-        if (mCfgFields == null) { return; }
-        writeField(mCfgFields[0],  mModel.mCP);
-        writeField(mCfgFields[1],  mModel.mWprime);
-        writeField(mCfgFields[2],  mModel.mFP);
-        writeField(mCfgFields[3],  mModel.mPPmax);
-        writeField(mCfgFields[4],  mModel.mTauP);
-        writeField(mCfgFields[5],  mModel.mTauG);
-        writeField(mCfgFields[6],  mModel.mLt1Frac);
-        writeField(mCfgFields[7],  mModel.mEta);
-        writeField(mCfgFields[8],  mModel.mFatK);
-        writeField(mCfgFields[9],  mModel.mGFat);
-        writeField(mCfgFields[10], mModel.mTauAer);
-        writeField(mCfgFields[11], mModel.mTauOn);
-    }
-
-    // #33/#34: create (only) a SESSION field for a config parameter; the value is written
-    // separately by writeCfgFields() so it can be re-emitted on live settings changes. A field
-    // must be created exactly once (creating twice is invalid), so this stays in initialize().
-    // units may be null for dimensionless parameters (fP, eta, ...).
-    hidden function cfgField(name, id, units) {
-        var opts = { :mesgType => FitContributor.MESG_TYPE_SESSION };
-        if (units != null) { opts[:units] = units; }
-        return createField(name, id, FitContributor.DATA_TYPE_FLOAT, opts);
     }
 
     // #64: coerce a settings value to a FINITE Float, or null if it is null / non-numeric /
@@ -365,12 +320,11 @@ class DualTankView extends WatchUi.DataField {
     // Static and pure (no Properties, no members) so it is unit-testable directly, the way
     // coerceFiniteFloat and isConfigured are. Returning dflt rather than false on a malformed
     // value means a corrupt property keeps the shipped behaviour instead of silently changing it.
-    //
-    // c1 STUB — THIS BODY IS DELIBERATELY WRONG AND IS FIXED IN c3. It ignores v and returns dflt
-    // unconditionally, so the seam exists (c1 stays behaviour-preserving: nothing reads
-    // mFitRecord yet) while c2's testFitRecordSettingCoerces can be RED FOR BEHAVIOUR — a stored
-    // `false` not being honoured — rather than red for a missing symbol. Do not ship c1 alone.
+    // `instanceof Lang.Boolean` is the type discrimination this file already uses for settings
+    // (coerceFiniteFloat above). Pinned by testFitRecordSettingCoerces, which was RED on the c1
+    // stub body (`return dflt;`) for exactly the two cases below the branch.
     static function coerceBool(v, dflt) {
+        if (v instanceof Lang.Boolean) { return v; }
         return dflt;
     }
 
@@ -445,8 +399,10 @@ class DualTankView extends WatchUi.DataField {
         // pPmax / lt1Frac / eta are bounded by the settings UI but were never clamped in
         // code (#23) — a defensive floor/ceiling against corrupt storage or sideloaded
         // properties. pPmax: strictly-positive flux ceiling, upper bound mirrors the UI max
-        // (1500 W) so a corrupt value can't push mConsP past the SINT16 PCr_cons stream
-        // (#35). lt1Frac >= 0.05 keeps lt1Frac*CP strictly positive so the recovery anchor
+        // (1500 W). The original #35 reason — keeping mConsP inside the SINT16 PCr_cons
+        // stream — died with that stream in #102; the ceiling is kept as a plain sanity
+        // bound on a corrupt or sideloaded property. lt1Frac >= 0.05 keeps lt1Frac*CP
+        // strictly positive so the recovery anchor
         // (mLt1Frac*mCP - 20)/(mLt1Frac*mCP) in stepModel()/applyRestRecovery() can't divide
         // by zero; <= 1.0 since LT1 cannot exceed CP. eta is a recovery-efficiency fraction
         // [0,1] — eta < 0 would drain PCr in the live restoration branch while P < CP.
@@ -459,9 +415,9 @@ class DualTankView extends WatchUi.DataField {
 
         // Capacity derivation + reserve re-clamp live in the model now.
         mModel.configure([cp, wprime, fP, pPmax, tauP, tauG, lt1Frac, eta, fatK, gFat, tauAer, tauOn]);
-        // #33: re-emit the config SESSION fields so a live settings change is reflected in the FIT
-        // record. No-op while called from initialize() (fields not built yet; writeCfgFields guards).
-        writeCfgFields();
+        // #102: the #33 writeCfgFields() re-emit that used to close this function is gone with the
+        // config session fields. The settings a ride ran with are no longer in the file at all;
+        // a calibration run has to keep them out of band (see docs/calibration-session-checklist.md).
     }
 
     // Fresh-ride initialization: full tanks, zeroed session totals.
@@ -842,9 +798,6 @@ class DualTankView extends WatchUi.DataField {
             mModel.mConsG = 0.0;
             writeField(mFPcrJ, mModel.mRP);
             writeField(mFGlyJ, mModel.mRG);
-            writeField(mFPcrCons, 0);
-            writeField(mFGlyCons, 0);
-            writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: gap-free deficit stream (held)
             if (tnow != null) { mLastTimerTime = tnow; }   // #31: reseed so post-resume dt isn't the whole pause
             return 100.0 * mModel.mRP / mModel.mCapP;
         }
@@ -866,9 +819,6 @@ class DualTankView extends WatchUi.DataField {
             mModel.mConsG = 0.0;
             writeField(mFPcrJ, mModel.mRP);
             writeField(mFGlyJ, mModel.mRG);
-            writeField(mFPcrCons, 0);
-            writeField(mFGlyCons, 0);
-            writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: gap-free deficit stream (held)
             if (tnow != null) { mLastTimerTime = tnow; }   // #31: reseed so the first post-start dt is one tick
             return 100.0 * mModel.mRP / mModel.mCapP;
         }
@@ -899,16 +849,13 @@ class DualTankView extends WatchUi.DataField {
                 // Freeze — no valid sample yet (cold start OR first sample after a depleted-tank
                 // restore, where bridging the 0.0 seed would inject phantom recovery), or the dropout
                 // outlasted the bridge window. Mirror the paused early-return: hold reserves, zero
-                // consumption, keep the FIT streams gap-free, and DON'T touch mAer/mG/mDeficit. This
+                // consumption, keep the two FIT streams gap-free, and DON'T touch mAer/mG/mDeficit. This
                 // IS active on-device time, so markActiveIfDepleted() still refreshes SLOT_SAVEDAT
                 // while depleted so a multi-minute dropout can't be credited as rest (#52).
                 mModel.mConsP = 0.0;
                 mModel.mConsG = 0.0;
                 writeField(mFPcrJ, mModel.mRP);
                 writeField(mFGlyJ, mModel.mRG);
-                writeField(mFPcrCons, 0);
-                writeField(mFGlyCons, 0);
-                writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: gap-free deficit stream (held)
                 if (tnow != null) { mLastTimerTime = tnow; }   // #31: reseed so post-dropout dt isn't the whole gap
                 markActiveIfDepleted();
                 return 100.0 * mModel.mRP / mModel.mCapP;
@@ -944,24 +891,21 @@ class DualTankView extends WatchUi.DataField {
             mModel.mConsG = 0.0;
             writeField(mFPcrJ, mModel.mRP);
             writeField(mFGlyJ, mModel.mRG);
-            writeField(mFPcrCons, 0);
-            writeField(mFGlyCons, 0);
-            writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: keep the deficit stream gap-free on a skipped tick
             return 100.0 * mModel.mRP / mModel.mCapP;
         }
 
         // Delegate the entire per-second physics step to the model (pure, testable).
         var pctP = mModel.stepModel(p, dt);
 
-        // FIT: per-second reserve streams (joules remaining) + live consumption
+        // FIT: the per-second reserve streams (joules remaining). #102 retired PCr_cons/GLY_cons,
+        // PCr_depleted_kJ/GLY_depleted_kJ and Deficit_kJ; the draws and the depleted totals are
+        // reconstructible from these two as max(0, -dR) and its running sum -- EXACT only between
+        // the out-of-band reserve moves (exitPause -> applyRestRecovery, configure()'s re-clamp on
+        // a live settings change, restoreRollback, and the restore-gap recovery), which move a
+        // reserve with no draw and carry no marker in the file. The banked deficit is NOT
+        // reconstructible from them at all; it needs a replay from power + config.
         writeField(mFPcrJ, mModel.mRP);
         writeField(mFGlyJ, mModel.mRG);
-        writeField(mFPcrCons, mModel.mConsP.toNumber());
-        writeField(mFGlyCons, mModel.mConsG.toNumber());
-        // FIT: running session totals (kJ) — SDK keeps last value as summary
-        writeField(mFPcrKj, mModel.mDepP / 1000.0);
-        writeField(mFGlyKj, mModel.mDepG / 1000.0);
-        writeField(mFDeficit, mModel.mDeficit / 1000.0);   // #32: banked deficit D as a live kJ stream
 
         // Epsilon dirty-check: flag dirty only on a MATERIAL change (>= STATE_EPS_J in any
         // reserve / session total / deficit) since the last save. Without this, the sub-CP
@@ -1250,7 +1194,7 @@ class DualTankView extends WatchUi.DataField {
     }
 
     // Tank value label shown on-screen: reserve as a percentage of tank capacity.
-    // (The raw reserve in joules is written to the FIT file — PCr_J / GLY_J.)
+    // (The raw reserve in joules is what goes to the FIT file — PCr_J / GLY_J — when recording is on.)
     hidden function fmtPct(v) {
         return v.toNumber().toString() + "%";
     }

@@ -624,8 +624,11 @@ specification and a ready-to-use build prompt. Summary of the target design:
   (green → amber → red). *Per-system live consumption in W is a "modelled share," not a reading* — when
   the ceiling is slack it is just `(power − CP)` split by a fixed fraction (§7), so it is labelled as
   such or omitted.
-- **Recording:** write both reserves and consumption to the FIT file via `FitContributor` fields
-  so they sync to Garmin Connect / intervals.icu / Strava for post-ride analysis.
+- **Recording:** write the two reserves — and nothing else — to the FIT file via `FitContributor`
+  fields, so they sync to Garmin Connect / intervals.icu / Strava for post-ride analysis. Connect IQ
+  allows a data field only 32 bytes of developer fields per message type, shared with whatever else
+  the athlete has installed, so consumption and the per-system totals are **derived** on the way out
+  (`max(0, −ΔR)` and its running sum) rather than recorded.
 - **Footprint:** a handful of scalar state variables (`R_p`, `R_g`, the activation `g`, the deficit
   `D`), no arrays — well within Connect IQ memory budgets. Per-second cost is still a few multiplies
   and one `exp()` per tank.
@@ -722,8 +725,10 @@ Every review assessed the model as a **pacing** aid and correctly found the live
 outside transients. But there is a second use case they did not weigh, and it is where the decomposition
 is most clearly worth more than W′bal: **training prescription and load monitoring.** The relevant output
 here is not the live bar but the **cumulative per-system load over a session** — how many kJ came from the
-alactic (PCr) vs the glycolytic system — which the field already records (`PCr_depleted_kJ`,
-`GLY_depleted_kJ`). This matters because the two systems carry asymmetric recovery costs (§1): alactic
+alactic (PCr) vs the glycolytic system — which is derivable from what the field records (the running sum
+of `max(0, −ΔR)` over the `PCr_J` / `GLY_J` reserve streams; it was recorded outright as
+`PCr_depleted_kJ` / `GLY_depleted_kJ` until those fields were retired to stay inside Connect IQ's 32-byte
+developer-field budget). This matters because the two systems carry asymmetric recovery costs (§1): alactic
 work is cheap and repeatable; glycolytic work is expensive and self-limiting. A coach building a
 PCr-targeted block (alactic power, repeat-sprint ability) wants sessions that stay alactic; one building
 lactate tolerance wants the opposite. **W′bal cannot tell these apart — it is one number.**
@@ -814,8 +819,9 @@ Two conclusions, and both are progress. **First, this is the first genuinely fal
 project** — every prior round argued internal consistency, identifiability, and framing; this one has a
 number that is wrong in a specific, fixable way, and it arrived because §6.9 finally asked a question with a
 checkable answer. **Second, it settles what the tanks are:** as shipped, the depletion split is a
-**W′-decomposition heuristic, not a validated bioenergetic ATP partition.** The `PCr_depleted_kJ` /
-`GLY_depleted_kJ` fields should be read as a *descriptive statistic* of a power file (how front-loaded and
+**W′-decomposition heuristic, not a validated bioenergetic ATP partition.** The per-system depleted totals
+(recorded as `PCr_depleted_kJ` / `GLY_depleted_kJ` until those fields were retired, now derived from the
+reserve streams) should be read as a *descriptive statistic* of a power file (how front-loaded and
 supra-ceiling the anaerobic work was), not as a biopsy-grade estimate of which metabolic system paid.
 Whether the model can be made to reproduce 40%→<10% — by calibrating `g_rate` to the sprint-1 biopsy value
 and fitting `g_fat` to the decay — is the single highest-value experiment left, it needs only data already

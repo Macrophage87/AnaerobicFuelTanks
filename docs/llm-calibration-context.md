@@ -110,8 +110,10 @@ falls out of these and is equally assumed.
   information lives in the **transients** (the activation ramp at onset, and the fast-reserve recovery after
   hard efforts). Don't over-read small live differences on steady rides.
 - **Per-system live consumption (W)** is a *modelled share*, not a measurement, whenever the rate ceiling is
-  slack. The trustworthy training signal is the **cumulative per-system load** over a session
-  (`PCr_depleted_kJ` / `GLY_depleted_kJ`), which distinguishes an alactic session from a glycolytic one —
+  slack. The trustworthy training signal is the **cumulative per-system load** over a session — since #102
+  no longer recorded as `PCr_depleted_kJ` / `GLY_depleted_kJ`, but **derived** from the `PCr_J` / `GLY_J`
+  reserve streams as the running sum of `max(0, −ΔR)`, exact between pauses, mid-ride restores and live
+  settings changes. It distinguishes an alactic session from a glycolytic one —
   though that separation is driven by the glycolytic flux ceiling and is blind to *submaximal* alactic work,
   so treat it as descriptive, not a validated ATP partition.
 
