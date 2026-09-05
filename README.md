@@ -208,8 +208,17 @@ PDF renderings of each sit alongside the Markdown in `docs/`.
 
 - **Estimates, not measurements.** Tank levels are a pacing model, not muscle chemistry — calibrate
   (`fP`, per-athlete τ's) and validate before trusting absolute numbers (white paper §6–7).
-- **Not compiled in CI.** The Monkey C is written to pass strict type checking and is statically
-  validated, but the real compile happens locally via the Connect IQ SDK (`connectiq/build.sh`).
+- **Compiled in CI, but not executed there.** `.github/workflows/ci.yml` builds the Monkey C with
+  `monkeyc -t -l 1` (Gradual) on `edge1050` and `fenix6pro` in the required `test` job, and has since
+  PR #48 (2026-07-16). `-t` means the `(:test)` sources are **compiled** in CI; **running** the suite is
+  local-only — the headless `ciq-test` job is best-effort, is not required, and skips green because the
+  simulator crashes under Xvfb (#61). Strict `-l 3` type checking is **not** run in CI, nor by
+  `connectiq/build.sh` (which passes no `-l` at all); `connectiq/README.md` offers it as a local tip.
+  The enforced numeric guard is `model-parity`, which holds a Python mirror of `TankModel` to the R
+  reference within 0.1 J per second — it pins the model transitively, through a port, not the
+  shipping Monkey C directly. So a green CI run means the app **compiles** on two of the fifteen
+  manifest devices and the model arithmetic agrees; it does not mean the field loads or records on
+  a device — only a session on hardware shows that (#96).
 - **Research sourcing.** Literature was retrieved via PubMed / PubMed Central; some typeset equations
   were image-embedded, so a few closed forms are the standard published forms cross-checked against
   the surrounding text — verify exact coefficients against the publisher PDFs before hard-coding.
