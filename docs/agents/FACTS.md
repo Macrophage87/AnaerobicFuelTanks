@@ -45,9 +45,11 @@ The SDK is installed on the maintainer's machine. Verified 2026-09-05:
 (it needs Java — Temurin 17 is installed). `openssl` is at `/mingw64/bin/openssl`
 (3.5.6). `python3` is 3.14 via the Windows Store shim.
 
-`README.md:211` says the Monkey C is "Not compiled in CI". **That claim is
-false at `30b2b99`** (§1.2) and should be corrected at its source, not
-propagated.
+`README.md:211` said the Monkey C was "Not compiled in CI". **That claim was
+false from PR #48 (2026-07-16)** (§1.2) and was corrected at its source in
+#103 / PR #107; the bullet now there describes what CI does and does not
+prove. Retained as the worked example of §6's "a documentation claim about
+the environment that is false".
 
 ### 1.2 What CI runs, and what it does NOT run
 
@@ -294,9 +296,11 @@ fabricates a timeline rather than omitting one.
 
 Until a `[Local]` simulator or decoder session has measured it. `[Local]`
 issues carry: the `[Local]` title prefix, an opening ⚠️ blockquote, the
-`local-test` label, and byte-exact pass criteria. **The `local-test` label does
-not exist in this repository yet** (13 labels at `30b2b99`, none of them);
-create it before filing the first one.
+`local-test` label, and byte-exact pass criteria. (This paragraph said the
+`local-test` label **did not exist** — 13 labels at `30b2b99`, none of them.
+Re-measured 2026-09-05: there are now **14** labels and `local-test` is one
+of them, so it no longer has to be created first. #109 is the first issue
+filed under it.)
 
 ### 3.5 Clocks
 

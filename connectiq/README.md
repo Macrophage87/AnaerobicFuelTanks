@@ -116,8 +116,12 @@ monkeyc -e -f monkey.jungle -o bin/DualTank.iq -y developer_key.der   # package 
 
 > Tip: build with `-l 3` (strict type check) for the most thorough compiler pass:
 > `monkeyc -l 3 -d edge840 -f monkey.jungle -o bin/DualTank-edge840.prg -y developer_key.der`.
-> The source was written to pass strict type checking (property reads are `instanceof`-narrowed,
-> nullable `Activity.Info` fields are copied to locals before use).
+> **Whether it still passes `-l 3` is unmeasured.** The source was *written* with strict checking
+> in mind (property reads are `instanceof`-narrowed, nullable `Activity.Info` fields are copied to
+> locals before use), but nothing in this repository has ever run `-l 3`: CI compiles at `-l 1`,
+> `build.sh` passes no `-l` at all, and `.github/workflows/ci.yml:24-25` states the opposite —
+> "this codebase is untyped, so strict `-l 3` would drown in errors". Treat the tip as something
+> to try, not a guarantee; the run that settles it is tracked in #109.
 
 Sideload: copy the built `.prg` to the device's `GARMIN/APPS/` folder over USB, or distribute the
 `.iq` via the Connect IQ store. In VS Code, the **Monkey C** extension's *Build Current Project*
