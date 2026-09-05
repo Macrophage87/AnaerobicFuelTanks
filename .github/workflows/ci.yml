@@ -470,6 +470,17 @@ jobs:
       # #42: CP/W' must keep the sentinel 0 default or the SET CP/W' guard silently re-inerts.
       # Enforced here (a required job) because the headless (:test) suite segfault-skips in CI.
       - run: ./scripts/check_settings_defaults.sh connectiq/resources/settings/properties.xml
+      # #98 item 2 / #96: the FIT developer-field BYTE budget. Connect IQ caps a
+      # data field at 32 B per message type; v0.6 shipped SESSION at 56 B and could
+      # not load on ANY device -- and the compile matrix was green throughout,
+      # because createField failure is a runtime condition and no (:test) can reach
+      # it. The arithmetic is static, so it is guarded here, in a required job.
+      # The hermetic self-test runs FIRST, so a tool defect reds under its own name
+      # instead of masquerading as a repository defect.
+      - name: FIT byte-budget checker self-test (RED/GREEN)
+        run: python3 scripts/test_check_fit_budget.py
+      - name: FIT developer fields fit the 32 B per-message-type quota
+        run: python3 scripts/check_fit_budget.py
 
   # ------------------------------------------------------------------
   # Runner-free proof of the agent-loop tooling (docs/agents/, scripts/).
