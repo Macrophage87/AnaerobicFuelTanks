@@ -1,0 +1,115 @@
+# PROVENANCE -- real captured output, not a hand-written transcript.
+#
+#   repository  Macrophage87/AnaerobicFuelTanks
+#   workflow    CI, job "CIQ (:test) headless (best-effort)" (ciq-test)
+#   step        "Run (:test) headless under xvfb", the `cat /tmp/ciq-test.log`
+#               echo -- i.e. the bytes monkeydo wrote through `tee`
+#   run         33991598740   (2026-09-05)
+#   commit      918fbd9, branch claude/fit-prune-102 (PR #105 head)
+#   device      edge1050, in the digest-pinned container
+#               ghcr.io/matco/connectiq-tester@sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
+#
+# Captured with `gh run view 33991598740 --log`. The ONLY transformation applied
+# to the body below is removal of the `<job>\t<step>\t<timestamp> ` prefix that
+# `gh run view --log` prepends to every line. No line was reordered, reflowed or
+# re-spaced; the column alignment, the 78-dash rules and the blank line before
+# the summary are the simulator's own. These `#` lines are the header and are
+# not part of the capture.
+#
+# THE COUNT IS 17, AND THAT IS NOT scripts/expected_tests.txt's COUNT.
+# This run is PR #105's branch, which adds testFitRecordSettingCoerces; main
+# pins 16. That is deliberate and must stay possible: fixture-based cases in
+# scripts/test_check_ciq_tests.py are judged against a pin derived from this
+# file's own RESULTS rows (fx() / FIXTURE_NAMES_FROZEN), never the live pin, so
+# adding or removing a (:test) cannot red them.
+#
+# Regenerate ONLY from another real green run, and update FIXTURE_NAMES_FROZEN
+# in scripts/test_check_ciq_tests.py in the same commit -- a case asserts the
+# two agree, so a silently substituted fixture reds instead of passing.
+------------------------------------------------------------------------------
+Executing test testHarnessSmoke...
+DEBUG (21:00): CI (:test) harness reached
+PASS
+------------------------------------------------------------------------------
+Executing test testHardPunchThenRecover...
+DEBUG (21:00): after 5s@800: rP=3669.520020 rG=14717.633789
+DEBUG (21:00): after 60s@100: rP=4639.564941
+PASS
+------------------------------------------------------------------------------
+Executing test testSustainedOverCP...
+DEBUG (21:00): after 180s@300: fillP=0.307547 fillG=0.418449
+PASS
+------------------------------------------------------------------------------
+Executing test testBelowCPStaysFull...
+DEBUG (21:00): below-CP: rP=5000.000000 rG=15000.000000 minRG=15000.000000
+PASS
+------------------------------------------------------------------------------
+Executing test testDeficitBanksThenDecays...
+DEBUG (21:00): deficit after effort=12619.730469
+DEBUG (21:00): deficit after recovery=9965.961914
+PASS
+------------------------------------------------------------------------------
+Executing test testRestRecoveryClosedForm...
+DEBUG (21:00): closed rP=4248.225586 iter rP=4232.974121
+DEBUG (21:00): closed rG=10402.115234 iter rG=10402.113281
+PASS
+------------------------------------------------------------------------------
+Executing test testStepScalesWithDt...
+DEBUG (21:00): dep 0.5/1/2 = 100.000488/199.999512/400.000488
+PASS
+------------------------------------------------------------------------------
+Executing test testAerExcess...
+DEBUG (21:00): aer-excess off=-28187.902344 on=-21777.138672 mE=28.929779
+PASS
+------------------------------------------------------------------------------
+Executing test testValidateBlobAccepts...
+PASS
+------------------------------------------------------------------------------
+Executing test testValidateBlobRejects...
+PASS
+------------------------------------------------------------------------------
+Executing test testDecideDropout...
+PASS
+------------------------------------------------------------------------------
+Executing test testCoerceFiniteFloat...
+PASS
+------------------------------------------------------------------------------
+Executing test testIsConfigured...
+PASS
+------------------------------------------------------------------------------
+Executing test testCpWprimeDefaultUnconfigured...
+DEBUG (21:00): default CP=0 Wprime=0
+PASS
+------------------------------------------------------------------------------
+Executing test testFitRecordSettingCoerces...
+PASS
+------------------------------------------------------------------------------
+Executing test testWriteFieldNullSafe...
+PASS
+------------------------------------------------------------------------------
+Executing test testShouldShowNoPower...
+PASS
+
+==============================================================================
+RESULTS
+Test:                               Status:
+testHarnessSmoke                    PASS
+testHardPunchThenRecover            PASS
+testSustainedOverCP                 PASS
+testBelowCPStaysFull                PASS
+testDeficitBanksThenDecays          PASS
+testRestRecoveryClosedForm          PASS
+testStepScalesWithDt                PASS
+testAerExcess                       PASS
+testValidateBlobAccepts             PASS
+testValidateBlobRejects             PASS
+testDecideDropout                   PASS
+testCoerceFiniteFloat               PASS
+testIsConfigured                    PASS
+testCpWprimeDefaultUnconfigured     PASS
+testFitRecordSettingCoerces         PASS
+testWriteFieldNullSafe              PASS
+testShouldShowNoPower               PASS
+Ran 17 tests
+
+PASSED (passed=17, failed=0, errors=0)

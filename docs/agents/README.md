@@ -45,17 +45,29 @@ ceiling note and the whole developer-field id→name map. Its self-test is
 `scripts/test_check_agent_facts.py`. The same job runs the pin cross-check
 (`scripts/check_expected_tests.sh`), the ceiling-note arithmetic
 (`scripts/check_ceiling_notes.py`) and the literal check
-(`scripts/check_mc_literals.py`), each behind its own hermetic RED/GREEN suite.
-Everything else in these files is prose with a commit pin and nothing more;
-`FACTS.md` §9 says so in its own words.
+(`scripts/check_mc_literals.py`) and the `(:test)` log-parser self-test
+(`scripts/test_check_ciq_tests.py`), each behind its own hermetic RED/GREEN
+suite. Everything else in these files is prose with a commit pin and nothing
+more; `FACTS.md` §9 says so in its own words.
+
+`scripts/check_ciq_tests.py` is the odd one out: it is **not** a check of this
+tree, it is the PASS/FAIL verdict of the best-effort `ciq-test` job. Only its
+self-test runs in `test-tooling`, and a green `test-tooling` therefore says the
+parser is correct — never that the simulator ran.
 
 ## What was deliberately not installed from the kit
 
-The StrongRow kit also ships a container test harness
-(`run_ciq_tests.sh` + `check_ciq_tests.py`), a manifest-driven device matrix
-(`list_devices.sh` + `check_manifest_appid.py`), a comment cross-reference
-checker keyed on `test_` names, and a dispatch re-scoring harness. None fits
-this repository as it stands: the headless simulator segfaults in CI (#61), the
-compile matrix is a fixed pair, the tests are `camelCase`, and no rubric
-re-anchoring has been run yet. Each is a candidate for its own issue once the
-prerequisite exists; `FACTS.md` §1.2 and `DISPATCH.md` §5 say which.
+The StrongRow kit also ships a container test harness (`run_ciq_tests.sh`), a
+manifest-driven device matrix (`list_devices.sh` + `check_manifest_appid.py`), a
+comment cross-reference checker keyed on `test_` names, and a dispatch
+re-scoring harness. None fits this repository as it stands: the compile matrix
+is a fixed pair, the tests are `camelCase`, and no rubric re-anchoring has been
+run yet. Each is a candidate for its own issue once the prerequisite exists;
+`FACTS.md` §1.2 and `DISPATCH.md` §5 say which.
+
+The kit's `check_ciq_tests.py` **was** in that list, on the grounds that "the
+headless simulator segfaults in CI (#61)". It is installed as of the #61 item-2
+work: the job was measured executing the suite (`FACTS.md` §1.2's retraction),
+and the gate it replaced could red but could never pass. The harness half
+(`run_ciq_tests.sh`) is still not installed — `ci.yml` drives the simulator
+itself.
