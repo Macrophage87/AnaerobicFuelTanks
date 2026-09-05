@@ -83,21 +83,30 @@ for that commit (`gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<sha>/che
 > ran; the job's SKIP branch is still green, and the job is still not required.
 > A **red** `ciq-test` is strong evidence; a green one is weak.
 
-**Six other copies of the retracted claim survive and are deliberately not
+**Eight other copies of the retracted claim survive and are deliberately not
 corrected here**, re-derived on the merged tree (PR #105 round 3; the count was
-five before PR #106 and PR #110 landed):
+five at `be73a75`):
 `connectiq/source/Tests.mc:443`, the comment above
 `testCpWprimeDefaultUnconfigured`; `scripts/check_settings_defaults.sh:8`;
 `scripts/check_fit_budget.py:15` ("`ciq-test` is best-effort and skips green"),
-**new with PR #106**; `docs/agents/DISPATCH.md:232` ("a repository whose test
-suite does not execute in CI"), which is the V-axis rationale of the dispatch
-rubric; `docs/agents/rituals/LANDING.md:47-49`, which tells a landing agent the
-job "will also read `success`" — falsified by run `33990860226`, conclusion
-`failure`; and `.github/workflows/ci.yml:507`. All are reported on #61.
-`ci.yml:85`'s copy is **conditional** — it skips green "when the captured log
-holds no summary line at all" — and is not falsified, so it is not counted. A
-further copy is in PR #105's own `b5de5f2` commit message; it is landed history,
-cited by SHA from this section, and is corrected forward rather than rewritten.
+**new with PR #106 and not yet reported on #61**; `docs/agents/DISPATCH.md:47`
+("a `(:test)` here **compiles in CI and executes only locally**"), which is the
+**V=1 anchor** of the dispatch rubric and so governs every future scoring;
+`docs/agents/DISPATCH.md:232` ("a repository whose test suite does not execute
+in CI"), the V-axis rationale of §4's histogram;
+`docs/agents/rituals/LANDING.md:47-49`, which tells a landing agent the job
+"will also read `success`" — falsified by run `33990860226`, conclusion
+`failure`; `docs/agents/rituals/RELEASE.md:76` ("The `(:test)` suite runs only
+locally (`FACTS.md` §1.2)"), which cites **this section** for a claim this
+section withdraws; and `.github/workflows/ci.yml:507`. The six other than
+`check_fit_budget.py:15` and `RELEASE.md:76` are reported on #61; those two are
+not, and belong there before this paragraph is cited again. `ci.yml:85`'s copy
+is **conditional** — it skips green "when the captured log holds no summary line
+at all" — and is not falsified, so it is not counted. A further copy is in
+PR #105's own `b5de5f2` commit message; it is landed history, cited by SHA from
+`scripts/fixtures/monkeydo-red-run.log:8` and
+`scripts/test_check_ciq_tests.py:37`, and is corrected forward rather than
+rewritten.
 
 **A green `Compile` is compile-only evidence.** The enforced numeric guard on
 the model is `model-parity`, and it guards the Monkey C **transitively** through
