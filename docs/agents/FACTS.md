@@ -261,7 +261,7 @@ Until a `[Local]` simulator or decoder session has measured it. `[Local]`
 issues carry: the `[Local]` title prefix, an opening ⚠️ blockquote, the
 `local-test` label, and byte-exact pass criteria. (This paragraph said the
 `local-test` label **did not exist** — 13 labels at `30b2b99`, none of them.
-Re-measured 2026-09-05: there are now **15** labels and `local-test` is one
+Re-measured 2026-09-05: there are now **14** labels and `local-test` is one
 of them, so it no longer has to be created first. #109 is the first issue
 filed under it.)
 

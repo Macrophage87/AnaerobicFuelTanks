@@ -208,11 +208,12 @@ PDF renderings of each sit alongside the Markdown in `docs/`.
 
 - **Estimates, not measurements.** Tank levels are a pacing model, not muscle chemistry — calibrate
   (`fP`, per-athlete τ's) and validate before trusting absolute numbers (white paper §6–7).
-- **Compiled in CI, but not executed there.** `.github/workflows/ci.yml` builds the Monkey C with
-  `monkeyc -t -l 1` (Gradual) on `edge1050` and `fenix6pro` in the required `test` job, and has since
-  PR #48 (2026-07-16). `-t` means the `(:test)` sources are **compiled** in CI; **running** the suite is
-  local-only — the headless `ciq-test` job is best-effort, is not required, and skips green because the
-  simulator crashes under Xvfb (#61). Strict `-l 3` type checking is **not** run in CI, nor by
+- **Compiled in CI, but no required check executes it.** `.github/workflows/ci.yml` builds the Monkey
+  C with `monkeyc -t -l 1` (Gradual) on `edge1050` and `fenix6pro` in the required `test` job, and has
+  since PR #48 (2026-07-16). `-t` means the `(:test)` sources are **compiled** in CI: the required
+  checks compile the suite, they do not execute it. A separate headless `ciq-test` job does run it,
+  best-effort and outside the required set, so its result gates nothing (#61); a local `monkeydo` run
+  remains the measurement of record. Strict `-l 3` type checking is **not** run in CI, nor by
   `connectiq/build.sh` (which passes no `-l` at all); `connectiq/README.md` offers it as a local tip.
   The enforced numeric guard is `model-parity`, which holds a Python mirror of `TankModel` to the R
   reference within 0.1 J per second — it pins the model transitively, through a port, not the
