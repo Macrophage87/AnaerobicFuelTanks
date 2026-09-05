@@ -472,6 +472,45 @@ jobs:
       - run: ./scripts/check_settings_defaults.sh connectiq/resources/settings/properties.xml
 
   # ------------------------------------------------------------------
+  # Runner-free proof of the agent-loop tooling (docs/agents/, scripts/).
+  # Pure Python 3 + bash on the stock runner: no container, no SDK. Each
+  # checker's hermetic RED/GREEN self-test runs FIRST, so a tool defect reds
+  # under its own name instead of masquerading as a repository defect.
+  # Required (in ci-required.needs): a fact in docs/agents/FACTS.md that
+  # nothing re-derives is only a slower kind of drift.
+  # ------------------------------------------------------------------
+  test-tooling:
+    name: Agent-loop tooling (runner-free)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
+      - name: Extractor self-test (RED/GREEN)
+        run: python3 scripts/test_list_tests.py
+      - name: Cross-check scripts/expected_tests.txt against connectiq/source
+        # Closes DRIFT (pin vs sources), not coordinated shrinkage: deleting a
+        # (:test) AND its pin line in one commit still passes. Needs bash
+        # (process substitution).
+        shell: bash
+        run: bash scripts/check_expected_tests.sh
+      - name: Ceiling-note checker self-test (RED/GREEN)
+        run: python3 scripts/test_check_ceiling_notes.py
+      - name: Globals-ceiling note arithmetic closes and copies agree
+        run: python3 scripts/check_ceiling_notes.py
+      - name: Literal checker self-test (RED/GREEN)
+        run: python3 scripts/test_check_mc_literals.py
+      - name: No Monkey C string literal spans a source line
+        # monkeyc accepts a raw newline inside a literal; on a CRLF checkout that
+        # ships a stray CR inside the compiled string constant.
+        run: python3 scripts/check_mc_literals.py
+      - name: Agent-facts checker self-test (RED/GREEN)
+        run: python3 scripts/test_check_agent_facts.py
+      - name: docs/agents/FACTS.md agrees with the tree
+        # Re-derives the container digest, the manifest device count, the pinned
+        # (:test) count, the ceiling note and the developer-field id->name map.
+        run: python3 scripts/check_agent_facts.py
+
+  # ------------------------------------------------------------------
   # Stable required-check aggregator. Require ONLY this in branch protection so
   # adding/removing jobs later doesn't churn the protected list. `test` compiles
   # clean on both edge1050 and fenix6pro, so it's promoted into the gate here.
@@ -480,6 +519,6 @@ jobs:
     name: ci-required
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [ test, r-lint, r-test, manifest-lint, model-parity ]
+    needs: [ test, r-lint, r-test, manifest-lint, model-parity, test-tooling ]
     steps:
       - run: echo "required checks passed"
