@@ -20,6 +20,13 @@ fields, SESSION 8 B over two -- and the headline RED case is the shape that
 actually shipped and could not load: #96's twelve FLOAT config SESSION fields,
 48 B on top of 8 B, 56 B against a 32 B quota.
 
+The CROSS-FILE cases exist because round 1 of the review MEASURED the previous
+version's blind spot: a literal createField dropped into a second source file
+was uncounted, rc 0, with no diagnostic at all. Bytes are per app per message
+type, so a byte written from another file is a real byte; these cases pin that
+it is counted, that it can push a type over quota on its own, and that an id
+re-used across two files is refused.
+
 Run: python3 scripts/test_check_fit_budget.py
 """
 
@@ -32,6 +39,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CHECKER = os.path.join(HERE, "check_fit_budget.py")
 
 VIEW = "connectiq/source/DualTankView.mc"
+OTHER = "connectiq/source/Other.mc"       # a SECOND source file, for the
+                                          # cross-file cases below
 
 # (id, name, DATA_TYPE_*, MESG_TYPE_*, extra option text). The live set at the
 # pin: RECORD = 4+4+2+2+4 = 16 B, SESSION = 4+4 = 8 B.
@@ -133,6 +142,16 @@ def _():
     rc, out = run(tree())
     return (rc, "16 B of 32 B" in out and "8 B of 32 B" in out
             and "OK:" in out), (0, True)
+
+
+@case("every total is qualified 'for a data field', on the GREEN path too")
+def _():
+    # 32 B is the data-field tier; a full app gets 256 B. The green line is the
+    # one most likely to be quoted out of context (FACTS.md 6, "the wrong
+    # pair"), so the qualifier has to be on it and not only on the FAIL branch.
+    rc, out = run(tree())
+    return (rc, "for a DATA FIELD" in out
+            and "quota for a data field" in out), (0, True)
 
 
 @case("named-const ids resolve, and each field is listed with its width")
@@ -319,11 +338,70 @@ def _():
             and "unique per field_description" in out), (1, True)
 
 
-@case("RED: connectiq/source/DualTankView.mc missing is a failure, not 0 B")
+@case("RED: a missing connectiq/source directory is a failure, not 0 B")
 def _():
     rc, out = run({})
-    return (rc, "DualTankView.mc is missing" in out
+    return (rc, "connectiq/source is missing or is not a directory" in out
             and "cannot be derived" in out), (1, True)
+
+
+@case("RED: a source directory holding no .mc file at all is refused")
+def _():
+    rc, out = run({"connectiq/source/notes.txt": "not Monkey C\n"})
+    return (rc, "0 .mc file(s)" in out), (1, True)
+
+
+# ------------------------------------------------------------- cross-file ---
+
+@case("a createField in a SECOND source file is COUNTED, not silently ignored")
+def _():
+    # The blind spot measured in review: this exact injection used to report
+    # the unchanged 7 fields, rc 0, with no diagnostic. RECORD goes 16 -> 24 B
+    # and the second file is named in the table.
+    other = view(fields=[(40, "Bloat", "DOUBLE", "RECORD", ':units => "J"')],
+                 helper=False)
+    rc, out = run(tree(**{OTHER: other}))
+    return (rc, "24 B of 32 B" in out and "Other.mc:" in out
+            and "8 live developer field(s) in 2 .mc file(s)" in out), (0, True)
+
+
+@case("RED: a second source file can push a message type over quota on its own")
+def _():
+    # DualTankView.mc alone is 16 B of 32 B and green. The bytes that break the
+    # budget live entirely in the other file -- which is the whole point.
+    other = view(fields=pad("RECORD", ["DOUBLE"] * 3, first_id=40),
+                 helper=False)
+    rc, out = run(tree(**{OTHER: other}))
+    return (rc, "MESG_TYPE_RECORD: 8 field(s) totalling 40 B, 8 B over" in out
+            and "Other.mc:" in out), (1, True)
+
+
+@case("RED: one developer field id re-used across two files is refused")
+def _():
+    other = view(fields=[(1, "GLY_J_elsewhere", "FLOAT", "RECORD", "")],
+                 helper=False)
+    rc, out = run(tree(**{OTHER: other}))
+    return (rc, "id 1 is declared in both" in out
+            and "DualTankView.mc" in out and "Other.mc" in out
+            and "unique per field_description across the whole app" in out), (1, True)
+
+
+@case("no filename is pinned: the fields may live in any .mc file")
+def _():
+    # DualTankView.mc deleted, the same seven fields moved to another file.
+    # Nothing in the checker names a file, so the totals are unchanged.
+    rc, out = run({OTHER: view()})
+    return (rc, "16 B of 32 B" in out and "8 B of 32 B" in out
+            and "7 live developer field(s) in 1 .mc file(s)" in out
+            and "OK:" in out), (0, True)
+
+
+@case("RED: deleting the only file that creates fields reds on the row-count floor")
+def _():
+    rc, out = run({"connectiq/source/TankModel.mc":
+                   "class TankModel { function initialize() { } }\n"})
+    return (rc, "0 createField call(s)" in out
+            and "row-count floor" in out), (1, True)
 
 
 def main():

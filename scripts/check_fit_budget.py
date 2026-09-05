@@ -17,12 +17,14 @@ call sites carry the type and the message type as literal tokens. So the
 arithmetic is what this script re-derives, on every run of the required
 manifest-lint job.
 
-The re-land vector is concrete: #95 wires a 13th config parameter, and #99
-(PR-B) restores config recording to the SESSION message. Either can re-breach
-the quota in one line.
+The re-land vector is concrete: #99 (PR-B) restores config recording to the
+SESSION message and can re-breach the quota in one line. #95 wires a 13th
+config parameter, which re-breaches it only once #99 has landed -- no config
+parameter reaches the FIT file today (cfgField() has no call sites and
+mCfgFields stays null).
 
-WHAT IS DERIVED, and how. Every `createField(` call site in
-connectiq/source/DualTankView.mc whose NAME is a string literal:
+WHAT IS DERIVED, and how. Every `createField(` call site in EVERY .mc file
+under connectiq/source/ whose NAME is a string literal:
 
   * the name       -- from the RAW text (strip_comments blanks literal bodies);
   * the id         -- an integer literal, or a `const NAME = <int>;` declared in
@@ -73,10 +75,13 @@ WHAT THIS CANNOT CHECK, stated so nobody reads more into a green run.
     It cannot tell you that a device accepted the fields, that a decoder sees
     them, or that any of them was ever populated. Only a record-and-save
     session on hardware answers that (#98 item 1).
-  * IT SEES ONE FILE. A createField called from any other source file is
-    invisible here. connectiq/source/DualTankView.mc is where every one of this
-    app's fields is created today; that is a fact about the tree, not a
-    guarantee this checker enforces.
+  * IT SEES ONE DIRECTORY TREE. Every .mc under connectiq/source/ is scanned
+    and the totals are summed across files -- the quota is per app per message
+    type, so a byte written from another file is a real byte. A field created
+    from outside that tree (a barrel or library) is still invisible. The file
+    scan replaced a SILENT single-file blind spot found in review: a literal
+    createField in a second source file used to be uncounted with no
+    diagnostic at all.
   * A createField whose NAME IS A VARIABLE is not counted -- that is the inert
     `cfgField(name, id, units)` helper, which creates nothing while mCfgFields
     stays null. If #99 (PR-B) revives it, ITS FIELDS ARE NOT IN THESE TOTALS,
@@ -104,12 +109,12 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 # The repository's ONE Monkey C lexer, reused rather than copied.
-from list_tests import strip_comments                         # noqa: E402
+from list_tests import mc_files, strip_comments               # noqa: E402
 # The `const NAME = <int>;` scanner and the id resolver, imported for the same
 # reason -- check_agent_facts.py already had to solve exactly this.
 from check_agent_facts import CONST_RE, resolve_field_id      # noqa: E402
 
-VIEW_REL = os.path.join("connectiq", "source", "DualTankView.mc")
+SOURCE_REL = os.path.join("connectiq", "source")
 
 # Connect IQ's developer-field quota for a DATA FIELD, per message type, in
 # bytes. Confirmed on hardware in #96 (a full app gets 256). Not derived from
@@ -144,7 +149,7 @@ MESG_RE = re.compile(r':mesgType\s*=>\s*FitContributor\.MESG_TYPE_'
 COUNT_RE = re.compile(r':count\s*=>\s*(?P<count>\d+)')
 
 # Record layout, by index, for the tuples below.
-R_ID, R_NAME, R_TYPE, R_MESG, R_COUNT, R_BYTES, R_LINE = range(7)
+R_ID, R_NAME, R_TYPE, R_MESG, R_COUNT, R_BYTES, R_LINE, R_FILE = range(8)
 
 
 def read_text(path):
@@ -203,7 +208,7 @@ def parse_one(text, shown, consts, m, problems):
     if fid is None or mesg is None or nbytes is None:
         return None
     return (fid, name, dtype, mesg, count, nbytes,
-            _lineno(text, m.start()))
+            _lineno(text, m.start()), shown)
 
 
 def parse_read(text, shown, consts, label, problems, check_heads):
@@ -245,17 +250,13 @@ def parse_read(text, shown, consts, label, problems, check_heads):
     return None if bad else out
 
 
-def collect(root, problems):
-    """{id: record} for every live developer field, or None."""
-    path = os.path.join(root, VIEW_REL)
-    shown = VIEW_REL.replace(os.sep, "/")
-    if not os.path.isfile(path):
-        problems.append(
-            "%s is missing; the FIT byte budget cannot be derived. Every "
-            "developer field this app creates is created there." % shown)
-        return None
+def collect_file(path, shown, problems):
+    """{id: record} for one .mc file, or None if it cannot be trusted."""
     text = read_text(path)
     stripped = strip_comments(text)
+    # Consts are resolved per FILE, on purpose: an id token that names a const
+    # declared somewhere else fails loudly ("cannot be derived") rather than
+    # being resolved against an unrelated file that happens to use the name.
     consts = {m.group("name"): int(m.group("val"))
               for m in CONST_RE.finditer(stripped)}
 
@@ -289,16 +290,69 @@ def collect(root, problems):
                 "type, message type and count before any byte total is "
                 "trusted." % (shown, fid, a, b))
             return None
-
-    if not raw:
-        problems.append(
-            "%s: 0 createField call(s) with a string-literal name were found. "
-            "A row-count floor is the point: a regex that has drifted out of "
-            "step with the source matches nothing, and would otherwise report "
-            "an empty, green byte table for an app that creates fields."
-            % shown)
-        return None
     return raw
+
+
+def collect(root, problems):
+    """{id: record} for every live developer field under connectiq/source/.
+
+    EVERY .mc file is scanned, not just the one that happens to hold the calls
+    today. Review of the first version measured the alternative: a literal
+    createField dropped into a second source file was uncounted, rc 0, with no
+    diagnostic of any kind. The quota is per app per message type, so a byte
+    written from another file is a real byte and is summed here."""
+    src_root = os.path.join(root, SOURCE_REL)
+    shown_root = SOURCE_REL.replace(os.sep, "/")
+    if not os.path.isdir(src_root):
+        problems.append(
+            "%s is missing or is not a directory; the FIT byte budget cannot "
+            "be derived. Every developer field this app creates is created in "
+            "a .mc file under it." % shown_root)
+        return None
+
+    paths = mc_files(src_root)          # imported; no second directory walk
+    if not paths:
+        problems.append(
+            "%s holds 0 .mc file(s). A source tree with no Monkey C in it is "
+            "refused rather than reported as an empty, green byte table."
+            % shown_root)
+        return None
+
+    fields = {}
+    origin = {}
+    ok = True
+    for path in paths:
+        shown = shown_root + "/" + os.path.relpath(path, src_root).replace(
+            os.sep, "/")
+        got = collect_file(path, shown, problems)
+        if got is None:
+            ok = False
+            continue
+        for fid, rec in sorted(got.items()):
+            if fid in fields:
+                problems.append(
+                    "developer field id %d is declared in both %s (line %d) "
+                    "and %s (line %d). An id is unique per field_description "
+                    "across the whole app; re-using one silently re-labels "
+                    "every file recorded with it."
+                    % (fid, origin[fid], fields[fid][R_LINE], shown,
+                       rec[R_LINE]))
+                ok = False
+                continue
+            fields[fid] = rec
+            origin[fid] = shown
+    if not ok:
+        return None
+
+    if not fields:
+        problems.append(
+            "%s: 0 createField call(s) with a string-literal name were found "
+            "in %d .mc file(s). A row-count floor is the point: a regex that "
+            "has drifted out of step with the source matches nothing, and "
+            "would otherwise report an empty, green byte table for an app "
+            "that creates fields." % (shown_root, len(paths)))
+        return None
+    return fields, len(paths)
 
 
 def main():
@@ -306,30 +360,36 @@ def main():
     ap.add_argument("--root", default=".")
     args = ap.parse_args()
 
-    shown = VIEW_REL.replace(os.sep, "/")
+    shown_root = SOURCE_REL.replace(os.sep, "/")
     problems = []
-    fields = collect(args.root, problems)
-    if fields is None or problems:
-        print("FAIL: %d problem(s) reading the developer fields in %s."
-              % (len(problems), shown))
+    got = collect(args.root, problems)
+    if got is None or problems:
+        print("FAIL: %d problem(s) reading the developer fields under %s."
+              % (len(problems), shown_root))
         for p in problems:
             print("  - %s" % p)
         return 1
+    fields, nfiles = got
 
     per_mesg = {}
     for fid in sorted(fields):
         per_mesg.setdefault(fields[fid][R_MESG], []).append(fields[fid])
     totals = {k: sum(r[R_BYTES] for r in v) for k, v in per_mesg.items()}
 
-    print("FIT developer-field bytes per message type (%s), quota %d B:"
-          % (shown, QUOTA_BYTES))
+    # "for a data field" travels with EVERY total, not only the FAIL branch:
+    # the green line is the one most likely to be quoted out of context, and
+    # 32 B is the data-field tier while a full app gets 256 B.
+    print("FIT developer-field bytes per message type (%s, %d .mc file(s)), "
+          "quota %d B per message type for a DATA FIELD:"
+          % (shown_root, nfiles, QUOTA_BYTES))
     for mesg in sorted(per_mesg):
         print("  MESG_TYPE_%-10s %2d field(s)  %3d B of %d B  %s"
               % (mesg, len(per_mesg[mesg]), totals[mesg], QUOTA_BYTES,
                  "OVER" if totals[mesg] > QUOTA_BYTES else "ok"))
         for r in sorted(per_mesg[mesg], key=lambda r: r[R_ID]):
-            print("      id %-3d %-20s %-7s %3d B  (line %d)"
-                  % (r[R_ID], r[R_NAME], r[R_TYPE], r[R_BYTES], r[R_LINE]))
+            print("      id %-3d %-20s %-7s %3d B  (%s:%d)"
+                  % (r[R_ID], r[R_NAME], r[R_TYPE], r[R_BYTES],
+                     os.path.basename(r[R_FILE]), r[R_LINE]))
 
     over = sorted(m for m in totals if totals[m] > QUOTA_BYTES)
     if over:
@@ -345,9 +405,11 @@ def main():
         return 1
 
     worst = max(sorted(totals), key=lambda k: totals[k])
-    print("OK: %d live developer field(s) across %d message type(s); every "
-          "type is within the %d B quota (largest: MESG_TYPE_%s at %d B)."
-          % (len(fields), len(per_mesg), QUOTA_BYTES, worst, totals[worst]))
+    print("OK: %d live developer field(s) in %d .mc file(s) across %d message "
+          "type(s); every type is within the %d B per-message-type quota for a "
+          "data field (largest: MESG_TYPE_%s at %d B)."
+          % (len(fields), len(sorted({r[R_FILE] for r in fields.values()})),
+             len(per_mesg), QUOTA_BYTES, worst, totals[worst]))
     return 0
 
 
