@@ -67,7 +67,9 @@ FAIL-CLOSED, in every direction a regex can drift:
   * an id that resolves to no integer const is a failure;
   * a duplicated id is a failure (the totals are keyed by id, and an id is
     unique per field_description anyway);
-  * a missing DualTankView.mc is a failure.
+  * a missing connectiq/source directory is a failure, and so is a directory
+    holding zero .mc files. No FILENAME is required anywhere: deleting the file
+    that holds the calls reds on the zero-call-sites floor above, not on a name.
 
 WHAT THIS CANNOT CHECK, stated so nobody reads more into a green run.
 
