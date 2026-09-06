@@ -73,12 +73,14 @@ saved a file has not passed this gate.
 
 ## 7. The suite total in the release body is a measurement, not a memory
 
-The `(:test)` suite runs only locally (`FACTS.md` §1.2). Quote the
-`PASSED (passed=N, failed=0, errors=0)` line from a `monkeydo` run **on the
-exact commit being tagged**, with N equal to `scripts/expected_tests.txt`'s
-count; and quote the CI check-runs for that commit (all required checks
-`success`). If any two of these disagree, one of them is stale and the release
-stops until you know which.
+The `(:test)` suite executes in two places and neither is required
+(`FACTS.md` §1.2): the best-effort `ciq-test` CI job, whose parser prints
+`gate: PASS` on a green suite, and a local `monkeydo` run. Quote the
+`PASSED (passed=N, failed=0, errors=0)` line **read off the CI job's log for the
+exact commit being tagged** (or off a local run at that commit), with N equal to
+`scripts/expected_tests.txt`'s count; and quote the CI check-runs for that commit
+(all required checks `success`). If any two of these disagree, one of them is
+stale and the release stops until you know which.
 
 ## 8. Tag, publish, and label honestly
 
@@ -105,9 +107,8 @@ v0.6 users to replace it):
 2. **Prepend a ⚠️ blockquote to the superseded release body**, linking the
    replacement, in the imperative.
 3. **Edit the release title** to carry it too — `v0.6 — SUPERSEDED by v0.7
-   (crashes at load on every target)` — so `gh release list` shows it. **This
-   has not been done for `v0.6`** at `30b2b99`: its title is still
-   "DualTank v0.6" and it still carries `latest`.
+   (crashes at load on every target, #96)` — so `gh release list` shows it.
+   Done for `v0.6` on 2026-09-05; it keeps `latest` under the beta policy in §8.
 4. **Say what has to happen for it to fire, and what it costs when it does.**
 5. **Cut the replacement from a fresh archive.**
 
