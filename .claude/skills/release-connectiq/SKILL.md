@@ -23,7 +23,7 @@ and report; do not improvise past it.
 | `APP` | app name used in asset filenames, e.g. `StrongRow` |
 | `VERSION` | `vX.Y[.Z]`, the tag to create |
 | `TEST_DEVICE` | the device CI runs the suite on, e.g. `fr965` |
-| `PRERELEASE` | `true` for private-distribution builds (the default for this workflow) |
+| `PRERELEASE` | owner's policy: while the store listing is in **beta** (pre-1.0) only the owner sees builds, so leave flags as cut and do not re-flag older releases; from **1.0** on, every test/gate build is `--prerelease` and a plain release is cut only when the owner says "official" |
 | `NOTES` | scratch path for the release body, outside the repository |
 
 If `KEY` is not set, does not exist, or is not the key named for this app: STOP. A release signed
@@ -126,8 +126,8 @@ gh release view "$VERSION" --json tagName,isPrerelease,url,assets
 ```
 
 - Asset filenames carry the version. `StrongRow-v0.9.2.iq`, never `StrongRow.iq`.
-- Flag `--prerelease` for private distribution; the `latest` flag is allowed to sit on an older
-  public release, and that is correct, not something to "fix".
+- Flag per the `PRERELEASE` row's policy; the `latest` flag is allowed to sit on an older
+  release (even a superseded one, while in beta), and that is the owner's call, not something to "fix".
 - Re-read the asset list from the `gh release view` output and put the sizes in your report.
 
 ## 6. Superseding a bad release (only when the new release replaces a defective one)

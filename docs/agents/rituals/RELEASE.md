@@ -83,9 +83,11 @@ stops until you know which.
 ## 8. Tag, publish, and label honestly
 
 * Tag the exact commit the body names.
-* `v0.7` is flagged **prerelease**; `v0.6` is not, so GitHub's `latest` points
-  at the crashing build. Flag a private-distribution release prerelease; when
-  a build has passed §6, publish it un-flagged so `latest` moves off `v0.6`.
+* Flags follow the owner's policy (2026-09-06): while the store listing is in
+  **beta** (pre-1.0) only the owner sees these builds, so flags stay as cut and
+  older releases are not re-flagged — `v0.6` keeps `latest` with its superseded
+  title and warning. From **1.0** on, every test or gate build is flagged
+  **prerelease** and a plain release is cut only when the owner says "official".
 * The body opens with the provenance sentence — commit, key, `N of M` devices,
   product count, suite line — before any feature prose.
 * A section headed **"Stated plainly: what this release does NOT establish"**,
