@@ -564,6 +564,15 @@ jobs:
         # Re-derives the container digest, the manifest device count, the pinned
         # (:test) count, the ceiling note and the developer-field id->name map.
         run: python3 scripts/check_agent_facts.py
+      - name: Ride-evidence tool self-test (RED/GREEN)
+        # Hermetic: synthetic scratch fixtures only, never the committed ride.
+        run: python3 tools/fielddata/test_ride_evidence.py
+      - name: Ride evidence note agrees with the committed ride fixtures
+        # Re-derives every figure published from the 2026-09-20 ride from
+        # tools/fielddata/fixtures/ and fails if any pinned figure in the note
+        # differs. Runner-free and SDK-free: it reads text fixtures, it decodes no
+        # .fit and it runs no simulator (docs/agents/rituals/FIELD_DATA.md).
+        run: python3 tools/fielddata/ride_evidence.py --check docs/fielddata/ride-2026-09-20-edge1050.md
 
   # ------------------------------------------------------------------
   # Stable required-check aggregator. Require ONLY this in branch protection so
