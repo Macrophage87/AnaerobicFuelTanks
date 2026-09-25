@@ -46,7 +46,9 @@ key by absolute path (`CIQ_KEY=`), and to throwaway keys by scratch path.
 
 `monkeyc -e` prints **`N OUT OF M DEVICES BUILT`**. **Read N and M from this
 export's own output; do not copy them forward.** The `.iq` is not a zip archive
-and cannot be enumerated afterwards. M is 15 at `30b2b99` (`FACTS.md` §1.4);
+and cannot be enumerated afterwards. M counts device **parts**, not manifest
+products: 28 across the 15 products at `30b2b99` (`FACTS.md` §1.4) and, per
+its release body, at `d6be663` (`v0.8`, `FACTS.md` §5.5).
 `N < M` is a **failed** export, not a partial success. Stop.
 
 ## 5. Asset naming carries the version in the filename
@@ -56,8 +58,8 @@ DualTank-v0.8.iq
 DualTank-v0.8-edge1050.prg
 ```
 
-`v0.6` shipped `DualTank.iq` and `v0.7` shipped `DualTank-0.7.iq`
-(`FACTS.md` §5.5). A downloaded asset must say what it is without its
+`v0.6` shipped `DualTank.iq` and `v0.7` shipped `DualTank-0.7.iq`; `v0.8` is
+the first release in the form above (`FACTS.md` §5.5). A downloaded asset must say what it is without its
 surrounding page; pass the versioned name to `monkeyc -o` so the build log and
 the asset agree.
 
@@ -100,14 +102,15 @@ stale and the release stops until you know which.
 
 ## Superseding a bad release
 
-The form, verified on `v0.7`'s body (which opens with a blockquote telling
-v0.6 users to replace it):
+The form, verified on `v0.6`'s body (which opens with a ⚠️ blockquote linking
+`v0.7` and telling users not to install it) and on `v0.7`'s (which now opens
+with a blockquote linking `v0.8`):
 
 1. **Do not delete the release and do not move the tag.**
 2. **Prepend a ⚠️ blockquote to the superseded release body**, linking the
    replacement, in the imperative.
-3. **Edit the release title** to carry it too — `v0.6 — SUPERSEDED by v0.7
-   (crashes at load on every target, #96)` — so `gh release list` shows it.
+3. **Edit the release title** to carry it too — `DualTank v0.6 — SUPERSEDED by
+   v0.7 (crashes at load on every target, #96)` — so `gh release list` shows it.
    Done for `v0.6` on 2026-09-05; it keeps `latest` under the beta policy in §8.
 4. **Say what has to happen for it to fire, and what it costs when it does.**
 5. **Cut the replacement from a fresh archive.**

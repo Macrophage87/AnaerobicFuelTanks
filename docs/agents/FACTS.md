@@ -520,29 +520,69 @@ create path, not after.**
 
 ### 5.5 Releases
 
-Three tags: `0.1`, `v0.6`, `v0.7`. `v0.6` is the newest release **not** flagged
-prerelease, so GitHub's `latest` points at it — and **v0.6 is the build that
-crashes at load** (#96). `v0.7` (prerelease, from `30b2b99`) is the fix. Asset
-names: `DualTank.iq` on v0.6, `DualTank-0.7.iq` on v0.7 — the version belongs
-in the filename (release ritual §5). Store-Version 6 is the crashing build;
-the store resubmission is #96's remaining blocker.
+Re-pinned **2026-09-25 at `d6be663`** (the `v0.8` tag, #113), read with
+`gh release list`, `gh release view <tag> --json name,isPrerelease,assets,body`
+and `git ls-remote --tags origin`:
 
-**Static image size is not the memory pressure.** Measured 2026-09-05 on a
-clean archive of `30b2b99`, local SDK 9.2.0, `monkeyc -r -l 1` (release, debug
-stripped), throwaway key, against each device's `compiler.json` `datafield`
-`memoryLimit`:
+| tag | commit | GitHub release | flag | assets |
+|---|---|---|---|---|
+| `0.1` | `8e9fc00` | **none** — a tag only | — | — |
+| `v0.6` | `ee93fed` | "DualTank v0.6 — SUPERSEDED by v0.7 (crashes at load on every target, #96)" | release, **`latest`** | `DualTank.iq` 541,690 B |
+| `v0.7` | `30b2b99` | "DualTank v0.7 (pre-release) — fixes the v0.6 load crash; superseded by v0.8" | prerelease | `DualTank-0.7.iq` 538,913 B |
+| `v0.8` | `d6be663` | "v0.8" | prerelease | `DualTank-v0.8.iq` 549,096 B; `DualTank-v0.8-edge1050.prg` 28,188 B |
+
+**v0.6 is the build that crashes at load** (#96) and it still carries GitHub's
+`latest`: it is the newest release not flagged prerelease, and under the
+owner's beta flag policy (`rituals/RELEASE.md` §8) flags stay as cut until 1.0,
+so it is not re-flagged. Its title and an opening ⚠️ blockquote say so instead;
+`v0.7`'s body opens with a blockquote pointing at `v0.8`. The version belongs
+in the asset filename (release ritual §5); `v0.8` is the first release whose
+assets follow the `DualTank-v<X.Y>` form.
+
+`v0.8` provenance, **as its release body states it** — not re-derived here: built
+from `d6be663` with the account-bound DualTank key, **28 of 28** device parts
+across the 15 manifest products (the export log is not attached to the release
+or committed, so `N OUT OF M` cannot be re-read after the fact — §1.4), suite
+`PASSED (passed=17, failed=0, errors=0)`. The body carries a dated
+**retraction (2026-09-06)**: the first pair of assets was signed with a
+different key and both were replaced with exports signed by the DualTank key.
+The assets attached now were uploaded **2026-09-06T09:09Z** (their `createdAt`);
+the API reports their digests as
+
+    DualTank-v0.8.iq            sha256:904faaa65a10e4d4ae5046374b990b630af34dca083f80c2a3ee3c3a3cf9ec4b
+    DualTank-v0.8-edge1050.prg  sha256:e40ef4e1da5f50dd8c041b501fbd911c5c3372de0acee3111db5c9d2d4e3002c
+
+Store-Version 6 is the crashing build (not re-verified here: nothing in this
+repository reads the Store); the store resubmission is #96's remaining blocker
+(#96 open on 2026-09-25), and the Store description correction rides with it —
+`connectiq/store/description.txt:25` still advertises "live consumption" and
+end-of-ride kilojoules, fields whose `createField` calls #102 deleted.
+
+**Static image size is not the memory pressure.** Measured at **`d6be663`** on a
+clean archive with `monkeyc -r -l 1` (release, debug stripped) and a throwaway
+key — **by the maintainer's local session and reported in #113's body; not
+re-measured for the re-pin**, which ran with no SDK. One row is
+independently readable: the `v0.8` release asset `DualTank-v0.8-edge1050.prg`
+is 28,188 B, equal to the `edge1050` row to the byte. The limit is each
+device's `compiler.json` `datafield` `memoryLimit`, read at `30b2b99`; the
+device files are not in this repository and were not re-read. Share is
+computed from the two columns.
 
 | device | release `.prg` | limit | share |
 |---|---:|---:|---:|
-| edge530 / edge830 | 26,140 B | 131,072 B | 19.9 % |
-| edge540 / edge840 | 22,316 B | 131,072 B | 17.0 % |
-| edge1030 / edge1030plus | 26,220 B | 131,072 B | 20.0 % |
-| edge1040 | 22,988 B | 131,072 B | 17.5 % |
-| edge1050 | 29,036 B | 131,072 B | 22.2 % |
-| fenix6pro | 25,228 B | 131,072 B | 19.2 % |
-| fr255 / fr255m | 21,388 B | 262,144 B | 8.2 % |
-| fr955 / fenix7 / fenix7x | 21,708 B | 262,144 B | 8.3 % |
-| fr965 | 30,188 B | 262,144 B | 11.5 % |
+| edge530 / edge830 | 24,812 B | 131,072 B | 18.9 % |
+| edge540 / edge840 | 21,468 B | 131,072 B | 16.4 % |
+| edge1030 / edge1030plus | 24,892 B | 131,072 B | 19.0 % |
+| edge1040 | 22,140 B | 131,072 B | 16.9 % |
+| edge1050 | 28,188 B | 131,072 B | 21.5 % |
+| fenix6pro | 23,900 B | 131,072 B | 18.2 % |
+| fr255 / fr255m | 20,540 B | 262,144 B | 7.8 % |
+| fr955 / fenix7 / fenix7x | 20,860 B | 262,144 B | 8.0 % |
+| fr965 | 29,340 B | 262,144 B | 11.2 % |
+
+The **superseded** table, measured 2026-09-05 at `30b2b99` (v0.7, seven
+fields), was larger on every row by 1,328 B (edge530/830, edge1030/1030plus,
+fenix6pro) or 848 B (every other row); it is in this file's history.
 
 A build **without** `-r` is 124–132 KB on the same devices — that is debug
 information, not loaded code, and it is why a first survey read "100.3 % on
@@ -550,6 +590,8 @@ edge1050" for a build that loads fine. Runtime **peak heap** is not measured
 by anything here; the simulator's memory view is the only instrument, and it
 has not been read for this app. The `(:test)` helpers in `Tests.mc` do not
 ship in the `-r` image (verified: `tmMake` absent from the release `.prg`).
+The 124–132 KB figure and the `tmMake` check were measured at `30b2b99` and
+were not repeated at `d6be663`.
 
 ---
 
