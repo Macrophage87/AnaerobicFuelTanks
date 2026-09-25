@@ -428,17 +428,18 @@ you started.
 
 `fenix6pro` caps module `globals` at **253** members (inclusive); a file-scope
 `(:test)` costs one member; a `(:test)` inside a `module { }` block costs none.
-**Re-measured 2026-09-05** by bisection on a clean archive of the #102 c2 tree
-(the commit that adds `testFitRecordSettingCoerces`, PR #105), SDK 9.2.0, §2.7
-recipe: 400 stubs reported `Found 428 members` (428 − 400 = 28 used); 225 stubs
-`BUILD SUCCESSFUL`; 226 stubs `Found 254 members in module 'globals', exceeding
-the limit of 253`. The single copy in source, `connectiq/source/Tests.mc`, reads:
+**Re-measured 2026-09-25** by bisection on a clean archive of `482d790` (PR #118,
+the commit series that adds `testPauseStampNegativeClock` for #104), SDK 9.2.0,
+§2.7 recipe, on the maintainer's machine: 400 stubs reported `Found 429 members`
+(429 − 400 = 29 used); 224 stubs `BUILD SUCCESSFUL`; 225 stubs `Found 254 members
+in module 'globals', exceeding the limit of 253`. The single copy in source,
+`connectiq/source/Tests.mc`, reads:
 
-    CEILING fit-prune-102 fenix6pro: 28 used of 253, 225 free -- the 226th file-scope (:test) added reds
+    CEILING gettimer-104 fenix6pro: 29 used of 253, 224 free -- the 225th file-scope (:test) added reds
 
-The **superseded** figure, measured at `30b2b99`, was 27 used of 253, 226 free.
-One file-scope declaration has been added since — the `(:test)` above — and the
-re-measurement confirms the count moved by exactly that one.
+**Superseded** figures: 28 used / 225 free on the #102 c2 tree (2026-09-05), and
+27 / 226 at `30b2b99`. Each step since has added exactly one file-scope
+`(:test)`, and each re-measurement moved the count by exactly that one.
 
 `scripts/check_ceiling_notes.py` enforces the arithmetic and that this
 quotation is byte-identical to the source copy; `scripts/check_agent_facts.py`
@@ -625,7 +626,7 @@ prose above is the explanation.
     AGENTFACT ci-container sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
     AGENTFACT manifest-devices 15
     AGENTFACT pinned-tests 18
-    AGENTFACT ceiling fit-prune-102 28 253 225
+    AGENTFACT ceiling gettimer-104 29 253 224
     AGENTFACT devfield 0 PCr_J
     AGENTFACT devfield 1 GLY_J
 
