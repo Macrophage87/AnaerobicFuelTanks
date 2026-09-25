@@ -265,7 +265,7 @@ class DualTankView extends WatchUi.DataField {
         // once per load, which is why the setting's prompt says it applies at the next load.
         // Every subsequent write goes through the null-safe writeField, so OFF needs no further
         // gating -- and that is deliberate: a gate on a FIT write fails OPEN (FACTS.md 3.3).
-        if (mFitRecord) {
+        if (shouldCreateFitFields(mFitRecord, mConfigured)) {
             mFPcrJ = createField("PCr_J", FID_PCR_J, FitContributor.DATA_TYPE_FLOAT,
                 { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "J" });
             mFGlyJ = createField("GLY_J", FID_GLY_J, FitContributor.DATA_TYPE_FLOAT,
@@ -295,6 +295,15 @@ class DualTankView extends WatchUi.DataField {
     // quota is what prevents exhaustion, and nothing here can catch it if it happens.
     static function writeField(f, value) {
         if (f != null) { f.setData(value); }
+    }
+
+    // #76: the decision behind the createField block in initialize(), extracted as a pure static
+    // so a (:test) can drive it -- no (:test) can obtain a Session, so createField itself is out
+    // of reach (FACTS.md 3.2). Both arguments are decided by reloadSettings(), which initialize()
+    // runs BEFORE the createField block. It gates CREATION, never a write: record fields latch
+    // (FACTS.md 3.3), so a gate on a write would fail open.
+    static function shouldCreateFitFields(fitRecord, configured) {
+        return fitRecord;
     }
 
     // #64: coerce a settings value to a FINITE Float, or null if it is null / non-numeric /
