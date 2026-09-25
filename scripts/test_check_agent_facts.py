@@ -79,14 +79,20 @@ def expected_tests(names=("testA", "testB")):
             + "".join("%s\n" % n for n in names))
 
 
-def view(fields=None, extra="", literal_ids=False):
+def view(fields=None, extra="", literal_ids=False, cls="DualTankView",
+         consts=None):
     """The real file passes NAMED CONSTANTS as ids (`const FID_PCR_J = 0;` then
     `createField("PCr_J", FID_PCR_J, ...)`); that is the default shape here.
-    literal_ids=True writes the integer form instead, so both are exercised."""
+    literal_ids=True writes the integer form instead, so both are exercised.
+
+    `consts` is the list of ids whose `const FID_<id>` this file declares; by
+    default, exactly the ids it creates. Passing a different list is how a case
+    puts a const in one file and the call that names it in another."""
     fields = FIELDS if fields is None else fields
-    out = ["class DualTankView extends WatchUi.DataField {"]
+    consts = [fid for fid, _n in fields] if consts is None else consts
+    out = ["class %s extends WatchUi.DataField {" % cls]
     if not literal_ids:
-        for fid, name in fields:
+        for fid in consts:
             out.append("    const FID_%d = %d;" % (fid, fid))
         # A const only mentioned in a comment must not supply a value.
         out.append("    // const FID_99 = 99; (retired)")
@@ -103,6 +109,20 @@ def view(fields=None, extra="", literal_ids=False):
     out.append("    }")
     out.append("}")
     return "\n".join(out) + "\n"
+
+
+# A second source file, standing in for any .mc under connectiq/source/ other
+# than DualTankView.mc. The name is deliberately not one the checker could have
+# special-cased: the scan must be a walk, not a list of known files.
+OTHER = "connectiq/source/sub/Recorder.mc"
+
+
+def split_fields():
+    """The GREEN fixture's three fields, split across two files: ids 0 and 1 in
+    DualTankView.mc, id 18 in OTHER. FACTS.md is unchanged, so a checker that
+    scans the whole tree sees exactly FIELDS."""
+    return {"connectiq/source/DualTankView.mc": view(fields=FIELDS[:2]),
+            OTHER: view(fields=FIELDS[2:], cls="Recorder")}
 
 
 def ceiling_note(anchor="30b2b99", used=27, limit=253, free=226,
@@ -363,12 +383,102 @@ def _():
             and "[42]" in out), (1, True)
 
 
-@case("RED: connectiq/source/DualTankView.mc missing is a failure, not an empty map")
+@case("RED: deleting the file that holds the calls reds on the id map, not on a filename")
 def _():
+    # No filename is required any more (#111): the scan is every .mc under
+    # connectiq/source/. Deleting DualTankView.mc leaves Tests.mc, which creates
+    # nothing, so FACTS.md now lists ids no call declares -- a red about the
+    # MAP. A red saying "DualTankView.mc is missing" would mean the checker
+    # still treats one file as the only place a field may live.
     files = tree()
     del files["connectiq/source/DualTankView.mc"]
     rc, out = run(files)
-    return (rc, "DualTankView.mc is missing" in out), (1, True)
+    return (rc, "no createField call declares" in out,
+            "DualTankView.mc is missing" in out), (1, True, False)
+
+
+# ------------------------------------------ the whole source tree (#111) ------
+
+@case("a createField in a second .mc file is part of the id map")
+def _():
+    # The #111 acceptance criterion: a literal createField moved out of
+    # DualTankView.mc into any other .mc under connectiq/source/ is GREEN.
+    rc, out = run(tree(**split_fields()))
+    return (rc, "OK:" in out), (0, True)
+
+
+@case("RED: an unlisted field in a second file is reported against that file")
+def _():
+    # The message must name where the field actually is, not imply that
+    # DualTankView.mc is the only place fields may be declared.
+    files = tree(**{OTHER: view(fields=[(2, "PCr_cons")], cls="Recorder")})
+    rc, out = run(files)
+    return (rc, "2 (PCr_cons)" in out and OTHER in out
+            and "not listed in FACTS.md" in out), (1, True)
+
+
+@case("RED: one id declared in two different files is refused")
+def _():
+    # Same id AND same name in both files, so the merged id->name map would be
+    # exactly FACTS.md's: only a cross-file collision guard can red this. An id
+    # is unique per field_description across the app, whichever file creates it.
+    files = tree(**{OTHER: view(fields=[(1, "GLY_J")], cls="Recorder")})
+    rc, out = run(files)
+    return (rc, "declared in both" in out
+            and "connectiq/source/DualTankView.mc" in out
+            and OTHER in out), (1, True)
+
+
+@case("RED: a const declared in another file does not resolve an id")
+def _():
+    # Cross-file const resolution is REFUSED. Monkey C class constants belong
+    # to their class, and two classes may each declare the same name with
+    # different values, so resolving a bare name against another file's const
+    # could bind the wrong id. Here DualTankView.mc declares FID_18 and never
+    # uses it; Recorder calls createField(..., FID_18, ...) and declares nothing.
+    files = {
+        "connectiq/source/DualTankView.mc":
+            view(fields=FIELDS[:2], consts=[0, 1, 18]),
+        OTHER: view(fields=FIELDS[2:], cls="Recorder", consts=[]),
+    }
+    rc, out = run(tree(**files))
+    return (rc, "'FID_18'" in out and "cannot be derived" in out
+            and OTHER in out), (1, True)
+
+
+@case("RED: a createField inside a comment in a second file is refused")
+def _():
+    # The raw/comment-stripped double read has to run on EVERY file, not only
+    # the one that used to be special.
+    commented = ('        // was: createField("ghost", 42, '
+                 'FitContributor.DATA_TYPE_FLOAT,')
+    files = tree(**{OTHER: view(fields=[], cls="Recorder", extra=commented)})
+    rc, out = run(files)
+    return (rc, "raw and comment-stripped reads" in out and "[42]" in out
+            and OTHER in out), (1, True)
+
+
+def without_source(files):
+    """`files` with everything under connectiq/source/ removed and the ceiling
+    note moved out of it, so the ONE perturbation is the source tree itself."""
+    out = {k: v for k, v in files.items()
+           if not k.startswith("connectiq/source/")}
+    out["docs/ceiling-note.md"] = ceiling_note()
+    return out
+
+
+@case("RED: connectiq/source missing is a failure, not an empty map")
+def _():
+    rc, out = run(without_source(tree()))
+    return (rc, "connectiq/source is missing" in out), (1, True)
+
+
+@case("RED: a connectiq/source holding zero .mc files is a failure")
+def _():
+    files = without_source(tree())
+    files["connectiq/source/README.txt"] = "no Monkey C here\n"
+    rc, out = run(files)
+    return (rc, "0 .mc file(s)" in out), (1, True)
 
 
 def main():
