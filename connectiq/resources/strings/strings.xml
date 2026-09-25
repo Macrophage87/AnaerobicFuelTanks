@@ -15,7 +15,7 @@
     <string id="sTauG">Glycolytic recovery tau (s)</string>
     <string id="sTauGp">Time constant of glycolytic recovery (slow, ~470 s).</string>
     <string id="sLt1">LT1 fraction of CP</string>
-    <string id="sLt1p">Below this fraction of CP the glycolytic tank refills (~0.80).</string>
+    <string id="sLt1p">Scales how fast the glycolytic tank refills (higher = faster, ~0.80). It refills whenever power is below CP, faster the lower the power.</string>
     <string id="sEta">PCr recovery efficiency</string>
     <string id="sEtap">Fraction of recovery energy stored as usable PCr (0-1).</string>
     <string id="sFatK">PCr fatigue slowing</string>

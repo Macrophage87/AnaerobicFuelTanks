@@ -76,10 +76,11 @@ connectiq/
 ├─ source/
 │  ├─ DualTankApp.mc                AppBase entry point
 │  └─ DualTankView.mc               the data field: model + rendering + FIT
-└─ resources/
-   ├─ drawables/ (launcher icon)
-   ├─ strings/strings.xml
-   └─ settings/ (properties.xml defaults + settings.xml UI)
+├─ resources/
+│  ├─ drawables/ (launcher icon, 40x40)
+│  ├─ strings/strings.xml
+│  └─ settings/ (properties.xml defaults + settings.xml UI)
+└─ resources-<device>/drawables/     launcher icon at that device's size (#114; store/README.md)
 ```
 
 ## Settings (edit in Garmin Connect → the field's settings)
@@ -172,7 +173,7 @@ and *Run App* commands do the same via `monkey.jungle`.
 Use the simulator's **Data Fields → activity simulation** to feed a power trace (or FIT playback),
 then watch the two bars. Expected behaviour is documented as test traces at the top of
 `source/DualTankView.mc` (single sprint → PCr drains bright and refills in ~30–60 s; sustained
-supra-CP → GLY bleeds and only refills below LT1).
+supra-CP → GLY bleeds, then refills whenever power drops below CP, faster the lower the power).
 
 ## Notes / limitations
 
