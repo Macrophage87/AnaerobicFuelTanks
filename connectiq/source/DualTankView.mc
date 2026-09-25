@@ -661,16 +661,10 @@ class DualTankView extends WatchUi.DataField {
     hidden function exitPause() {
         if (mPaused) {
             // #41: prefer the MONOTONIC elapsed-pause (System.getTimer, ms since boot) — immune to
-            // GPS/DST/manual wall-clock corrections mid-pause. Fall back to the wall-clock delta when
-            // the monotonic stamp isn't from this process (mPauseAtMono < 0, e.g. a restore across
-            // reboot, where the pre-pause getTimer() epoch is gone) or reads out of range.
-            var el = nowSec() - mPauseAt;                // wall-clock fallback
-            if (el < 0) { el = 0; }
-            if (mPauseAtMono >= 0) {
-                var elMono = (System.getTimer() - mPauseAtMono) / 1000;
-                if (elMono >= 0 && elMono <= MAX_PAUSE_SEC) { el = elMono; }
-            }
-            if (el > MAX_PAUSE_SEC) { el = MAX_PAUSE_SEC; }
+            // GPS/DST/manual wall-clock corrections mid-pause. The decision lives in the pure
+            // pauseElapsedSec() seam below (#104) so a (:test) can drive it with injected clocks.
+            var el = pauseElapsedSec(nowSec(), mPauseAt, System.getTimer(), mPauseAtMono,
+                                     MAX_PAUSE_SEC);
             mModel.applyRestRecovery(el);
             mModel.mAer = 0.0;         // aerobic supply has decayed to rest during the pause
             mModel.mG = 0.0;           // glycolytic activation has relaxed during the pause
@@ -686,6 +680,27 @@ class DualTankView extends WatchUi.DataField {
             mPaused = false;
             mDirty = true;
         }
+    }
+
+    // #104: pure elapsed-pause decision behind exitPause() (mirrors validateBlob/decideDropout — no
+    // self/Activity/System context, deterministic given its args), so the clock choice is
+    // (:test)-assertable with injected clock values. Returns whole seconds in [0, maxPause].
+    //   wallNow, wallStamp — unix seconds (nowSec()) now and at pause start: the fallback delta.
+    //   monoNow, monoStamp — System.getTimer() ms now and at pause start. monoStamp is "not set"
+    //                        when the stamp is not from this process (e.g. a restore across reboot,
+    //                        where the pre-pause getTimer() epoch is gone); then the wall delta wins.
+    //   maxPause           — the MAX_PAUSE_SEC cap, passed in because a static method cannot see a
+    //                        class-level const (see the module-scope constants note above).
+    // A monotonic delta that reads out of range (negative, or past maxPause) also falls back.
+    static function pauseElapsedSec(wallNow, wallStamp, monoNow, monoStamp, maxPause) {
+        var el = wallNow - wallStamp;                // wall-clock fallback
+        if (el < 0) { el = 0; }
+        if (monoStamp != null && monoStamp >= 0) {
+            var elMono = (monoNow - monoStamp) / 1000;
+            if (elMono >= 0 && elMono <= maxPause) { el = elMono; }
+        }
+        if (el > maxPause) { el = maxPause; }
+        return el;
     }
 
     function onTimerStart() {
