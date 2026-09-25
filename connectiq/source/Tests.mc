@@ -493,8 +493,8 @@ function testFitRecordSettingCoerces(logger) {
 // field budget is exhausted". That was an inference no SDK page documents, and it is WRONG: on
 // exhaustion the SDK raises an UNCATCHABLE Out Of Memory Error that aborts initialize() before any
 // handle comes back — the v0.6 load crash. So a null handle is NOT the budget-exhaustion path. It
-// is the #102 "fitRecord" OFF path (the createField calls never run) plus ordinary defensive null
-// handling, and this case pins that both payload types survive it.
+// is the #102 "fitRecord" OFF path and the #76 unconfigured-CP/W' path (the createField calls never
+// run) plus ordinary defensive null handling, and this case pins that both payload types survive it.
 (:test)
 function testWriteFieldNullSafe(logger) {
     DualTankView.writeField(null, 5.0);   // Float payload, null handle -> no-op, no throw

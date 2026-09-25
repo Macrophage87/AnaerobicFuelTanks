@@ -337,7 +337,8 @@ every tick, including the held and skipped paths. Re-pinned on PR #105 after
 write fails **open**, and "stop writing during X" fabricates a timeline rather
 than omitting one. #102's `fitRecord` gate is therefore on **creation**
 (`initialize()`), not on the writes — with the setting off the handles are null
-and `writeField` skips, so no partial timeline can be produced.
+and `writeField` skips, so no partial timeline can be produced. #76 extends the
+same creation gate to CP/W′ being configured at load (§5.3).
 
 **The latch has now been seen in a decoded file** (the 2026-09-20 ride,
 `docs/fielddata/ride-2026-09-20-edge1050.md`). At all 23 pause boundaries:
@@ -509,12 +510,17 @@ Any `(:test)` addition, removal or rename edits `scripts/expected_tests.txt`
 
 **RECORD = 8 B, SESSION = 0 B, against 32 B per message type** — the data-field
 quota confirmed on hardware in #96 (a full app gets 256 B). It was RECORD 16 B /
-SESSION 8 B at `30b2b99`. Both calls are gated on the `fitRecord` setting
-(boolean, **default true**), read once per load in `reloadSettings()` before the
-`createField` block: with it OFF neither call runs and this app defines **zero**
-developer fields. **That the OFF build defines zero fields in a saved file is
-NOT measured** — no `(:test)` can obtain a `Session` (§3.2) — and is owed to the
-`[Local]` record-and-save gate.
+SESSION 8 B at `30b2b99`. Both calls are gated on
+`DualTankView.shouldCreateFitFields(mFitRecord, mConfigured)`: the `fitRecord`
+setting (boolean, **default true**) **and** CP/W′ configured (#76, PR #124), both
+read once per load in `reloadSettings()` before the `createField` block. With
+either false neither call runs and this app defines **zero** developer fields for
+that load; a rider who sets CP/W′ mid-ride records nothing until the next load, and
+one who clears them mid-ride keeps the fields that load created.
+`testShouldCreateFitFields` pins the decision (red on the pre-#76 seam, ciq-test run
+36149549904), not the file. **That the OFF or unconfigured build defines zero fields
+in a saved file is NOT measured** — no `(:test)` can obtain a `Session` (§3.2) — and
+is owed to the `[Local]` record-and-save gate.
 
 Ids **2, 3, 4, 5, 18** (`PCr_cons`, `GLY_cons`, `PCr_depleted_kJ`,
 `GLY_depleted_kJ`, `Deficit_kJ`) are **retired and must never be reused**: all
@@ -677,7 +683,7 @@ were not repeated at `d6be663`.
   table and threshold fit came from a saved FIT decoded outside the tree.
 * **A documentation claim about the environment that is false.** `README.md`
   said "Not compiled in CI" for eight weeks after PR #48 made it compile.
-  Corrected at its source in #103 / PR #107; the bullet now at `README.md:219`
+  Corrected at its source in #103 / PR #107; the bullet now at `README.md:223` (`:219` before #76's README addition)
   says "Compiled in CI, but no required check executes it". Kept as the worked
   example (§1.1), stated in the past tense because the line no longer says it.
 * **A test that re-implements logic instead of calling it pins nothing.** The
