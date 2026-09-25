@@ -4,7 +4,8 @@
 The parser carries the whole PASS/FAIL verdict of the `ciq-test` job, and it is
 pure Python -- so unlike the simulator harness it can be proven on a stock
 runner with no container, no SDK and no Xvfb. That is why it runs in the
-required `test-tooling` job while `ciq-test` itself stays best-effort (#61).
+runner-free `test-tooling` job, separately from the simulator run in `ciq-test`
+(both required since #61 item 3).
 
 WHAT THIS SUITE ASSERTS, AND WHY IT IS SHAPED THIS WAY
 ------------------------------------------------------

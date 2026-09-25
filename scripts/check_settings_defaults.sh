@@ -4,10 +4,10 @@
 # 250 / 20000) makes Application.Properties.getValue() never look "unset", so mConfigured is
 # always true and the guard is dead — the exact PR #74 round-1 root cause.
 #
-# The (:test) that also asserts this (testCpWprimeDefaultUnconfigured) cannot gate CI: the
-# headless simulator segfaults under Xvfb and SKIPS the whole (:test) suite (the ciq-test job is
-# best-effort/green-on-skip). So this script is the ENFORCEABLE gate — it runs in the required
-# manifest-lint job and fails a properties-only revert of the defaults.
+# The (:test) that also asserts this (testCpWprimeDefaultUnconfigured) runs in the required
+# ciq-test job, which needs the headless simulator to come up. This script needs no simulator: it
+# runs in the required manifest-lint job and fails a properties-only revert of the defaults on its
+# own, so the fence holds even on a run where the simulator does not produce a summary.
 #
 # Usage: check_settings_defaults.sh [path/to/properties.xml]
 set -euo pipefail

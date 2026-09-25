@@ -51,7 +51,7 @@ suite. Everything else in these files is prose with a commit pin and nothing
 more; `FACTS.md` §9 says so in its own words.
 
 `scripts/check_ciq_tests.py` is the odd one out: it is **not** a check of this
-tree, it is the PASS/FAIL verdict of the best-effort `ciq-test` job. Only its
+tree, it is the PASS/FAIL verdict of the `ciq-test` job (required since #61 item 3). Only its
 self-test runs in `test-tooling`, and a green `test-tooling` therefore says the
 parser is correct — never that the simulator ran.
 

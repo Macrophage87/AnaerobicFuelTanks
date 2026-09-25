@@ -5,7 +5,8 @@ Drives the Python mirror of the Monkey C `TankModel` (tank_model.py) through the
 traces the R reference (`simulate_tanks`) was frozen on, and asserts the two agree per second.
 This directly guards R == the mirror; the mirror is a line-for-line port of the Monkey C step,
 so Monkey C is guarded TRANSITIVELY (the residual mirror<->compiled-Monkey-C gap is tracked in
-#61, to be closed by the on-device (:test) run once the headless simulator works).
+#116: the (:test) suite executes in the required ciq-test job on edge1050 since #61 item 3, but
+no (:test) compares TankModel against these R fixtures).
 
 Design decisions locked in from the part-C review:
   * IDENTICAL EXPLICIT CONFIG on both sides — the two codebases embed different fallback

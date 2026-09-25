@@ -53,10 +53,12 @@ fix**. The commit partition:
 | **c2** | **red differentials ONLY** — every added test named in the red run's failure list |
 | **c3** | the fix. Touches **no** test file, **no** pin, **no** `scripts/`, **no** `.github/` |
 
-**In this repository "red" for a `(:test)` is a LOCAL red** — the suite
-compiles in CI and executes only in the local simulator (`FACTS.md` §1.2). So
-the red evidence for c2 is a local `monkeydo` log quoting the failing case by
-name, attached to the PR body. For the model, the red can be a CI red instead:
+**A red for a `(:test)` is a CI red on `edge1050`** — the suite executes in the
+required `ciq-test` job (`FACTS.md` §1.2). So the red evidence for c2 is that
+job's `gate: FAIL` on the c2 head, with the failing case named in its log (PR
+#118's c2, run 36138410601, is the worked example); quote it in the PR body. A
+local `monkeydo` log is the evidence for any other device, and corroboration
+otherwise. For the model, the red can also be a CI red:
 `model-parity` and the R suite run on every push, and a c2 that changes a
 fixture expectation before c3 changes the model reds there.
 
@@ -116,5 +118,5 @@ because it reads as coverage.
 * **Never kill a shared simulator** (`FACTS.md` §4.5).
 * **Never write a developer key into the workspace** (`FACTS.md` §4.4).
 * **`set -o pipefail`** for anything whose result you quote (`FACTS.md` §2.6).
-* **The project lives in `connectiq/`**; the suite runs locally on `edge1050`;
+* **The project lives in `connectiq/`**; the suite runs on `edge1050`, in CI's `ciq-test` and locally;
   the release export compiles all 15.

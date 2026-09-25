@@ -56,18 +56,20 @@ the environment that is false".
 ### 1.2 What CI runs, and what it does NOT run
 
 `.github/workflows/ci.yml` at `30b2b99`, verified from the check-runs object
-for that commit (`gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<sha>/check-runs`):
+for that commit (`gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<sha>/check-runs`);
+the `ciq-test` and `ci-required` rows re-verified for #61 item 3 (2026-09-25)
+from the check-runs of that PR's head:
 
 | Check name (as GitHub reports it) | Job id | Required? | What it proves |
 |---|---|---|---|
 | `Compile (edge1050)`, `Compile (fenix6pro)` | `test` | yes | `monkeyc -t -l 1` **compiles** — the `(:test)` sources included — on those two devices only |
-| `CIQ (:test) headless (best-effort)` | `ciq-test` | **no** | tries to **execute** the suite under Xvfb. It **did** execute it on the three runs measured 2026-09-05; historically the simulator segfaulted after `SetLayout` and the job skipped green (#61; levers falsified in PRs #81 and #84). Read the retraction below before citing this row |
+| `CIQ (:test) headless (best-effort)` | `ciq-test` | **yes**, since #61 item 3 (2026-09-25); the name is historical | **executes** the `(:test)` suite in a headless simulator on `edge1050` only, and is green only when `scripts/check_ciq_tests.py` accepts the log (`gate: PASS`). `gate: FAIL` and `gate: SKIP` (no summary line) both red it. See "What a required `ciq-test` proves" below |
 | `R parse + lint` | `r-lint` | yes | R syntax + the deploy-manifest freshness gate |
 | `R model tests (testthat)` | `r-test` | yes | the R model suite, and that `tools/crosscheck/fixtures/` regenerate byte-identical |
 | `Model parity (R vs Python mirror)` | `model-parity` | yes | the Python mirror of `TankModel` matches the R reference within 0.1 J per second |
 | `Manifest app-id lint` | `manifest-lint` | yes | app id shape; CP/W′ keep the sentinel-0 default (#42); the FIT developer-field byte budget — ≤ 32 B per message type for a data field, summed over the `createField` call sites in every `.mc` under `connectiq/source/` (#98 item 2) |
 | `Agent-loop tooling (runner-free)` | `test-tooling` | yes | this file's `AGENTFACT` lines, the `(:test)` pin, the ceiling note, the literal check, the `(:test)` log parser `ciq-test` gates on, and (since #117 item A) that the `RIDEFACT` lines in `docs/fielddata/ride-2026-09-20-edge1050.md` agree with the committed ride fixtures. Each has its own RED/GREEN self-test |
-| `ci-required` | `ci-required` | **the only name branch protection requires** | aggregator over the required jobs (`needs:`), strict up-to-date, admins enforced |
+| `ci-required` | `ci-required` | **the only name branch protection requires** | aggregator over the seven jobs above (`needs:`), strict up-to-date, admins enforced. Runs under `if: always()` and fails unless every need's result is `success` (since #61 item 3) |
 
 > **RETRACTION, 2026-09-05 (PR for #61 item 2).** This paragraph used to open
 > "**The `(:test)` suite does not execute in CI.**" **That claim is withdrawn.**
@@ -81,42 +83,68 @@ for that commit (`gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<sha>/che
 > printed `PASSED (passed=17, failed=0, errors=0)`. **N = 3 runs, one branch, one
 > day, and nobody knows why it changed** — the `SetLayout` segfault is still
 > visible in the job's separate diagnostic step, which runs the simulator
-> standalone. So: do not cite a green `ciq-test` as evidence that a `(:test)`
-> ran; the job's SKIP branch is still green, and the job is still not required.
-> A **red** `ciq-test` is strong evidence; a green one is weak.
+> standalone. (The rest of this note, as written on 2026-09-05, said a green
+> `ciq-test` was weak evidence because its SKIP branch was green and the job
+> was not required. Both halves are superseded by the promotion below.)
 
-**Eight other copies of the retracted claim survive and are deliberately not
-corrected here**, re-derived on the merged tree (PR #105 round 3; the count was
-five at `be73a75`):
-`connectiq/source/Tests.mc:443`, the comment above
-`testCpWprimeDefaultUnconfigured`; `scripts/check_settings_defaults.sh:8`;
-`scripts/check_fit_budget.py:15` ("`ciq-test` is best-effort and skips green"),
-**new with PR #106 and not yet reported on #61**; `docs/agents/DISPATCH.md:47`
-("a `(:test)` here **compiles in CI and executes only locally**"), which is the
-**V=1 anchor** of the dispatch rubric and so governs every future scoring;
-`docs/agents/DISPATCH.md:232` ("a repository whose test suite does not execute
-in CI"), the V-axis rationale of §4's histogram;
-`docs/agents/rituals/LANDING.md:47-49`, which tells a landing agent the job
-"will also read `success`" — falsified by run `33990860226`, conclusion
-`failure`; `docs/agents/rituals/RELEASE.md:76` ("The `(:test)` suite runs only
-locally (`FACTS.md` §1.2)"), which cites **this section** for a claim this
-section withdraws; and `.github/workflows/ci.yml:507`. The six other than
-`check_fit_budget.py:15` and `RELEASE.md:76` are reported on #61; those two are
-not, and belong there before this paragraph is cited again. `ci.yml:85`'s copy
-is **conditional** — it skips green "when the captured log holds no summary line
-at all" — and is not falsified, so it is not counted. A further copy is in
-PR #105's own `b5de5f2` commit message; it is landed history, cited by SHA from
-`scripts/fixtures/monkeydo-red-run.log:8` and
-`scripts/test_check_ciq_tests.py:37`, and is corrected forward rather than
-rewritten.
+**What a required `ciq-test` proves (#61 item 3, 2026-09-25).** The job joined
+`ci-required.needs` on the run record, not on a root cause. Every `ciq-test`
+attempt from PR #110's merge (`b59a097`) to `3006405`, 24 runs and 28 attempts
+read from each attempt's log, printed `gate: PASS`, except run
+[36138410601](https://github.com/Macrophage87/AnaerobicFuelTanks/actions/runs/36138410601)
+(PR #118's deliberate c2, `f111361`), which printed `gate: FAIL` on
+`FAILED (passed=17, failed=0, errors=1)`. None printed `gate: SKIP`. The table
+is on #61. In the same change the SKIP branch was flipped from exit 0 to exit 1,
+as the accepted #61 design requires (review MF#4). So a green `ciq-test` now
+means that `monkeydo` printed exactly one `PASSED` summary, with `passed` equal
+to `scripts/expected_tests.txt` and a RESULTS table naming every pinned case
+`PASS`, **on `edge1050`, in the pinned container**. It does not mean any other
+device, `fenix6pro`'s `globals` ceiling (§5.1), anything behind a `Session` or a
+`Dc` (§3.2), or anything a decoder sees (§3.4). A red has three named causes:
+`gate: FAIL` (a case failed or the log is malformed), `gate: SKIP` (no summary
+line: the simulator crashed or never ran the suite), or the 15-minute job
+timeout. The `SetLayout` segfault still reproduces in the diagnostic step and
+nobody knows why the run step escapes it (#127), so an infra red stays possible.
+A single `gate: SKIP` is re-run and noted on #127; SKIP is never re-greened. If
+SKIP persists across re-runs it blocks every merge (admins are enforced), and
+the escape hatch is a PR that removes `ciq-test` from `ci-required.needs` in
+`.github/workflows/ci.yml` and changes nothing else: a `pull_request` run
+evaluates the PR's own workflow file, so that PR's `ci-required` can go green
+and land. Do not revert the promotion PR wholesale — that also reverts the
+`if: always()` assert and reopens the skipped-aggregator hole described below.
+Re-promotion needs a fresh run record on #127.
+
+**The correction pass is done (2026-09-25, #61 item 3).** This section used to
+enumerate the surviving copies of the retracted "the suite does not execute in
+CI / executes only locally / segfault-skips" claim. A two-anchor sweep of every
+tracked file (the segfault / skips-green wording **and** the executes-only-locally
+wording, markdown-bold tolerant, `.claude/agents/` and `ci.yml` included) found
+15 live copies. All 15 were corrected at source in the promotion PR; the promotion PR's gate found a sixteenth, tools/crosscheck/test_parity.py:8 ("once the headless simulator works"), outside both anchors, corrected in the same PR:
+`Tests.mc` (two comments), `check_settings_defaults.sh`, `check_fit_budget.py`,
+`test_parity.py`,
+`DISPATCH.md` (the V=1 anchor and §4's histogram rationale), `LANDING.md`,
+`FIX_ROUND.md`, `GATE_PROTOCOL.md` §4.1, `ci.yml` (the manifest-lint rationale),
+§6 of this file, and the "Pin the device target" bullet in all three
+`.claude/agents/` definitions plus the implementer's "green compile is not a green
+run" bullet. The same PR corrected the sentences the promotion itself falsified
+("best-effort", "neither is required", "gates nothing") in `README.md`,
+`docs/agents/README.md`, `RELEASE.md` §7, `check_ciq_tests.py`,
+`test_check_ciq_tests.py` and `ci.yml`. **Deliberately left:**
+`docs/agents/LESSONS.md` (StrongRow's narrative, imported verbatim); the #61
+scoring row and the #96 incident note in `DISPATCH.md` (historical records of
+what was true when scored); `ci.yml`'s "HISTORICALLY … segfaulted" bring-up
+lines (dated history); the dated 2026-09-05 retraction above; the job name
+`CIQ (:test) headless (best-effort)` (the check-run name is cited by that string);
+and PR #105's `b5de5f2` commit message (landed history, cited by SHA from
+`scripts/fixtures/monkeydo-red-run.log:8`, corrected forward).
 
 **A green `Compile` is compile-only evidence.** The enforced numeric guard on
 the model is `model-parity`, and it guards the Monkey C **transitively** through
 a line-for-line Python port (`tools/crosscheck/test_parity.py`'s own docstring
 says so). Anything a `(:test)` asserts that the mirror does not (persistence
 `validateBlob`, `decideDropout`, `writeField` null-safety, settings finiteness)
-is proven either by that best-effort CI job — weakly, per the retraction above —
-or by a **local** simulator run:
+is proven on `edge1050` by the required `ciq-test` job, and on any other device
+only by a **local** simulator run:
 
 ```sh
 cd connectiq
@@ -151,11 +179,14 @@ RED/GREEN suite (`scripts/test_check_ciq_tests.py`) runs in the required
 under `scripts/fixtures/`. **It is runner-free: a green `test-tooling` proves
 the parser, never that the simulator ran.**
 
-`ci-required` uses the default `if: success()` — so when an upstream job
-**fails**, the aggregator is **skipped**, and branch protection treats a
-skipped required check as satisfied. The StrongRow kit's `if: always()` +
-assert form closes that hole; it is not applied here yet and is worth its own
-issue.
+`ci-required` runs under `if: always()` and fails unless every job in its
+`needs:` reports `success` (since #61 item 3). Before that it used the default
+`if: success()`: when an upstream job **failed**, the aggregator was
+**skipped** (measured: run 36138717004, test-tooling `failure`, ci-required
+`skipped`), and GitHub's troubleshooting page for required status checks lists
+`skipped` among the "successful check statuses", so no required job could block
+a merge through it. That was the hole the StrongRow kit's `always()` + assert
+form closes.
 
 ### 1.3 The digest-pinned CI container
 
@@ -680,13 +711,15 @@ were not repeated at `d6be663`.
   table and threshold fit came from a saved FIT decoded outside the tree.
 * **A documentation claim about the environment that is false.** `README.md`
   said "Not compiled in CI" for eight weeks after PR #48 made it compile.
-  Corrected at its source in #103 / PR #107; the bullet now at `README.md:219`
-  says "Compiled in CI, but no required check executes it". Kept as the worked
+  Corrected at its source in #103 / PR #107, and again in #61 item 3 when the
+  suite's execution became required; the bullet now at `README.md:219` says
+  "Compiled in CI on two devices; the `(:test)` suite executes on one". Kept as the worked
   example (§1.1), stated in the past tense because the line no longer says it.
 * **A test that re-implements logic instead of calling it pins nothing.** The
   parity mirror is a port, not the shipping code; it guards Monkey C only
   transitively, and its docstring says so. A `(:test)` that drives `TankModel`
-  is the direct pin — and it only runs locally (§1.2).
+  is the direct pin — it executes in the required `ciq-test` job on `edge1050`,
+  and locally for any other device (§1.2).
 * **The near neighbour.** #97 fixed the crash; #98 and #99 are the neighbours
   it left (stale comments, the budget guard, the gated return of config).
 * **The wrong pair.** 32 B is per message type per app; 53 B was four apps'
