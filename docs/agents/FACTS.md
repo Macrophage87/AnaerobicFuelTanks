@@ -363,14 +363,16 @@ were wrong (memory pressure, "throws", the #32 attribution, the shared budget,
 
 Skipping a `setData` **re-emits the previous value** on every subsequent
 record. It never produces a gap. This repository writes every record field on
-every tick, including the held and skipped paths. Re-pinned on PR #105 after
-#102 cut the seven fields to two: `DualTankView.mc:823-824`, `:844-845`,
-`:881-882`, `:916-917`, live at `:931-932` (and the `initialize()` seed at
-`:278-279`). Keep it that way: a gate on a FIT
+every tick, including the held and skipped paths. Re-pinned on PR #124 (#76) on
+its round-1 fix commit (the commit that carries this line), by
+`grep -n "writeField(mF" connectiq/source/DualTankView.mc`:
+`DualTankView.mc:841-842`, `:862-863`, `:899-900`, `:934-935`, live at `:949-950`
+(and the `initialize()` seed at `:279-280`). Keep it that way: a gate on a FIT
 write fails **open**, and "stop writing during X" fabricates a timeline rather
 than omitting one. #102's `fitRecord` gate is therefore on **creation**
 (`initialize()`), not on the writes — with the setting off the handles are null
-and `writeField` skips, so no partial timeline can be produced.
+and `writeField` skips, so no partial timeline can be produced. #76 extends the
+same creation gate to CP/W′ being configured at load (§5.3).
 
 **The latch has now been seen in a decoded file** (the 2026-09-20 ride,
 `docs/fielddata/ride-2026-09-20-edge1050.md`). At all 23 pause boundaries:
@@ -492,17 +494,17 @@ you started.
 
 `fenix6pro` caps module `globals` at **253** members (inclusive); a file-scope
 `(:test)` costs one member; a `(:test)` inside a `module { }` block costs none.
-**Re-measured 2026-09-25** by bisection on a clean archive of `482d790` (PR #118,
-the commit series that adds `testPauseStampNegativeClock` for #104), SDK 9.2.0,
-§2.7 recipe, on the maintainer's machine: 400 stubs reported `Found 429 members`
-(429 − 400 = 29 used); 224 stubs `BUILD SUCCESSFUL`; 225 stubs `Found 254 members
-in module 'globals', exceeding the limit of 253`. The single copy in source,
+**Re-measured 2026-09-25** by bisection on a clean archive of `2630503` (PR #124's
+c3 for #76, whose c2 adds `testShouldCreateFitFields`), SDK 9.2.0, §2.7 recipe, on
+the maintainer's machine: 400 stubs reported `Found 430 members` (430 − 400 = 30
+used); 223 stubs `BUILD SUCCESSFUL`; 224 stubs `Found 254 members in module
+'globals', exceeding the limit of 253`. The single copy in source,
 `connectiq/source/Tests.mc`, reads:
 
-    CEILING gettimer-104 fenix6pro: 29 used of 253, 224 free -- the 225th file-scope (:test) added reds
+    CEILING config-gate-76 fenix6pro: 30 used of 253, 223 free -- the 224th file-scope (:test) added reds
 
-**Superseded** figures: 28 used / 225 free on the #102 c2 tree (2026-09-05), and
-27 / 226 at `30b2b99`. Each step since has added exactly one file-scope
+**Superseded** figures: 29 used / 224 free at `482d790` (#104, 2026-09-25), 28 / 225
+on the #102 c2 tree (2026-09-05), and 27 / 226 at `30b2b99`. Each step since has added exactly one file-scope
 `(:test)`, and each re-measurement moved the count by exactly that one.
 
 `scripts/check_ceiling_notes.py` enforces the arithmetic and that this
@@ -513,15 +515,17 @@ does not bind; a green `edge1050` build says nothing about this.
 
 ### 5.2 Pinned test count
 
-**18** `(:test)` functions, all file-scope in `connectiq/source/Tests.mc`,
-matching `scripts/expected_tests.txt` exactly (on the #104 c2 tree,
-`python3 scripts/list_tests.py` lists 18 names and a sorted diff against the
+**19** `(:test)` functions, all file-scope in `connectiq/source/Tests.mc`,
+matching `scripts/expected_tests.txt` exactly (on the #76 c2 tree,
+`python3 scripts/list_tests.py` lists 19 names and a sorted diff against the
 pin's non-comment lines is empty; `bash scripts/check_expected_tests.sh` runs
 the same comparison in the required `test-tooling` job). It was **16** at `30b2b99`; #102 c2 added
 `testFitRecordSettingCoerces` (17), which is also the one file-scope declaration
 behind the §5.1 ceiling re-measurement; #104 c2 added
 `testPauseStampNegativeClock` (18), also file-scope, so it spends one more
-`fenix6pro` `globals` slot; §5.1's re-measurement on `482d790` reflects it. Measured with
+`fenix6pro` `globals` slot; §5.1's re-measurement on `482d790` reflects it; #76 c2 added
+`testShouldCreateFitFields` (19), file-scope as well, so it spends one more slot; §5.1's
+re-measurement on `2630503` (the #76 fix commit) reflects it. Measured with
 `scripts/list_tests.py`, never added up.
 
 Any `(:test)` addition, removal or rename edits `scripts/expected_tests.txt`
@@ -540,12 +544,18 @@ Any `(:test)` addition, removal or rename edits `scripts/expected_tests.txt`
 
 **RECORD = 8 B, SESSION = 0 B, against 32 B per message type** — the data-field
 quota confirmed on hardware in #96 (a full app gets 256 B). It was RECORD 16 B /
-SESSION 8 B at `30b2b99`. Both calls are gated on the `fitRecord` setting
-(boolean, **default true**), read once per load in `reloadSettings()` before the
-`createField` block: with it OFF neither call runs and this app defines **zero**
-developer fields. **That the OFF build defines zero fields in a saved file is
-NOT measured** — no `(:test)` can obtain a `Session` (§3.2) — and is owed to the
-`[Local]` record-and-save gate.
+SESSION 8 B at `30b2b99`. Both calls are gated on
+`DualTankView.shouldCreateFitFields(mFitRecord, mConfigured)`: the `fitRecord`
+setting (boolean, **default true**) **and** CP/W′ configured (#76, PR #124), both
+read once per load in `reloadSettings()` before the `createField` block. With
+either false neither call runs and this app defines **zero** developer fields for
+that load; a rider who sets CP/W′ after the field loads (mid-ride, or on the pre-ride screen
+after seeing `SET CP/W'`) records nothing until the next load, and
+one who clears them mid-ride keeps the fields that load created.
+`testShouldCreateFitFields` pins the decision (red on the pre-#76 seam, ciq-test run
+36149549904), not the file. **That the OFF or unconfigured build defines zero fields
+in a saved file is NOT measured** — no `(:test)` can obtain a `Session` (§3.2) — and
+is owed to the `[Local]` record-and-save gate.
 
 Ids **2, 3, 4, 5, 18** (`PCr_cons`, `GLY_cons`, `PCr_depleted_kJ`,
 `GLY_depleted_kJ`, `Deficit_kJ`) are **retired and must never be reused**: all
@@ -712,7 +722,8 @@ were not repeated at `d6be663`.
 * **A documentation claim about the environment that is false.** `README.md`
   said "Not compiled in CI" for eight weeks after PR #48 made it compile.
   Corrected at its source in #103 / PR #107, and again in #61 item 3 when the
-  suite's execution became required; the bullet now at `README.md:219` says
+  suite's execution became required; the bullet now at `README.md:223` (`:219`
+  before #76's README addition) says
   "Compiled in CI on two devices; the `(:test)` suite executes on one". Kept as the worked
   example (§1.1), stated in the past tense because the line no longer says it.
 * **A test that re-implements logic instead of calling it pins nothing.** The
@@ -724,8 +735,7 @@ were not repeated at `d6be663`.
   it left (stale comments, the budget guard, the gated return of config).
 * **The wrong pair.** 32 B is per message type per app; 53 B was four apps'
   RECORD total; 56 B was this app's SESSION. Say which.
-* **Absence rendered as a value.** #76: an unconfigured ride records a
-  complete, plausible dataset at CP 250 / W′ 20000 the athlete never chose.
+* **Absence rendered as a value.** #76: an unconfigured ride recorded a complete, plausible dataset at CP 250 / W′ 20000 the athlete never chose, until PR #124 gated field creation on CP/W′ being configured at load (§5.3). A rider who clears CP/W′ mid-ride still records the fallback for the rest of that load.
 
 ---
 
@@ -760,8 +770,8 @@ prose above is the explanation.
 
     AGENTFACT ci-container sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
     AGENTFACT manifest-devices 15
-    AGENTFACT pinned-tests 18
-    AGENTFACT ceiling gettimer-104 29 253 224
+    AGENTFACT pinned-tests 19
+    AGENTFACT ceiling config-gate-76 30 253 223
     AGENTFACT devfield 0 PCr_J
     AGENTFACT devfield 1 GLY_J
 

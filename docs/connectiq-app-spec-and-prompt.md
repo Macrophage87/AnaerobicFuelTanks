@@ -165,8 +165,10 @@ carrying several data fields is where that budget bites. Recording is therefore 
 set the model cannot be reconstructed without (issue #102).
 
 Read a boolean setting `fitRecord` (default **true**) in initialize(), BEFORE creating anything,
-and create fields only when it is true. Fields are created exactly once per load, so the setting's
-prompt must say the change applies at the next load.
+and create fields only when it is true **and** CP/W' are configured (#76; the same predicate that
+gates the "SET CP/W'" prompt). Fields are created exactly once per load, so the setting's prompt
+must say the change applies at the next load, and a CP/W' change after the field loads (mid-ride,
+or on the pre-ride screen) does not create or remove fields until then.
 
 RECORD-level, and this is the whole list (written EVERY compute() = once per second, so they become
 1 Hz streams in the FIT):

@@ -202,8 +202,8 @@ class DualTankView extends WatchUi.DataField {
     // dirty-check — a change smaller than STATE_EPS_J is not worth a flash write.
     hidden var mSavRP, mSavRG, mSavDepP, mSavDepG, mSavDeficit;
     // ---- FIT fields ----
-    // #102: two handles, both RECORD, both created only when mFitRecord is true (so with the
-    // setting OFF they stay null and writeField's guard makes every call site a no-op).
+    // #102/#76: two handles, both RECORD, both created only when mFitRecord AND mConfigured are
+    // true at load (otherwise they stay null and writeField's guard makes every call site a no-op).
     hidden var mFPcrJ, mFGlyJ;
     hidden var mLastTimerTime;   // #31: previous info.timerTime (ms) for the real-dt step; null until first tick
     hidden var mFitRecord;   // #102: the "fitRecord" setting — whether this load creates the FIT
@@ -259,13 +259,14 @@ class DualTankView extends WatchUi.DataField {
 
         // #102: the ONLY createField calls this app makes. Reserve energy remaining per tank, in
         // joules (raw; divide by tank capacity for %). 8 B of the 32 B RECORD quota; SESSION 0 B.
-        // Gated on mFitRecord (the "fitRecord" setting, default true, read in reloadSettings()
-        // above): with the setting OFF the calls do not run, the handles stay null, and this app
-        // contributes ZERO developer field definitions to the file. Fields are created exactly
-        // once per load, which is why the setting's prompt says it applies at the next load.
+        // Gated on shouldCreateFitFields(mFitRecord, mConfigured) (#76): the "fitRecord" setting
+        // (default true) AND CP/W' configured, both read in reloadSettings() above. With either one
+        // false the calls do not run, the handles stay null, and this app contributes ZERO
+        // developer field definitions to the file. Fields are created exactly once per load, which
+        // is why the setting's prompt says it applies at the next load.
         // Every subsequent write goes through the null-safe writeField, so OFF needs no further
         // gating -- and that is deliberate: a gate on a FIT write fails OPEN (FACTS.md 3.3).
-        if (mFitRecord) {
+        if (shouldCreateFitFields(mFitRecord, mConfigured)) {
             mFPcrJ = createField("PCr_J", FID_PCR_J, FitContributor.DATA_TYPE_FLOAT,
                 { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "J" });
             mFGlyJ = createField("GLY_J", FID_GLY_J, FitContributor.DATA_TYPE_FLOAT,
@@ -279,8 +280,9 @@ class DualTankView extends WatchUi.DataField {
         writeField(mFGlyJ, mModel.mRG);
     }
 
-    // Null-safe FIT write. A handle is null on two paths now: the #102 "fitRecord" setting is OFF,
-    // so the createField calls above never ran; or the SDK failed the creation. Route EVERY write
+    // Null-safe FIT write. A handle is null on three paths now: the #102 "fitRecord" setting is OFF
+    // or CP/W' were unconfigured at load (#76), so the createField calls above never ran; or the
+    // SDK failed the creation. Route EVERY write
     // through here so a null handle just skips instead of faulting compute()/onTimerStart/
     // initialize. value may be a Float or an Int; both are valid setData payloads. Static (no
     // instance state) so a (:test) can exercise the null path without a DataField.
@@ -291,10 +293,24 @@ class DualTankView extends WatchUi.DataField {
     // UNCATCHABLE Out Of Memory Error ("New Field out of memory for FIT data") that aborts
     // initialize() before any handle comes back, which is exactly why the v0.6 build could not
     // load on any device while CI compiled it green. So this guard is not a budget-exhaustion
-    // safety net; it is the OFF path and ordinary defensive null handling. Staying under the
-    // quota is what prevents exhaustion, and nothing here can catch it if it happens.
+    // safety net; it is the OFF or unconfigured-at-load path and ordinary defensive null handling.
+    // Staying under the quota is what prevents exhaustion, and nothing here can catch it if it
+    // happens.
     static function writeField(f, value) {
         if (f != null) { f.setData(value); }
+    }
+
+    // #76: the decision behind the createField block in initialize(), extracted as a pure static
+    // so a (:test) can drive it -- no (:test) can obtain a Session, so createField itself is out
+    // of reach (FACTS.md 3.2). Both arguments are decided by reloadSettings(), which initialize()
+    // runs BEFORE the createField block. It gates CREATION, never a write: record fields latch
+    // (FACTS.md 3.3), so a gate on a write would fail open. Create only when the fitRecord setting
+    // is on AND CP/W' are configured (#76): an unconfigured load would otherwise record reserves
+    // computed from the 250 W / 20000 J fallback the athlete never chose. Decided once per load, so
+    // configuring CP/W' after the field loads (mid-ride, or on the pre-ride screen) records nothing
+    // until the next load, and clearing them mid-ride keeps the fields this load already created.
+    static function shouldCreateFitFields(fitRecord, configured) {
+        return fitRecord && configured;
     }
 
     // #64: coerce a settings value to a FINITE Float, or null if it is null / non-numeric /
@@ -371,8 +387,10 @@ class DualTankView extends WatchUi.DataField {
         // properties.xml defaults these two to the sentinel 0 (numeric properties require a default),
         // so an unconfigured rider reads 0 -> isConfigured() is false and the "SET CP/W'" guard shows
         // (the former 250/20000 defaults made it always-configured and the guard dead). A 0/unset
-        // (or null) value maps to the model's safe 250/20000 fallback so the FIT streams stay sane
-        // while unconfigured; #64 already dropped any NaN/±Inf to null upstream.
+        // (or null) value maps to the model's safe 250/20000 fallback so the model's capacities stay
+        // finite and non-zero while unconfigured (since #76 the FIT fields exist only if CP/W' were
+        // set at load, so this fallback reaches the file only after a mid-ride clear); #64 already
+        // dropped any NaN/±Inf to null upstream.
         var rawCP     = propFloatOrNull("CP");
         var rawWprime = propFloatOrNull("Wprime");
         mConfigured   = isConfigured(rawCP, rawWprime);

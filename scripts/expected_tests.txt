@@ -19,3 +19,4 @@ testFitRecordSettingCoerces
 testWriteFieldNullSafe
 testShouldShowNoPower
 testPauseStampNegativeClock
+testShouldCreateFitFields

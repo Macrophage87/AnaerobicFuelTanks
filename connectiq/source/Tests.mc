@@ -19,13 +19,14 @@ using Toybox.Application;
 // costs none. monkeyc prints the count only once the build is ALREADY over, so it can only be
 // learned by bisecting throwaway stubs against a real compile (SDK 9.2.0, `monkeyc -t -l 1
 // -d fenix6pro`, stubs in a scratch source file under source/). RE-MEASURED 2026-09-25 on a
-// clean archive of 482d790 (PR #118, #104), which adds testPauseStampNegativeClock and so
-// spends one slot (28 used -> 29):
-//   CEILING gettimer-104 fenix6pro: 29 used of 253, 224 free -- the 225th file-scope (:test) added reds
-// The limit is INCLUSIVE. Bisection outputs: 400 stubs -> "Found 429 members in module
-// 'globals', exceeding the limit of 253" (429 - 400 = 29 used); 224 stubs -> BUILD SUCCESSFUL;
-// 225 stubs -> "Found 254 members in module 'globals', exceeding the limit of 253". Earlier
-// measurements: 28 used / 225 free on the #102 c2 tree (2026-09-05), 27 / 226 at 30b2b99. edge1050 (the other CI
+// clean archive of 2630503 (PR #124, #76 c3), whose c2 adds testShouldCreateFitFields and so
+// spends one slot (29 used -> 30):
+//   CEILING config-gate-76 fenix6pro: 30 used of 253, 223 free -- the 224th file-scope (:test) added reds
+// The limit is INCLUSIVE. Bisection outputs: 400 stubs -> "Found 430 members in module
+// 'globals', exceeding the limit of 253" (430 - 400 = 30 used); 223 stubs -> BUILD SUCCESSFUL;
+// 224 stubs -> "Found 254 members in module 'globals', exceeding the limit of 253". Earlier
+// measurements: 29 used / 224 free at 482d790 (#104), 28 / 225 on the #102 c2 tree
+// (2026-09-05), 27 / 226 at 30b2b99. edge1050 (the other CI
 // compile target) stays green, so a green edge1050 build proves nothing here. The line above is
 // machine-checked -- scripts/check_ceiling_notes.py (arithmetic, copies agree) and
 // scripts/check_agent_facts.py (docs/agents/FACTS.md quotes it). Re-measure when file-scope
@@ -491,8 +492,8 @@ function testFitRecordSettingCoerces(logger) {
 // field budget is exhausted". That was an inference no SDK page documents, and it is WRONG: on
 // exhaustion the SDK raises an UNCATCHABLE Out Of Memory Error that aborts initialize() before any
 // handle comes back — the v0.6 load crash. So a null handle is NOT the budget-exhaustion path. It
-// is the #102 "fitRecord" OFF path (the createField calls never run) plus ordinary defensive null
-// handling, and this case pins that both payload types survive it.
+// is the #102 "fitRecord" OFF path and the #76 unconfigured-CP/W' path (the createField calls never
+// run) plus ordinary defensive null handling, and this case pins that both payload types survive it.
 (:test)
 function testWriteFieldNullSafe(logger) {
     DualTankView.writeField(null, 5.0);   // Float payload, null handle -> no-op, no throw
@@ -553,5 +554,25 @@ function testPauseStampNegativeClock(logger) {
     // "not set": a stamp of -1 is a stamp.
     Test.assertMessage(DualTankView.pauseElapsedSec(wallNow, wallStamp, 299999, -1, cap) == 300,
         "stamp == -1: expected the monotonic 300 s");
+    return true;
+}
+
+// ---- #76: the FIT fields are created only when fitRecord is on AND CP/W' are configured ----
+//
+// shouldCreateFitFields is the pure seam behind initialize()'s createField block; this drives the
+// SHIPPING static (FIX_ROUND.md section 4). No (:test) can obtain a Session, so what a saved file
+// contains with CP/W' unset is NOT reached here (FACTS.md 3.2) -- only the decision is.
+// The (true, true) case runs first so a red on the unconfigured case shows the configured one
+// passing on the same seam. Args: (fitRecord, configured).
+(:test)
+function testShouldCreateFitFields(logger) {
+    Test.assertMessage(DualTankView.shouldCreateFitFields(true, true),
+        "fitRecord on, configured: expected the fields to be created");
+    Test.assertMessage(!DualTankView.shouldCreateFitFields(true, false),
+        "fitRecord on, CP/W' unset: expected NO fields (#76)");
+    Test.assertMessage(!DualTankView.shouldCreateFitFields(false, true),
+        "fitRecord off, configured: expected NO fields (#102)");
+    Test.assertMessage(!DualTankView.shouldCreateFitFields(false, false),
+        "fitRecord off, CP/W' unset: expected NO fields");
     return true;
 }
