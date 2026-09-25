@@ -22,7 +22,7 @@ The layout adapts to your data-field cell:
 Reads clearly on light and dark themes.
 
 RECORDED TO YOUR RIDE
-Once CP and W-prime are set, it writes both reserves to the ride's FIT file every second, in joules, as developer fields PCr_J and GLY_J. The field records nothing else. The "Record reserves to FIT" setting (on by default) controls this; a change takes effect the next time the field loads, so start a new ride. Turned off, the field creates no FIT fields.
+Once CP and W-prime are set, it writes both reserves into every record of the ride's FIT file, in joules, as developer fields PCr_J and GLY_J. The field records nothing else. The "Record reserves to FIT" setting (on by default) controls this; a change takes effect the next time the field loads, so start a new ride. Turned off, the field creates no FIT fields.
 
 THE MODEL
 Demand above your aerobic supply is met by both systems in parallel: PCr is the immediate buffer and glycolysis ramps in over the first few seconds, so both drain together on a hard effort rather than one after the other. Recovery is system-specific: PCr recovers fast but is efficiency-limited and slows as you fatigue; glycolytic recovers slowly and only below CP, faster the easier you ride. Realism terms (0 turns each off): an aerobic on-ramp for the oxygen deficit at the start of efforts, and fatigue-slowed PCr recovery across repeated bouts. Pauses are handled correctly — the tanks keep refilling for the whole break.

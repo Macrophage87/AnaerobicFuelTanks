@@ -13,7 +13,7 @@ Marketing/store imagery for the Connect IQ app. Two glossy fuel tanks:
 Regenerate all four with:
 
 ```bash
-python3 make_assets.py     # requires Pillow; writes into this folder
+python3 make_assets.py     # requires Pillow; writes the four store assets here and the nine launcher icons under ../resources*/
 ```
 
 ### On-device launcher icons

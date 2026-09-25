@@ -170,7 +170,7 @@ and *Run App* commands do the same via `monkey.jungle`.
 Use the simulator's **Data Fields → activity simulation** to feed a power trace (or FIT playback),
 then watch the two bars. Expected behaviour is documented as test traces at the top of
 `source/DualTankView.mc` (single sprint → PCr drains bright and refills in ~30–60 s; sustained
-supra-CP → GLY bleeds and only refills below LT1).
+supra-CP → GLY bleeds, then refills whenever power drops below CP, faster the lower the power).
 
 ## Notes / limitations
 
