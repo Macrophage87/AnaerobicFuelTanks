@@ -30,7 +30,9 @@ every CI run; the rest are prose and carry only the pin. §9 says which is which
 
 The Connect IQ project is **not** at the repository root: `connectiq/manifest.xml`,
 `connectiq/monkey.jungle`, `connectiq/source/` (four files: `DualTankApp.mc`,
-`DualTankView.mc`, `TankModel.mc`, `Tests.mc`), `connectiq/resources/`. Every
+`DualTankView.mc`, `TankModel.mc`, `Tests.mc`), `connectiq/resources/`, and
+since #114 eight device-qualified `connectiq/resources-<device id>/` folders
+that hold only a launcher icon at that device's size. Every
 `monkeyc` invocation runs from `connectiq/`; every checker in `scripts/`
 defaults its root to `connectiq/source`.
 
@@ -648,9 +650,12 @@ the API reports their digests as
 
 Store-Version 6 is the crashing build (not re-verified here: nothing in this
 repository reads the Store); the store resubmission is #96's remaining blocker
-(#96 open on 2026-09-25), and the Store description correction rides with it —
-`connectiq/store/description.txt:25` still advertises "live consumption" and
-end-of-ride kilojoules, fields whose `createField` calls #102 deleted.
+(#96 open on 2026-09-25), and the Store description correction rides with it.
+`connectiq/store/description.txt:25` advertised "live consumption" and
+end-of-ride kilojoules, fields whose `createField` calls #102 deleted; the file
+was rewritten to the two `PCr_J` / `GLY_J` record streams in the PR for #114
+(2026-09-25). The committed text is corrected; the listing on the Store is not
+until the resubmission uploads it.
 
 **Static image size is not the memory pressure.** Measured at **`d6be663`** on a
 clean archive with `monkeyc -r -l 1` (release, debug stripped) and a throwaway
