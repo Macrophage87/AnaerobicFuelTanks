@@ -20,7 +20,7 @@ the full field/UI/FIT spec is in
 Two developer fields, and only while the **Record reserves to FIT** setting is on (it is **on by
 default**) **and CP and W′ are both set** (#76). Both are read once at load, when the fields are
 created, so a change to either applies at the next load: a load with CP or W′ unset records no
-developer fields for that load even if they are set mid-ride, and clearing them mid-ride keeps
+developer fields for that load even if they are set after it loads (mid-ride, or on the pre-ride screen), and clearing them mid-ride keeps
 the fields that load already created.
 
 - **Per second (record stream):** `PCr_J`, `GLY_J` — reserve energy remaining, **joules**, FLOAT,

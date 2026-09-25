@@ -293,8 +293,9 @@ class DualTankView extends WatchUi.DataField {
     // UNCATCHABLE Out Of Memory Error ("New Field out of memory for FIT data") that aborts
     // initialize() before any handle comes back, which is exactly why the v0.6 build could not
     // load on any device while CI compiled it green. So this guard is not a budget-exhaustion
-    // safety net; it is the OFF path and ordinary defensive null handling. Staying under the
-    // quota is what prevents exhaustion, and nothing here can catch it if it happens.
+    // safety net; it is the OFF or unconfigured-at-load path and ordinary defensive null handling.
+    // Staying under the quota is what prevents exhaustion, and nothing here can catch it if it
+    // happens.
     static function writeField(f, value) {
         if (f != null) { f.setData(value); }
     }
@@ -306,8 +307,8 @@ class DualTankView extends WatchUi.DataField {
     // (FACTS.md 3.3), so a gate on a write would fail open. Create only when the fitRecord setting
     // is on AND CP/W' are configured (#76): an unconfigured load would otherwise record reserves
     // computed from the 250 W / 20000 J fallback the athlete never chose. Decided once per load, so
-    // configuring CP/W' mid-ride records nothing until the next load, and clearing them mid-ride
-    // keeps the fields this load already created.
+    // configuring CP/W' after the field loads (mid-ride, or on the pre-ride screen) records nothing
+    // until the next load, and clearing them mid-ride keeps the fields this load already created.
     static function shouldCreateFitFields(fitRecord, configured) {
         return fitRecord && configured;
     }
@@ -386,8 +387,10 @@ class DualTankView extends WatchUi.DataField {
         // properties.xml defaults these two to the sentinel 0 (numeric properties require a default),
         // so an unconfigured rider reads 0 -> isConfigured() is false and the "SET CP/W'" guard shows
         // (the former 250/20000 defaults made it always-configured and the guard dead). A 0/unset
-        // (or null) value maps to the model's safe 250/20000 fallback so the FIT streams stay sane
-        // while unconfigured; #64 already dropped any NaN/±Inf to null upstream.
+        // (or null) value maps to the model's safe 250/20000 fallback so the model's capacities stay
+        // finite and non-zero while unconfigured (since #76 the FIT fields exist only if CP/W' were
+        // set at load, so this fallback reaches the file only after a mid-ride clear); #64 already
+        // dropped any NaN/±Inf to null upstream.
         var rawCP     = propFloatOrNull("CP");
         var rawWprime = propFloatOrNull("Wprime");
         mConfigured   = isConfigured(rawCP, rawWprime);

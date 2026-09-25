@@ -332,10 +332,11 @@ were wrong (memory pressure, "throws", the #32 attribution, the shared budget,
 
 Skipping a `setData` **re-emits the previous value** on every subsequent
 record. It never produces a gap. This repository writes every record field on
-every tick, including the held and skipped paths. Re-pinned on PR #105 after
-#102 cut the seven fields to two: `DualTankView.mc:823-824`, `:844-845`,
-`:881-882`, `:916-917`, live at `:931-932` (and the `initialize()` seed at
-`:278-279`). Keep it that way: a gate on a FIT
+every tick, including the held and skipped paths. Re-pinned on PR #124 (#76) on
+its round-1 fix commit (the commit that carries this line), by
+`grep -n "writeField(mF" connectiq/source/DualTankView.mc`:
+`DualTankView.mc:841-842`, `:862-863`, `:899-900`, `:934-935`, live at `:949-950`
+(and the `initialize()` seed at `:279-280`). Keep it that way: a gate on a FIT
 write fails **open**, and "stop writing during X" fabricates a timeline rather
 than omitting one. #102's `fitRecord` gate is therefore on **creation**
 (`initialize()`), not on the writes — with the setting off the handles are null
@@ -517,7 +518,8 @@ SESSION 8 B at `30b2b99`. Both calls are gated on
 setting (boolean, **default true**) **and** CP/W′ configured (#76, PR #124), both
 read once per load in `reloadSettings()` before the `createField` block. With
 either false neither call runs and this app defines **zero** developer fields for
-that load; a rider who sets CP/W′ mid-ride records nothing until the next load, and
+that load; a rider who sets CP/W′ after the field loads (mid-ride, or on the pre-ride screen
+after seeing `SET CP/W'`) records nothing until the next load, and
 one who clears them mid-ride keeps the fields that load created.
 `testShouldCreateFitFields` pins the decision (red on the pre-#76 seam, ciq-test run
 36149549904), not the file. **That the OFF or unconfigured build defines zero fields
@@ -699,8 +701,7 @@ were not repeated at `d6be663`.
   it left (stale comments, the budget guard, the gated return of config).
 * **The wrong pair.** 32 B is per message type per app; 53 B was four apps'
   RECORD total; 56 B was this app's SESSION. Say which.
-* **Absence rendered as a value.** #76: an unconfigured ride records a
-  complete, plausible dataset at CP 250 / W′ 20000 the athlete never chose.
+* **Absence rendered as a value.** #76: an unconfigured ride recorded a complete, plausible dataset at CP 250 / W′ 20000 the athlete never chose, until PR #124 gated field creation on CP/W′ being configured at load (§5.3). A rider who clears CP/W′ mid-ride still records the fallback for the rest of that load.
 
 ---
 

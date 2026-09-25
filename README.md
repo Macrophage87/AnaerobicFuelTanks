@@ -170,8 +170,8 @@ A custom **data field** (`connectiq/`) that reads `Activity.Info.currentPower` o
   **on by default**, and a change to it applies the next time the field loads. The streams are also
   created only when **CP and W′ are both set** (#76): a load with either unset shows "SET CP/W'" and
   records neither stream, rather than reserves computed from a 250 W / 20 000 J fallback the rider
-  never chose. That too is decided once at load, so setting CP/W′ mid-ride records nothing until the
-  next load, and clearing them mid-ride keeps the streams that load already created. Issue #102 pruned the
+  never chose. That too is decided once at load, so setting CP/W′ after the field has loaded — mid-ride, or on the
+  pre-ride screen after seeing "SET CP/W'" — records nothing until the next load (start a new ride), and clearing them mid-ride keeps the streams that load already created. Issue #102 pruned the
   app from seven developer fields to these two (RECORD 16 B → 8 B, SESSION 8 B → 0 B), cutting what
   it contributes to the ride file: the live-consumption
   streams (`PCr_cons`, `GLY_cons`), the session totals (`PCr_depleted_kJ`, `GLY_depleted_kJ`) and
