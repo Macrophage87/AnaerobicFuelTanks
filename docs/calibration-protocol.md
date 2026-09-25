@@ -349,7 +349,7 @@ two-compartment hypothesis (that is §6.10). Test–retest targets: CP ≤ ±3 %
   it. A pause *between* efforts is fine.
 - **Developer-field FIT files** are readable via the base-R `read_power_raw()` fallback (native power
   field 7 + timestamp 253); confirm the fallback fired.
-- **Time alignment (#100): a required step, not a caveat.** In every file recorded so far, the
+- **Time alignment (#100): a required step, not a caveat.** In both files decoded so far (2026-07-26 and 2026-09-20), the
   model streams this field writes lag the recorded power by one record. That covers `PCr_J`/`GLY_J`,
   and `PCr_cons`/`GLY_cons` in pre-#102 files. The offset is platform-inherent, so no app change
   removes it (`../connectiq/README.md`). Apply these four steps before any fit or check that uses a

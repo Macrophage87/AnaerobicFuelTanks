@@ -111,13 +111,15 @@ sits, the record count. Without them, "I could not reproduce your number" and
 
 ## 7. What field data cannot settle
 
-* **Nothing in this repository decodes a file this app wrote** (`FACTS.md`
-  §3.2). A recording tells you what a *decoder* read out of a file some
-  firmware wrote; it does not tell you what *this app's* `setData` calls
-  produced.
-* **The per-app budget claim** (#96) rests on one file with four apps. The
-  maintainer reports memory failures with several data fields installed
-  (2026-09-05). Both are field observations; neither is a fixture yet. The
+* **Nothing CI runs decodes a file this app wrote** (`FACTS.md` §3.2).
+  `tools/fielddata/extract_ride_fixture.py` decodes one outside CI, and CI checks
+  only the text fixtures it wrote. A recording tells you what a *decoder* read out
+  of a file some firmware wrote; it does not tell you what *this app's* `setData`
+  calls produced.
+* **The per-app budget claim** (#96) rests on two files with four apps each:
+  #96's, which is not committed, and the 2026-09-20 ride, whose declarations
+  are (`FACTS.md` §5.3). The maintainer reports memory failures with several data
+  fields installed (2026-09-05); that is a field observation, not a fixture. The
   question they leave open — what fails, in which app, at what total developer
   payload — is a `[Local]` measurement with byte-exact criteria, not a design
   argument.

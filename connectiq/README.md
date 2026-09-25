@@ -35,11 +35,13 @@ default**; the fields are created once at load, so a change applies at the next 
   power is shifted one record, against 488/11879 unshifted (`RIDEFACT threshold`). The
   2026-07-26 ride shows the same offset (#100).
 
-  The pause boundaries are the direct case. The first record after a resume repeats the
-  pre-pause reserves, and the rest-recovery refill lands one record later
-  (`RIDEFACT boundary_latch`, 23/23 boundaries).
+  The pause boundaries are consistent with it, though they cannot tell it apart from the resume
+  record being written before the first post-resume `compute()` (`../docs/agents/FACTS.md` §3.3).
+  The first record after a resume repeats the pre-pause reserves, and the rest-recovery refill
+  lands one record later (`RIDEFACT boundary_latch`, `boundary_change_at_next`: 23/23 boundaries).
 
-  Every file recorded so far carries the offset. Align before comparing these streams
+  Both rides decoded so far (2026-07-26, #100; 2026-09-20) carry the offset; treat every file as
+  carrying it. Align before comparing these streams
   with power: [`../docs/calibration-protocol.md`](../docs/calibration-protocol.md) §5.6.
 - **Per ride (session summary):** _nothing._ SESSION contributions are 0 B.
 

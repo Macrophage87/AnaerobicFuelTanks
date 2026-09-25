@@ -527,15 +527,16 @@ either mechanism; which mechanism is right is still open.
 
 * **Four developer data indexes declare fields** (`RIDEFACT apps 4 ours 3`).
 * **Declared `record` bytes are 13 / 4 / 24 / 8 = 49 B**, and the largest single
-  app declares 24 B (`RIDEFACT devbytes record total 49 max_app 24`).
+  app declares 24 B (`RIDEFACT devbytes record total 49 max_app 24`). One element
+  per declared field; array counts are not in the fixtures.
 * **This app's index declares exactly `PCr_J` and `GLY_J`** (`RIDEFACT ours_fields`),
   8 B on `record` and 0 B on `session` (`RIDEFACT devbytes record 3 8`,
   `RIDEFACT devbytes session 3 0`).
 * **Both fields are populated on every record and still moving at the last one**
   (`RIDEFACT populated PCr_J 11903 11903`, `RIDEFACT last_change PCr_J 15140 15140`).
 
-The file holds 49 B of `record` declarations while every app stays ≤ 32 B, and it
-saved. That is consistent with #96's per-app finding. It is one more file, not a
+The file holds 49 B of `record` declarations while every app's declared elements
+stay ≤ 32 B, and it saved. That is consistent with #96's per-app finding. It is one more file, not a
 settlement. The fixtures keep only what the other three apps *declared*, not their
 values. So "all four apps' fields populated to the end" is an observation from
 the out-of-tree decode, not a committed figure.
