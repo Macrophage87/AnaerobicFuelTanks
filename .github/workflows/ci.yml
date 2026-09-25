@@ -96,7 +96,7 @@ jobs:
   # fast crash gate, and the required `model-parity` job still holds the Python mirror of
   # TankModel to the R reference fixtures (issue #27 part C).
   #
-  # BRING-UP HISTORY (verified from CI logs; the root cause is still open in #61):
+  # BRING-UP HISTORY (verified from CI logs; the root cause is still open in #127):
   #   ✓ shell pinned to bash (image default is dash: the `/dev/tcp` socket probe needs bash)
   #   ✓ run logic inlined into `bash -c` (an exported function is dropped across the
   #     xvfb-run -> timeout -> bash exec chain)
@@ -128,7 +128,7 @@ jobs:
       # #61 diagnostics: allow gdb to attach to the (sibling) simulator process for a crash
       # backtrace. The default runner has YAMA ptrace_scope=1 with no CAP_SYS_PTRACE, so a
       # sibling `gdb -p` is denied ("Inappropriate ioctl for device"). Added for diagnostics;
-      # whether these options are why the run step stopped crashing is unmeasured (#61).
+      # whether these options are why the run step stopped crashing is unmeasured (#127).
       options: --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
@@ -310,8 +310,8 @@ jobs:
             echo "::error::(:test) reported a failing run — see the check_ciq_tests.py diagnostics above"
             exit 1
           fi
-          echo "gate: SKIP — no test-summary line in the captured log; the headless simulator did not run the suite (see the job header and #61). This job is required, so SKIP is a failure."
-          echo "::error::headless simulator produced no (:test) summary line — the suite did not run (required job; see #61)"
+          echo "gate: SKIP — no test-summary line in the captured log; the headless simulator did not run the suite (see the job header and #127). This job is required, so SKIP is a failure."
+          echo "::error::headless simulator produced no (:test) summary line — the suite did not run (required job; see #127)"
           exit 1
 
       # #61 diagnostics — root-causes the post-SetLayout SIGSEGV. NON-FATAL
@@ -402,7 +402,7 @@ jobs:
             GTK_THEME=Adwaita QT_QPA_PLATFORM=offscreen timeout 30 "$SIMBIN" >/tmp/sim.gtk.log 2>&1 &
             GPID=$!; sleep 10
             if kill -0 "$GPID" 2>/dev/null; then
-              echo "GTK probe: sim alive OFFSCREEN — but the run step (same theme+schemas stack) still segfaulted under real Xvfb, so this is an offscreen/Xvfb difference, not the fix. Next lever: L1 (dbus-run-session)."
+              echo "GTK probe: sim alive OFFSCREEN — but the run step (same theme+schemas stack) segfaulted under real Xvfb on PR #84's run, so this is an offscreen/Xvfb difference, not the fix. Next lever: L1 (dbus-run-session)."
             else
               echo "GTK probe: sim still exited — the GTK theme+schemas stack is not the fix (L0 falsified this run; see group 1). Next lever: L1 (dbus-run-session)."
             fi
@@ -484,7 +484,7 @@ jobs:
   # (tools/crosscheck/fixtures/) and asserted equal per second within 0.1 J (~9 orders above
   # the ~1e-11 J float-noise floor; catches sub-percent coefficient drift). This directly
   # guards R == the mirror; Monkey C is guarded TRANSITIVELY (the mirror is a faithful port —
-  # the residual mirror<->compiled-Monkey-C gap is tracked in #61). Runs with NO Connect IQ
+  # the residual mirror<->compiled-Monkey-C gap is tracked in #116). Runs with NO Connect IQ
   # SDK / simulator, so it is deterministic and fast. It is the equality gate against the R
   # reference (in ci-required); `ciq-test` executes the (:test) suite in the simulator, which
   # asserts other things and holds no R fixture comparison. Pure stdlib Python;

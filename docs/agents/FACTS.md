@@ -104,16 +104,24 @@ device, `fenix6pro`'s `globals` ceiling (§5.1), anything behind a `Session` or 
 `gate: FAIL` (a case failed or the log is malformed), `gate: SKIP` (no summary
 line: the simulator crashed or never ran the suite), or the 15-minute job
 timeout. The `SetLayout` segfault still reproduces in the diagnostic step and
-nobody knows why the run step escapes it, so an infra red stays possible; the
-remedy is a re-run and a note on #61, never re-greening SKIP.
+nobody knows why the run step escapes it (#127), so an infra red stays possible.
+A single `gate: SKIP` is re-run and noted on #127; SKIP is never re-greened. If
+SKIP persists across re-runs it blocks every merge (admins are enforced), and
+the escape hatch is a PR that removes `ciq-test` from `ci-required.needs` in
+`.github/workflows/ci.yml` and changes nothing else: a `pull_request` run
+evaluates the PR's own workflow file, so that PR's `ci-required` can go green
+and land. Do not revert the promotion PR wholesale — that also reverts the
+`if: always()` assert and reopens the skipped-aggregator hole described below.
+Re-promotion needs a fresh run record on #127.
 
 **The correction pass is done (2026-09-25, #61 item 3).** This section used to
 enumerate the surviving copies of the retracted "the suite does not execute in
 CI / executes only locally / segfault-skips" claim. A two-anchor sweep of every
 tracked file (the segfault / skips-green wording **and** the executes-only-locally
 wording, markdown-bold tolerant, `.claude/agents/` and `ci.yml` included) found
-15 live copies. All 15 were corrected at source in the promotion PR:
+15 live copies. All 15 were corrected at source in the promotion PR; the promotion PR's gate found a sixteenth, tools/crosscheck/test_parity.py:8 ("once the headless simulator works"), outside both anchors, corrected in the same PR:
 `Tests.mc` (two comments), `check_settings_defaults.sh`, `check_fit_budget.py`,
+`test_parity.py`,
 `DISPATCH.md` (the V=1 anchor and §4's histogram rationale), `LANDING.md`,
 `FIX_ROUND.md`, `GATE_PROTOCOL.md` §4.1, `ci.yml` (the manifest-lint rationale),
 §6 of this file, and the "Pin the device target" bullet in all three
