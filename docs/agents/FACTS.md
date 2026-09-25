@@ -331,9 +331,9 @@ were wrong (memory pressure, "throws", the #32 attribution, the shared budget,
 Skipping a `setData` **re-emits the previous value** on every subsequent
 record. It never produces a gap. This repository writes every record field on
 every tick, including the held and skipped paths. Re-pinned on PR #105 after
-#102 cut the seven fields to two: `DualTankView.mc:799-800`, `:820-821`,
-`:857-858`, `:892-893`, live at `:907-908` (and the `initialize()` seed at
-`:275-276`). Keep it that way: a gate on a FIT
+#102 cut the seven fields to two: `DualTankView.mc:823-824`, `:844-845`,
+`:881-882`, `:916-917`, live at `:931-932` (and the `initialize()` seed at
+`:278-279`). Keep it that way: a gate on a FIT
 write fails **open**, and "stop writing during X" fabricates a timeline rather
 than omitting one. #102's `fitRecord` gate is therefore on **creation**
 (`initialize()`), not on the writes — with the setting off the handles are null
@@ -368,14 +368,25 @@ filed under it.)
 ### 3.5 Clocks
 
 `nowSec()` is `Time.now().value()` (unix seconds) — wall clock, not
-`System.getTimer()`. The one `System.getTimer()` use is `mPauseAtMono`
-(`DualTankView.mc:654`, #41; re-pinned on PR #105), tested with `mPauseAtMono >= 0` at `:669` and
-`-1` as "not set". `System.getTimer()` is a **signed 32-bit** millisecond
-counter and is **negative from 24.9 to 49.7 days of device uptime**; during
-that half the `>= 0` test reads a valid stamp as "not set" and the resume path
-falls back to the wall-clock branch. That is a degradation (loss of the
-clock-jump immunity #41 added), not a corruption, and it is **observed at
-source, not measured on a device** — file it, do not fix it in passing.
+`System.getTimer()`. The one `System.getTimer()` use is `mPauseAtMono`, the
+#41 monotonic pause stamp: stamped in `enterPause()`, read in `exitPause()`
+through the pure seam `DualTankView.pauseElapsedSec(wallNow, wallStamp,
+monoNow, monoStamp, maxPause)`. `System.getTimer()` is a **signed 32-bit**
+millisecond counter and is **negative from 24.9 to 49.7 days of device
+uptime**, so **no sign test may mean "not set"**: since #104 an unset stamp is
+`null` and presence is `monoStamp != null`.
+
+Until #104 the sentinel was `-1` and the test `mPauseAtMono >= 0`, so a stamp
+taken in the negative half read as "not set" and the resume path fell back to
+the wall-clock branch — a degradation (loss of #41's clock-jump immunity), not
+a corruption. `testPauseStampNegativeClock` calls the seam with injected
+negative clocks; with the old guard it reds (`ciq-test` run 36138410601,
+`FAILED (passed=17, failed=0, errors=1)`), with the fix it passes (run
+36138693070, `PASSED (passed=18, failed=0, errors=0)`). **What that pins is the
+seam, not the device**: no device has been run through the negative half, and
+a pause whose two readings straddle the counter's `+2^31−1 → −2^31` wrap is not
+claimed either way (the seam's range check falls back to the wall clock if the delta
+comes out out of range). Neither is measured.
 
 ---
 
@@ -394,11 +405,13 @@ followed" — with `OSError(22, 'A required privilege is not held by the client'
 because Windows withholds the symlink-creation privilege. 34/35 locally; 35/35
 in CI is the expectation. **Do not "fix" it and do not report it as a
 regression.** The other suites (`test_check_ceiling_notes` 10/10,
-`test_check_mc_literals` 8/8, `test_check_agent_facts` 25/25,
+`test_check_mc_literals` 8/8, `test_check_agent_facts` 32/32,
 `test_check_fit_budget` 30/30) are green on both. (This line read
 `test_check_agent_facts` **21/21** when it landed; the suite in the tree at
 `cea95c8` has 25 cases, so the figure was stale on arrival. Re-measured
-2026-09-05 — the tree wins.)
+2026-09-05 — the tree wins. #111 took it from 25/25 to **32/32**, measured 2026-09-25 on
+a Windows checkout, where the other figures on this line re-measured
+unchanged, `test_list_tests` included at 34/35.)
 
 `scripts/check_mc_literals.py` exists because `monkeyc` accepts a raw newline
 inside a string literal with no diagnostic; on a CRLF checkout that ships a
@@ -446,17 +459,18 @@ you started.
 
 `fenix6pro` caps module `globals` at **253** members (inclusive); a file-scope
 `(:test)` costs one member; a `(:test)` inside a `module { }` block costs none.
-**Re-measured 2026-09-05** by bisection on a clean archive of the #102 c2 tree
-(the commit that adds `testFitRecordSettingCoerces`, PR #105), SDK 9.2.0, §2.7
-recipe: 400 stubs reported `Found 428 members` (428 − 400 = 28 used); 225 stubs
-`BUILD SUCCESSFUL`; 226 stubs `Found 254 members in module 'globals', exceeding
-the limit of 253`. The single copy in source, `connectiq/source/Tests.mc`, reads:
+**Re-measured 2026-09-25** by bisection on a clean archive of `482d790` (PR #118,
+the commit series that adds `testPauseStampNegativeClock` for #104), SDK 9.2.0,
+§2.7 recipe, on the maintainer's machine: 400 stubs reported `Found 429 members`
+(429 − 400 = 29 used); 224 stubs `BUILD SUCCESSFUL`; 225 stubs `Found 254 members
+in module 'globals', exceeding the limit of 253`. The single copy in source,
+`connectiq/source/Tests.mc`, reads:
 
-    CEILING fit-prune-102 fenix6pro: 28 used of 253, 225 free -- the 226th file-scope (:test) added reds
+    CEILING gettimer-104 fenix6pro: 29 used of 253, 224 free -- the 225th file-scope (:test) added reds
 
-The **superseded** figure, measured at `30b2b99`, was 27 used of 253, 226 free.
-One file-scope declaration has been added since — the `(:test)` above — and the
-re-measurement confirms the count moved by exactly that one.
+**Superseded** figures: 28 used / 225 free on the #102 c2 tree (2026-09-05), and
+27 / 226 at `30b2b99`. Each step since has added exactly one file-scope
+`(:test)`, and each re-measurement moved the count by exactly that one.
 
 `scripts/check_ceiling_notes.py` enforces the arithmetic and that this
 quotation is byte-identical to the source copy; `scripts/check_agent_facts.py`
@@ -466,13 +480,16 @@ does not bind; a green `edge1050` build says nothing about this.
 
 ### 5.2 Pinned test count
 
-**17** `(:test)` functions, all file-scope in `connectiq/source/Tests.mc`,
-matching `scripts/expected_tests.txt` exactly (`bash scripts/check_expected_tests.sh`
-on the #102 c2 tree: "OK: 17 (:test) function(s) under connectiq/source/ match
-scripts/expected_tests.txt exactly."). It was **16** at `30b2b99`; #102 c2 added
-`testFitRecordSettingCoerces`, which is also the one file-scope declaration
-behind the §5.1 ceiling re-measurement. Measured with `scripts/list_tests.py`,
-never added up.
+**18** `(:test)` functions, all file-scope in `connectiq/source/Tests.mc`,
+matching `scripts/expected_tests.txt` exactly (on the #104 c2 tree,
+`python3 scripts/list_tests.py` lists 18 names and a sorted diff against the
+pin's non-comment lines is empty; `bash scripts/check_expected_tests.sh` runs
+the same comparison in the required `test-tooling` job). It was **16** at `30b2b99`; #102 c2 added
+`testFitRecordSettingCoerces` (17), which is also the one file-scope declaration
+behind the §5.1 ceiling re-measurement; #104 c2 added
+`testPauseStampNegativeClock` (18), also file-scope, so it spends one more
+`fenix6pro` `globals` slot; §5.1's re-measurement on `482d790` reflects it. Measured with
+`scripts/list_tests.py`, never added up.
 
 Any `(:test)` addition, removal or rename edits `scripts/expected_tests.txt`
 **in the same commit**. The check closes drift, not coordinated shrink.
@@ -574,29 +591,69 @@ create path, not after.**
 
 ### 5.5 Releases
 
-Three tags: `0.1`, `v0.6`, `v0.7`. `v0.6` is the newest release **not** flagged
-prerelease, so GitHub's `latest` points at it — and **v0.6 is the build that
-crashes at load** (#96). `v0.7` (prerelease, from `30b2b99`) is the fix. Asset
-names: `DualTank.iq` on v0.6, `DualTank-0.7.iq` on v0.7 — the version belongs
-in the filename (release ritual §5). Store-Version 6 is the crashing build;
-the store resubmission is #96's remaining blocker.
+Re-pinned **2026-09-25 at `d6be663`** (the `v0.8` tag, #113), read with
+`gh release list`, `gh release view <tag> --json name,isPrerelease,assets,body`
+and `git ls-remote --tags origin`:
 
-**Static image size is not the memory pressure.** Measured 2026-09-05 on a
-clean archive of `30b2b99`, local SDK 9.2.0, `monkeyc -r -l 1` (release, debug
-stripped), throwaway key, against each device's `compiler.json` `datafield`
-`memoryLimit`:
+| tag | commit | GitHub release | flag | assets |
+|---|---|---|---|---|
+| `0.1` | `8e9fc00` | **none** — a tag only | — | — |
+| `v0.6` | `ee93fed` | "DualTank v0.6 — SUPERSEDED by v0.7 (crashes at load on every target, #96)" | release, **`latest`** | `DualTank.iq` 541,690 B |
+| `v0.7` | `30b2b99` | "DualTank v0.7 (pre-release) — fixes the v0.6 load crash; superseded by v0.8" | prerelease | `DualTank-0.7.iq` 538,913 B |
+| `v0.8` | `d6be663` | "v0.8" | prerelease | `DualTank-v0.8.iq` 549,096 B; `DualTank-v0.8-edge1050.prg` 28,188 B |
+
+**v0.6 is the build that crashes at load** (#96) and it still carries GitHub's
+`latest`: it is the newest release not flagged prerelease, and under the
+owner's beta flag policy (`rituals/RELEASE.md` §8) flags stay as cut until 1.0,
+so it is not re-flagged. Its title and an opening ⚠️ blockquote say so instead;
+`v0.7`'s body opens with a blockquote pointing at `v0.8`. The version belongs
+in the asset filename (release ritual §5); `v0.8` is the first release whose
+assets follow the `DualTank-v<X.Y>` form.
+
+`v0.8` provenance, **as its release body states it** — not re-derived here: built
+from `d6be663` with the account-bound DualTank key, **28 of 28** device parts
+across the 15 manifest products (the export log is not attached to the release
+or committed, so `N OUT OF M` cannot be re-read after the fact — §1.4), suite
+`PASSED (passed=17, failed=0, errors=0)`. The body carries a dated
+**retraction (2026-09-06)**: the first pair of assets was signed with a
+different key and both were replaced with exports signed by the DualTank key.
+The assets attached now were uploaded **2026-09-06T09:09Z** (their `createdAt`);
+the API reports their digests as
+
+    DualTank-v0.8.iq            sha256:904faaa65a10e4d4ae5046374b990b630af34dca083f80c2a3ee3c3a3cf9ec4b
+    DualTank-v0.8-edge1050.prg  sha256:e40ef4e1da5f50dd8c041b501fbd911c5c3372de0acee3111db5c9d2d4e3002c
+
+Store-Version 6 is the crashing build (not re-verified here: nothing in this
+repository reads the Store); the store resubmission is #96's remaining blocker
+(#96 open on 2026-09-25), and the Store description correction rides with it —
+`connectiq/store/description.txt:25` still advertises "live consumption" and
+end-of-ride kilojoules, fields whose `createField` calls #102 deleted.
+
+**Static image size is not the memory pressure.** Measured at **`d6be663`** on a
+clean archive with `monkeyc -r -l 1` (release, debug stripped) and a throwaway
+key — **by the maintainer's local session and reported in #113's body; not
+re-measured for the re-pin**, which ran with no SDK. One row is
+independently readable: the `v0.8` release asset `DualTank-v0.8-edge1050.prg`
+is 28,188 B, equal to the `edge1050` row to the byte. The limit is each
+device's `compiler.json` `datafield` `memoryLimit`, read at `30b2b99`; the
+device files are not in this repository and were not re-read. Share is
+computed from the two columns.
 
 | device | release `.prg` | limit | share |
 |---|---:|---:|---:|
-| edge530 / edge830 | 26,140 B | 131,072 B | 19.9 % |
-| edge540 / edge840 | 22,316 B | 131,072 B | 17.0 % |
-| edge1030 / edge1030plus | 26,220 B | 131,072 B | 20.0 % |
-| edge1040 | 22,988 B | 131,072 B | 17.5 % |
-| edge1050 | 29,036 B | 131,072 B | 22.2 % |
-| fenix6pro | 25,228 B | 131,072 B | 19.2 % |
-| fr255 / fr255m | 21,388 B | 262,144 B | 8.2 % |
-| fr955 / fenix7 / fenix7x | 21,708 B | 262,144 B | 8.3 % |
-| fr965 | 30,188 B | 262,144 B | 11.5 % |
+| edge530 / edge830 | 24,812 B | 131,072 B | 18.9 % |
+| edge540 / edge840 | 21,468 B | 131,072 B | 16.4 % |
+| edge1030 / edge1030plus | 24,892 B | 131,072 B | 19.0 % |
+| edge1040 | 22,140 B | 131,072 B | 16.9 % |
+| edge1050 | 28,188 B | 131,072 B | 21.5 % |
+| fenix6pro | 23,900 B | 131,072 B | 18.2 % |
+| fr255 / fr255m | 20,540 B | 262,144 B | 7.8 % |
+| fr955 / fenix7 / fenix7x | 20,860 B | 262,144 B | 8.0 % |
+| fr965 | 29,340 B | 262,144 B | 11.2 % |
+
+The **superseded** table, measured 2026-09-05 at `30b2b99` (v0.7, seven
+fields), was larger on every row by 1,328 B (edge530/830, edge1030/1030plus,
+fenix6pro) or 848 B (every other row); it is in this file's history.
 
 A build **without** `-r` is 124–132 KB on the same devices — that is debug
 information, not loaded code, and it is why a first survey read "100.3 % on
@@ -604,6 +661,8 @@ edge1050" for a build that loads fine. Runtime **peak heap** is not measured
 by anything here; the simulator's memory view is the only instrument, and it
 has not been read for this app. The `(:test)` helpers in `Tests.mc` do not
 ship in the `-r` image (verified: `tmMake` absent from the release `.prg`).
+The 124–132 KB figure and the `tmMake` check were measured at `30b2b99` and
+were not repeated at `d6be663`.
 
 ---
 
@@ -663,14 +722,28 @@ prose above is the explanation.
 
     AGENTFACT ci-container sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
     AGENTFACT manifest-devices 15
-    AGENTFACT pinned-tests 17
-    AGENTFACT ceiling fit-prune-102 28 253 225
+    AGENTFACT pinned-tests 18
+    AGENTFACT ceiling gettimer-104 29 253 224
     AGENTFACT devfield 0 PCr_J
     AGENTFACT devfield 1 GLY_J
 
 The ceiling line in §5.1 is additionally checked by
 `scripts/check_ceiling_notes.py`, which requires it to be byte-identical to
 its copy in `connectiq/source/Tests.mc`.
+
+The `devfield` lines are derived from **every `.mc` file under
+`connectiq/source/`**, found by the same walk `check_fit_budget.py` uses
+(`list_tests.mc_files`, imported), so the id map and the byte totals are read
+from one scope (#111; the map used to be read from `DualTankView.mc` alone).
+Each file is read raw and comment-stripped and the two id sets must agree; a
+`const` id resolves only against a `const` in the **same file** as the call,
+and an id created in two files is refused. The per-file rule is **stricter
+than Monkey C**: a file-scope const does resolve across files (`Tests.mc`
+uses `DROPOUT_USE` from `DualTankView.mc`), but the checker's const map is a
+regex that cannot tell a file-scope const from a class const, and a class
+const from an unrelated class could bind the wrong id — so a cross-file name
+is refused, loudly, rather than guessed. No filename is pinned. The checker's
+module docstring is the full contract.
 
 **What is NOT machine-checked**, so nobody reads more into a green run: every
 prose claim in §1–§4, §6 and §7, the byte and type columns of §5.3 (a
