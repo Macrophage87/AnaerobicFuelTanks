@@ -178,9 +178,12 @@ class DualTankView extends WatchUi.DataField {
                                 // drives the reachable "SET CP/W'" guard in onUpdate()
     hidden var mPaused;         // timer paused/stopped
     hidden var mPauseAt;        // unix seconds (WALL clock) when the pause began
-    hidden var mPauseAtMono;    // #41: System.getTimer() ms at pause start; -1 when not set this
+    hidden var mPauseAtMono;    // #41: System.getTimer() ms at pause start; null when not set this
                                 // process (e.g. a restore across reboot -> use the wall-clock delta).
-                                // MONOTONIC, immune to clock jumps; NEVER serialized.
+                                // MONOTONIC, immune to clock jumps; NEVER serialized. #104: null, not
+                                // -1 or any sign test, marks "not set" -- getTimer() is a signed 32-bit
+                                // counter that reads negative for part of the device's uptime, so any
+                                // Number (including -1) can be a real stamp.
     // ---- Deferred-restore identity confirm (#51; transient, NEVER serialized) ----
     hidden var mRestorePending; // true when a snapshot was TENTATIVELY restored because the live
                                 // activity id was null at initialize(); confirmed/rolled back in compute()
@@ -222,7 +225,7 @@ class DualTankView extends WatchUi.DataField {
         mDirty = false;
         // #41/#51 transient bookkeeping — seed BEFORE restoreState() so a tentative restore can
         // set mRestorePending/mRestoreSess and the "always reset" block below won't clobber them.
-        mPauseAtMono = -1;
+        mPauseAtMono = null;
         mRestorePending = false;
         mRestoreSess = null;
         mRestoreTicks = 0;
@@ -676,7 +679,7 @@ class DualTankView extends WatchUi.DataField {
             // left as-is — it's moot: mHaveValidP=false forces the freeze branch before mLastP is read.
             mHaveValidP = false;
             mMissCount = 0;
-            mPauseAtMono = -1;
+            mPauseAtMono = null;
             mPaused = false;
             mDirty = true;
         }
@@ -686,16 +689,22 @@ class DualTankView extends WatchUi.DataField {
     // self/Activity/System context, deterministic given its args), so the clock choice is
     // (:test)-assertable with injected clock values. Returns whole seconds in [0, maxPause].
     //   wallNow, wallStamp — unix seconds (nowSec()) now and at pause start: the fallback delta.
-    //   monoNow, monoStamp — System.getTimer() ms now and at pause start. monoStamp is "not set"
-    //                        when the stamp is not from this process (e.g. a restore across reboot,
-    //                        where the pre-pause getTimer() epoch is gone); then the wall delta wins.
+    //   monoNow, monoStamp — System.getTimer() ms now and at pause start. monoStamp is null ("not
+    //                        set") when the stamp is not from this process (e.g. a restore across
+    //                        reboot, where the pre-pause getTimer() epoch is gone); then the wall
+    //                        delta wins. Presence is `!= null`, NEVER a sign test (#104): getTimer()
+    //                        is signed 32-bit and reads negative for part of the device's uptime, so
+    //                        a negative stamp is a valid stamp. The delta monoNow - monoStamp is
+    //                        exact when both readings fall in the same half; a pair straddling the
+    //                        counter's sign change is not claimed here (not measured), and if it
+    //                        comes out out-of-range the range check below falls back to the wall.
     //   maxPause           — the MAX_PAUSE_SEC cap, passed in because a static method cannot see a
     //                        class-level const (see the module-scope constants note above).
     // A monotonic delta that reads out of range (negative, or past maxPause) also falls back.
     static function pauseElapsedSec(wallNow, wallStamp, monoNow, monoStamp, maxPause) {
         var el = wallNow - wallStamp;                // wall-clock fallback
         if (el < 0) { el = 0; }
-        if (monoStamp != null && monoStamp >= 0) {
+        if (monoStamp != null) {
             var elMono = (monoNow - monoStamp) / 1000;
             if (elMono >= 0 && elMono <= maxPause) { el = elMono; }
         }
