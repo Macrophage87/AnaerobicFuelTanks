@@ -19,13 +19,14 @@ using Toybox.Application;
 // costs none. monkeyc prints the count only once the build is ALREADY over, so it can only be
 // learned by bisecting throwaway stubs against a real compile (SDK 9.2.0, `monkeyc -t -l 1
 // -d fenix6pro`, stubs in a scratch source file under source/). RE-MEASURED 2026-09-25 on a
-// clean archive of 482d790 (PR #118, #104), which adds testPauseStampNegativeClock and so
-// spends one slot (28 used -> 29):
-//   CEILING gettimer-104 fenix6pro: 29 used of 253, 224 free -- the 225th file-scope (:test) added reds
-// The limit is INCLUSIVE. Bisection outputs: 400 stubs -> "Found 429 members in module
-// 'globals', exceeding the limit of 253" (429 - 400 = 29 used); 224 stubs -> BUILD SUCCESSFUL;
-// 225 stubs -> "Found 254 members in module 'globals', exceeding the limit of 253". Earlier
-// measurements: 28 used / 225 free on the #102 c2 tree (2026-09-05), 27 / 226 at 30b2b99. edge1050 (the other CI
+// clean archive of 2630503 (PR #124, #76 c3), whose c2 adds testShouldCreateFitFields and so
+// spends one slot (29 used -> 30):
+//   CEILING config-gate-76 fenix6pro: 30 used of 253, 223 free -- the 224th file-scope (:test) added reds
+// The limit is INCLUSIVE. Bisection outputs: 400 stubs -> "Found 430 members in module
+// 'globals', exceeding the limit of 253" (430 - 400 = 30 used); 223 stubs -> BUILD SUCCESSFUL;
+// 224 stubs -> "Found 254 members in module 'globals', exceeding the limit of 253". Earlier
+// measurements: 29 used / 224 free at 482d790 (#104), 28 / 225 on the #102 c2 tree
+// (2026-09-05), 27 / 226 at 30b2b99. edge1050 (the other CI
 // compile target) stays green, so a green edge1050 build proves nothing here. The line above is
 // machine-checked -- scripts/check_ceiling_notes.py (arithmetic, copies agree) and
 // scripts/check_agent_facts.py (docs/agents/FACTS.md quotes it). Re-measure when file-scope

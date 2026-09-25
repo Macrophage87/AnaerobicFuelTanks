@@ -459,17 +459,17 @@ you started.
 
 `fenix6pro` caps module `globals` at **253** members (inclusive); a file-scope
 `(:test)` costs one member; a `(:test)` inside a `module { }` block costs none.
-**Re-measured 2026-09-25** by bisection on a clean archive of `482d790` (PR #118,
-the commit series that adds `testPauseStampNegativeClock` for #104), SDK 9.2.0,
-§2.7 recipe, on the maintainer's machine: 400 stubs reported `Found 429 members`
-(429 − 400 = 29 used); 224 stubs `BUILD SUCCESSFUL`; 225 stubs `Found 254 members
-in module 'globals', exceeding the limit of 253`. The single copy in source,
+**Re-measured 2026-09-25** by bisection on a clean archive of `2630503` (PR #124's
+c3 for #76, whose c2 adds `testShouldCreateFitFields`), SDK 9.2.0, §2.7 recipe, on
+the maintainer's machine: 400 stubs reported `Found 430 members` (430 − 400 = 30
+used); 223 stubs `BUILD SUCCESSFUL`; 224 stubs `Found 254 members in module
+'globals', exceeding the limit of 253`. The single copy in source,
 `connectiq/source/Tests.mc`, reads:
 
-    CEILING gettimer-104 fenix6pro: 29 used of 253, 224 free -- the 225th file-scope (:test) added reds
+    CEILING config-gate-76 fenix6pro: 30 used of 253, 223 free -- the 224th file-scope (:test) added reds
 
-**Superseded** figures: 28 used / 225 free on the #102 c2 tree (2026-09-05), and
-27 / 226 at `30b2b99`. Each step since has added exactly one file-scope
+**Superseded** figures: 29 used / 224 free at `482d790` (#104, 2026-09-25), 28 / 225
+on the #102 c2 tree (2026-09-05), and 27 / 226 at `30b2b99`. Each step since has added exactly one file-scope
 `(:test)`, and each re-measurement moved the count by exactly that one.
 
 `scripts/check_ceiling_notes.py` enforces the arithmetic and that this
@@ -489,8 +489,8 @@ the same comparison in the required `test-tooling` job). It was **16** at `30b2b
 behind the §5.1 ceiling re-measurement; #104 c2 added
 `testPauseStampNegativeClock` (18), also file-scope, so it spends one more
 `fenix6pro` `globals` slot; §5.1's re-measurement on `482d790` reflects it; #76 c2 added
-`testShouldCreateFitFields` (19), file-scope as well, so it spends one more slot and §5.1
-is re-measured on the #76 fix commit. Measured with
+`testShouldCreateFitFields` (19), file-scope as well, so it spends one more slot; §5.1's
+re-measurement on `2630503` (the #76 fix commit) reflects it. Measured with
 `scripts/list_tests.py`, never added up.
 
 Any `(:test)` addition, removal or rename edits `scripts/expected_tests.txt`
@@ -725,7 +725,7 @@ prose above is the explanation.
     AGENTFACT ci-container sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
     AGENTFACT manifest-devices 15
     AGENTFACT pinned-tests 19
-    AGENTFACT ceiling gettimer-104 29 253 224
+    AGENTFACT ceiling config-gate-76 30 253 223
     AGENTFACT devfield 0 PCr_J
     AGENTFACT devfield 1 GLY_J
 
