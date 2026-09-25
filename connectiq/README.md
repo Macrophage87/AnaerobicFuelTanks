@@ -73,10 +73,11 @@ connectiq/
 ├─ source/
 │  ├─ DualTankApp.mc                AppBase entry point
 │  └─ DualTankView.mc               the data field: model + rendering + FIT
-└─ resources/
-   ├─ drawables/ (launcher icon)
-   ├─ strings/strings.xml
-   └─ settings/ (properties.xml defaults + settings.xml UI)
+├─ resources/
+│  ├─ drawables/ (launcher icon, 40x40)
+│  ├─ strings/strings.xml
+│  └─ settings/ (properties.xml defaults + settings.xml UI)
+└─ resources-<device>/drawables/     launcher icon at that device's size (#114; store/README.md)
 ```
 
 ## Settings (edit in Garmin Connect → the field's settings)
