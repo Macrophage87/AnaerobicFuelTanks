@@ -64,7 +64,7 @@ for that commit (`gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<sha>/che
 | `R model tests (testthat)` | `r-test` | yes | the R model suite, and that `tools/crosscheck/fixtures/` regenerate byte-identical |
 | `Model parity (R vs Python mirror)` | `model-parity` | yes | the Python mirror of `TankModel` matches the R reference within 0.1 J per second |
 | `Manifest app-id lint` | `manifest-lint` | yes | app id shape; CP/W′ keep the sentinel-0 default (#42); the FIT developer-field byte budget — ≤ 32 B per message type for a data field, summed over the `createField` call sites in every `.mc` under `connectiq/source/` (#98 item 2) |
-| `Agent-loop tooling (runner-free)` | `test-tooling` | yes | this file's `AGENTFACT` lines, the `(:test)` pin, the ceiling note, the literal check, and the `(:test)` log parser `ciq-test` gates on — each behind its own RED/GREEN self-test |
+| `Agent-loop tooling (runner-free)` | `test-tooling` | yes | this file's `AGENTFACT` lines, the `(:test)` pin, the ceiling note, the literal check, the `(:test)` log parser `ciq-test` gates on, and (since #117 item A) that the `RIDEFACT` lines in `docs/fielddata/ride-2026-09-20-edge1050.md` agree with the committed ride fixtures. Each has its own RED/GREEN self-test |
 | `ci-required` | `ci-required` | **the only name branch protection requires** | aggregator over the required jobs (`needs:`), strict up-to-date, admins enforced |
 
 > **RETRACTION, 2026-09-05 (PR for #61 item 2).** This paragraph used to open
@@ -304,11 +304,24 @@ were wrong (memory pressure, "throws", the #32 attribution, the shared budget,
   `Tests.mc` — were **corrected on PR #105** (#98 item 5's remaining two sites);
   #96 established that the SDK raises an **uncatchable** `Out Of Memory Error`
   instead. Nothing enforces that they stay corrected.
-* **Nothing here decodes a file this app wrote.** `tools/calibrate/R/model.R`'s
+* **Nothing CI runs decodes a file this app wrote, but one decoded file is now
+  committed as a text fixture.** `tools/calibrate/R/model.R`'s
   `read_power_raw()` **skips** developer-field definitions by size
   (`test-read_power_raw.R` pins it); `tools/crosscheck/` reads only R-generated
-  CSV fixtures. The #100 lag measurement was made from a saved FIT with a
-  decoder outside the repository; nothing committed can regenerate it (§6).
+  CSV fixtures. Since #117 item A,
+  `tools/fielddata/fixtures/ride-2026-09-20-edge1050.*` holds text fixtures of a
+  saved Edge 1050 file this app wrote (v0.8, 2026-09-20). They were extracted by
+  `tools/fielddata/extract_ride_fixture.py`, which runs **outside** CI because CI
+  has no `.fit`. `tools/fielddata/ride_evidence.py` regenerates every figure
+  published from the fixtures, and the required `test-tooling` job checks those
+  figures against the pinned `RIDEFACT` lines in
+  `docs/fielddata/ride-2026-09-20-edge1050.md`. **Still one ride**: one device,
+  one firmware, `fitRecord` ON only, and the extraction itself is not re-run by
+  anything. The #100 lag table for the **2026-07-26** ride was made with a
+  decoder outside the repository, and nothing committed can regenerate it (§6).
+  The same one-record offset on the 2026-09-20 ride is regenerable:
+  `RIDEFACT threshold +1 255 255 13 11858` against
+  `RIDEFACT threshold +0 257 257 488 11879`.
 * **On-device load is field-only.** CI compiled v0.6 green on both devices and
   the shipped build could not load. A `[Local]` record-and-save gate on the
   Edge 1050 is the release gate (#98 item 1).
@@ -325,6 +338,22 @@ write fails **open**, and "stop writing during X" fabricates a timeline rather
 than omitting one. #102's `fitRecord` gate is therefore on **creation**
 (`initialize()`), not on the writes — with the setting off the handles are null
 and `writeField` skips, so no partial timeline can be produced.
+
+**The latch has now been seen in a decoded file** (the 2026-09-20 ride,
+`docs/fielddata/ride-2026-09-20-edge1050.md`). At all 23 pause boundaries:
+
+* the first record after the resume repeats the last pre-pause record exactly,
+  for both reserves (`RIDEFACT boundary_latch PCr_J 23 GLY_J 23 both 23 23`);
+* that record carries no power (`RIDEFACT boundary_power_absent_at_resume 23 23`);
+* the reserves move at the next record (`RIDEFACT boundary_change_at_next 23 23`).
+
+So the rest-recovery refill arrives one record **after** the resume, not at the
+first post-resume record. This is consistent with each record carrying the value
+latched by the previous `compute()`, which is #100's one-record offset. The file
+cannot say whether the resume record was written before the app's first
+post-resume `compute()` or by the offset itself; it shows only the repeated value.
+It is also not evidence that a *skipped* `setData` re-emits. This app never skips
+a write, so that half of the rule is still read off the SDK, not measured.
 
 ### 3.4 A comment may state what the code CALLS, never what a decoder SEES
 
@@ -509,6 +538,31 @@ across co-installed data fields (#96, from a saved FIT with four apps writing
 fields installed, and that observation is field data this repository cannot yet
 regenerate. #102 cuts this app's contribution unconditionally, which helps under
 either mechanism; which mechanism is right is still open.
+
+**One more file, and this one is committed** (the 2026-09-20 ride, v0.8, Edge 1050,
+`docs/fielddata/ride-2026-09-20-edge1050.md`):
+
+* **Four developer data indexes declare fields** (`RIDEFACT apps 4 ours 3`).
+* **Declared `record` bytes are 13 / 4 / 24 / 8 = 49 B**, and the largest single
+  app declares 24 B (`RIDEFACT devbytes record total 49 max_app 24`). One element
+  per declared field; array counts are not in the fixtures.
+* **This app's index declares exactly `PCr_J` and `GLY_J`** (`RIDEFACT ours_fields`),
+  8 B on `record` and 0 B on `session` (`RIDEFACT devbytes record 3 8`,
+  `RIDEFACT devbytes session 3 0`).
+* **Both fields are populated on every record and still moving at the last one**
+  (`RIDEFACT populated PCr_J 11903 11903`, `RIDEFACT last_change PCr_J 15140 15140`).
+
+The file holds 49 B of `record` declarations while every app's declared elements
+stay ≤ 32 B, and it saved. That is consistent with #96's per-app finding. It is one more file, not a
+settlement. The fixtures keep only what the other three apps *declared*, not their
+values. So "all four apps' fields populated to the end" is an observation from
+the out-of-tree decode, not a committed figure.
+
+**The application id in the file differs from the manifest id**
+(`RIDEFACT app_id file 24ec02815a2643ac8e47d1f1bc7bceb4 manifest fc13e61e7ca54c998c7a7c64f0ef4434 differ`).
+Why is not established. Anything that finds this app's fields by application id
+rather than by field name will miss them in this file.
+`extract_ride_fixture.py` matches by name for that reason.
 
 **The byte budget is machine-checked** since #98 item 2.
 `scripts/check_fit_budget.py` re-derives the per-message-type totals from the
