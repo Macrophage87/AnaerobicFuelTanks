@@ -33,6 +33,7 @@ run by three project agents in `.claude/agents/` -- `ciq-orchestrator`,
 | `docs/agents/GATE_PROTOCOL.md` | gating, re-gating or writing a verdict |
 | `docs/agents/rituals/` | landing, releasing, a fix round, turning a recording into evidence |
 | `docs/agents/LESSONS.md` | the StrongRow lessons this loop was built from |
+| `.claude/skills/release-connectiq/SKILL.md` | cutting, publishing or superseding a release (the `release-connectiq` skill; invoke it rather than improvising the ritual) |
 
 The Connect IQ project lives in `connectiq/`, not the repository root. Never
 `git add .` / `-A`: `.claude/worktrees/` holds other sessions' checkouts
