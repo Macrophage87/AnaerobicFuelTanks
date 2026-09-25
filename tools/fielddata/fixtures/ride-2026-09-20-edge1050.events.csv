@@ -1,0 +1,59 @@
+# PROVENANCE -- reproducible from the original with tools/fielddata/extract_ride_fixture.py
+#   source file    i188577527.fit (not committed: carries GPS and heart rate)
+#   device         garmin_product 4440, firmware 32.2; recorded on 2026-09-20 (date only: the start
+#                  time is dropped so relative seconds cannot be turned into clock times)
+#   ours           developer_data_index 3, application_id 24ec02815a2643ac8e47d1f1bc7bceb4 (manifest id is fc13e61e7ca54c998c7a7c64f0ef4434)
+#   CRC            verified by fitparse check_crc=True
+#   values         timer event messages (FIT global 21, event=timer) in file order;
+#                  t = seconds since the first record (may be negative)
+#   cross-checks   49 timer events
+t,event_type
+0,start
+205,stop_all
+206,start
+222,stop_all
+239,start
+302,stop_all
+319,start
+721,stop_all
+741,start
+3644,stop_all
+3713,start
+4720,stop_all
+4724,start
+4736,stop_all
+4970,start
+5968,stop_all
+5977,start
+5985,stop_all
+5987,start
+5990,stop_all
+6009,start
+6533,stop_all
+7125,start
+7325,stop_all
+7543,start
+8607,stop_all
+8662,start
+8768,stop_all
+8780,start
+8835,stop_all
+8844,start
+8859,stop_all
+8886,start
+9427,stop_all
+9474,start
+10703,stop_all
+12461,start
+13429,stop_all
+13451,start
+13453,stop_all
+13510,start
+13931,stop_all
+13983,start
+15065,stop_all
+15084,start
+15134,stop_all
+15135,start
+15140,stop_all
+15467,stop_all
