@@ -318,9 +318,9 @@ were wrong (memory pressure, "throws", the #32 attribution, the shared budget,
 Skipping a `setData` **re-emits the previous value** on every subsequent
 record. It never produces a gap. This repository writes every record field on
 every tick, including the held and skipped paths. Re-pinned on PR #105 after
-#102 cut the seven fields to two: `DualTankView.mc:799-800`, `:820-821`,
-`:857-858`, `:892-893`, live at `:907-908` (and the `initialize()` seed at
-`:275-276`). Keep it that way: a gate on a FIT
+#102 cut the seven fields to two: `DualTankView.mc:823-824`, `:844-845`,
+`:881-882`, `:916-917`, live at `:931-932` (and the `initialize()` seed at
+`:278-279`). Keep it that way: a gate on a FIT
 write fails **open**, and "stop writing during X" fabricates a timeline rather
 than omitting one. #102's `fitRecord` gate is therefore on **creation**
 (`initialize()`), not on the writes — with the setting off the handles are null
@@ -355,8 +355,8 @@ negative clocks; with the old guard it reds (`ciq-test` run 36138410601,
 `FAILED (passed=17, failed=0, errors=1)`), with the fix it passes (run
 36138693070, `PASSED (passed=18, failed=0, errors=0)`). **What that pins is the
 seam, not the device**: no device has been run through the negative half, and
-a pause whose two readings straddle the counter's sign change is not claimed
-either way (the seam's range check falls back to the wall clock if the delta
+a pause whose two readings straddle the counter's `+2^31−1 → −2^31` wrap is not
+claimed either way (the seam's range check falls back to the wall clock if the delta
 comes out out of range). Neither is measured.
 
 ---
@@ -457,8 +457,7 @@ the same comparison in the required `test-tooling` job). It was **16** at `30b2b
 `testFitRecordSettingCoerces` (17), which is also the one file-scope declaration
 behind the §5.1 ceiling re-measurement; #104 c2 added
 `testPauseStampNegativeClock` (18), also file-scope, so it spends one more
-`fenix6pro` `globals` slot that **§5.1 does not yet reflect** — the re-measure
-needs a local SDK and is owed (PR for #104). Measured with
+`fenix6pro` `globals` slot; §5.1's re-measurement on `482d790` reflects it. Measured with
 `scripts/list_tests.py`, never added up.
 
 Any `(:test)` addition, removal or rename edits `scripts/expected_tests.txt`

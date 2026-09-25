@@ -695,9 +695,9 @@ class DualTankView extends WatchUi.DataField {
     //                        delta wins. Presence is `!= null`, NEVER a sign test (#104): getTimer()
     //                        is signed 32-bit and reads negative for part of the device's uptime, so
     //                        a negative stamp is a valid stamp. The delta monoNow - monoStamp is
-    //                        exact when both readings fall in the same half; a pair straddling the
-    //                        counter's sign change is not claimed here (not measured), and if it
-    //                        comes out out-of-range the range check below falls back to the wall.
+    //                        plain subtraction, exact unless the pause spans the counter's
+    //                        +2^31-1 -> -2^31 wrap (~24.9 d of uptime); that one crossing is not
+    //                        claimed (not measured), and an out-of-range delta falls back to the wall.
     //   maxPause           — the MAX_PAUSE_SEC cap, passed in because a static method cannot see a
     //                        class-level const (see the module-scope constants note above).
     // A monotonic delta that reads out of range (negative, or past maxPause) also falls back.
