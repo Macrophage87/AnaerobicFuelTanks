@@ -11,8 +11,8 @@ load at all.
 
 Nothing in CI saw it. The compile matrix is green on a build that cannot load,
 because createField failure is a RUNTIME condition; no (:test) can obtain a
-Session, so the suite cannot reach createField either; and ciq-test is
-best-effort and skips green (#61). The arithmetic, however, is static -- the
+Session, so the suite cannot reach createField either, even where it executes
+(the ciq-test job, required since #61 item 3). The arithmetic, however, is static -- the
 call sites carry the type and the message type as literal tokens. So the
 arithmetic is what this script re-derives, on every run of the required
 manifest-lint job.

@@ -47,7 +47,7 @@ Score five axes, 0–3 each, **before** choosing agents. Full anchors, worked ex
 | Axis | 0 | 3 — *here, concretely* |
 |---|---|---|
 | **R** Reversibility | scratch file, unpushed commit, editable PR body | a published release asset or tag; the store package; a **developer field id** (unique per `field_description` — re-using one silently re-labels a field in every file already recorded) |
-| **V** Verifiability cost | an existing `(:test)` or runner-free checker already catches it | **nothing in the repo can catch it**: no `(:test)` can obtain a graphics `Dc` (so no real fonts, clipping or render); a comment cannot be red by any test (comments are stripped from the build); nothing here decodes a file this app wrote; a real pod, a real erg or on-water conditions are **field-only** |
+| **V** Verifiability cost | an existing `(:test)` or runner-free checker already catches it | **nothing in the repo can catch it**: no `(:test)` can obtain a graphics `Dc` (so no real fonts, clipping or render); a comment cannot be red by any test (comments are stripped from the build); a claim about what a file this app wrote contains, beyond the committed ride fixtures (`tools/fielddata/`); a real pod, a real erg or on-water conditions are **field-only** |
 | **S** Settledness | an accepted design comment exists and nothing contradicts it | the premise is contested, or measured behaviour disagrees with the issue's diagnosis |
 | **P** Prose surface | no published words change | `README.md`, `docs/**`, an agent operating prompt, a release note, the store description |
 | **I** Interaction | one file, no shared constant | a manifest device change, a workflow change, a developer field id, `startSession` — several in-flight branches touch it |
@@ -115,7 +115,7 @@ And when you have run five rounds on one function, ask whether you are convergin
 - **Never kill a shared process** — a simulator may be serving another run.
 - **Never write a developer key into the workspace** — it destroys a real account-bound key.
 - **`set -o pipefail`** (or `${PIPESTATUS[0]}`) for anything whose result you quote: a pipeline's status is the **last** command's.
-- **Pin the device target**: CI compiles `edge1050` and `fenix6pro` only; the `(:test)` suite does **not** execute in CI (#61) -- run it locally in the simulator on `edge1050`; the release export compiles all 15 manifest products, and `fenix6pro` binds the `globals` ceiling.
+- **Pin the device target**: CI compiles `edge1050` and `fenix6pro` only; the `(:test)` suite executes in CI only in the required `ciq-test` job, on `edge1050` (#61) -- read its `gate:` line for your head, and run it locally in the simulator for any other device; the release export compiles all 15 manifest products, and `fenix6pro` binds the `globals` ceiling.
 - **The Connect IQ project lives in `connectiq/`**, not the repository root: `connectiq/manifest.xml`, `connectiq/monkey.jungle`, `connectiq/source/`. `monkeyc` runs from there; the FIT developer-field budget is **32 bytes per message type** for a data field (#96).
 - **Record-scope FitContributor fields LATCH** — a skipped `setData` re-emits; it never produces a gap. Gates on FIT writes fail **open**.
 - **Read `origin/main`, not the local working tree.**

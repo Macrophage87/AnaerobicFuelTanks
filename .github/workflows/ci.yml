@@ -81,18 +81,22 @@ jobs:
   # step turns its exit code into one of three outcomes, each printed in words —
   # PASS / FAIL / SKIP. See #61 item 2.
   #
-  # BEST-EFFORT and NOT in ci-required. The job is GREEN unless a (:test) genuinely runs
-  # and FAILS; it SKIPS green when the captured log holds no summary line at all, so it
-  # doesn't put a spurious red on the board for infra we can't yet fix. A green ciq-test
-  # is therefore WEAK evidence and a red one is strong. Promoting this job into
-  # ci-required.needs must FIRST flip the SKIP branch to a failure, or a crash becomes a
-  # false green on a required check (#61 item 3, deliberately not done here).
-  # Enforced two-implementation equality is provided by the REQUIRED `model-parity`
-  # numeric guard — a Python mirror of TankModel cross-checked against the R reference
-  # fixtures (issue #27 part C). Runs on ONE device (edge1050); the two-device compile
-  # matrix above stays the fast crash gate.
+  # REQUIRED since #61 item 3: this job is in ci-required.needs. The job name still reads
+  # "(best-effort)" only because the check-run name is cited by that exact string in the
+  # docs and the run record; the job is not best-effort. It is GREEN only when
+  # scripts/check_ciq_tests.py accepts the captured log. A summary the parser rejects
+  # (FAIL) and a log with no summary line at all (SKIP: the simulator crashed or never ran)
+  # are BOTH red: the SKIP branch was flipped to a failure in the same change that added the
+  # job to ci-required.needs, as the accepted #61 design requires (review MF#4), because a
+  # green-on-SKIP path on a required job passes a crash-before-output. The promotion rests
+  # on the run record, not a root cause: every ciq-test run from PR #110's merge (b59a097)
+  # to the promotion printed `gate: PASS`, except PR #118's deliberate c2 red, which printed
+  # `gate: FAIL`; none printed `gate: SKIP` (tabulated on #61 and in docs/agents/FACTS.md
+  # §1.2). Runs on ONE device (edge1050); the two-device compile matrix above stays the
+  # fast crash gate, and the required `model-parity` job still holds the Python mirror of
+  # TankModel to the R reference fixtures (issue #27 part C).
   #
-  # KNOWN STATE (headless bring-up, verified from CI logs — remaining work in #61):
+  # BRING-UP HISTORY (verified from CI logs; the root cause is still open in #127):
   #   ✓ shell pinned to bash (image default is dash: the `/dev/tcp` socket probe needs bash)
   #   ✓ run logic inlined into `bash -c` (an exported function is dropped across the
   #     xvfb-run -> timeout -> bash exec chain)
@@ -111,10 +115,9 @@ jobs:
   #     33991598740 (PASSED 17/17). No `Segmentation fault` appears in the run step on any of
   #     the three; the SIGSEGV this job's header is named for still appears in the separate
   #     DIAGNOSTIC step below, which launches the simulator standalone on purpose.
-  #     N = 3 runs, one branch, one day, and NO root cause for the change — which is why this
-  #     job is still best-effort, still out of ci-required, and why the SKIP branch below is
-  #     retained rather than being turned into a failure. Equality meanwhile stays enforced by
-  #     the required `model-parity` guard. Root-cause + promotion are tracked in #61.
+  #     There is still NO root cause for the change: the standalone simulator in the
+  #     diagnostic step still segfaults, and nobody has shown why the run step does not.
+  #     The later run record (the paragraph above) is what the promotion rests on.
   # ------------------------------------------------------------------
   ciq-test:
     name: CIQ (:test) headless (best-effort)
@@ -124,8 +127,8 @@ jobs:
       image: ghcr.io/matco/connectiq-tester@sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
       # #61 diagnostics: allow gdb to attach to the (sibling) simulator process for a crash
       # backtrace. The default runner has YAMA ptrace_scope=1 with no CAP_SYS_PTRACE, so a
-      # sibling `gdb -p` is denied ("Inappropriate ioctl for device"). Diagnostic-only — the
-      # job stays best-effort and out of ci-required.
+      # sibling `gdb -p` is denied ("Inappropriate ioctl for device"). Added for diagnostics;
+      # whether these options are why the run step stopped crashing is unmeasured (#127).
       options: --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
@@ -249,7 +252,11 @@ jobs:
           #
           #   PASS  scripts/check_ciq_tests.py exits 0                          -> exit 0
           #   FAIL  a summary line exists and the parser rejects it   ::error::  -> exit 1
-          #   SKIP  no summary line at all in the captured log       ::warning:: -> exit 0
+          #   SKIP  no summary line at all in the captured log       ::error::   -> exit 1
+          #
+          # SKIP exited 0 while this job was best-effort; it exits 1 since the job joined
+          # ci-required.needs (#61 item 3). The outcome keeps its own name so a reader can
+          # still tell "the simulator never produced a summary" from "the suite failed".
           #
           # WHY THE OLD GATE IS GONE. It counted lines matching \bPASSED\b and required
           # that count to reach the (:test) count grepped out of source/. The simulator
@@ -271,9 +278,9 @@ jobs:
           # parser has its own hermetic RED/GREEN suite in the same required job, built on
           # two real captures of this job's own output (green and red).
           #
-          # THE SKIP BRANCH IS DELIBERATELY UNCHANGED. A no-output crash must land in SKIP,
-          # never in FAIL, while this job is best-effort — and it must be flipped to a
-          # failure BEFORE the job is ever added to ci-required.needs (#61 item 3).
+          # THE SKIP BRANCH IS A FAILURE. A no-output crash lands in SKIP, never in FAIL, so
+          # the log line names the right cause; both exit 1, because a required job with a
+          # green SKIP would pass every crash that happens before the summary is printed.
           # Detection is unanchored on purpose: a summary in an unexpected SHAPE (leading
           # text on the line, say) is output, so it goes to the parser and is refused,
           # rather than being laundered into "the simulator never ran".
@@ -285,7 +292,7 @@ jobs:
           # in would add a fallback nothing needs and a second stream that could disagree.
           if ! command -v python3 >/dev/null 2>&1; then
             # Not one of the three outcomes: the gate could not render a verdict at all.
-            # Fail loudly rather than skip green — this can only mean the pinned image
+            # Fail loudly — this can only mean the pinned image
             # changed under us (python3 3.10.12 is present in the pinned digest).
             echo "::error::python3 is not available in the pinned container image — the (:test) gate cannot render a verdict"
             exit 1
@@ -303,12 +310,12 @@ jobs:
             echo "::error::(:test) reported a failing run — see the check_ciq_tests.py diagnostics above"
             exit 1
           fi
-          echo "gate: SKIP — no test-summary line in the captured log; the headless simulator did not run the suite (see the job header and #61). Model equality is still enforced by the required model-parity job."
-          echo "::warning::headless simulator produced no (:test) summary line — skipping (best-effort job; see #61)"
-          exit 0
+          echo "gate: SKIP — no test-summary line in the captured log; the headless simulator did not run the suite (see the job header and #127). This job is required, so SKIP is a failure."
+          echo "::error::headless simulator produced no (:test) summary line — the suite did not run (required job; see #127)"
+          exit 1
 
-      # #61 diagnostics — root-causes the post-SetLayout SIGSEGV. Best-effort and NON-FATAL
-      # (set +e / exit 0 / if: always()), so it can never fail this best-effort job or the board;
+      # #61 diagnostics — root-causes the post-SetLayout SIGSEGV. NON-FATAL
+      # (set +e / exit 0 / if: always()), so it never changes this job's conclusion;
       # output goes to the step log (no artifact action to pin). Attaches gdb to the REAL sim
       # process (reproducing the connectiq + monkeydo flow) to capture the crash backtrace, and
       # probes the offscreen Qt platform (which bypasses X11/xcb) as a candidate-fix signal.
@@ -395,7 +402,7 @@ jobs:
             GTK_THEME=Adwaita QT_QPA_PLATFORM=offscreen timeout 30 "$SIMBIN" >/tmp/sim.gtk.log 2>&1 &
             GPID=$!; sleep 10
             if kill -0 "$GPID" 2>/dev/null; then
-              echo "GTK probe: sim alive OFFSCREEN — but the run step (same theme+schemas stack) still segfaulted under real Xvfb, so this is an offscreen/Xvfb difference, not the fix. Next lever: L1 (dbus-run-session)."
+              echo "GTK probe: sim alive OFFSCREEN — but the run step (same theme+schemas stack) segfaulted under real Xvfb on PR #84's run, so this is an offscreen/Xvfb difference, not the fix. Next lever: L1 (dbus-run-session)."
             else
               echo "GTK probe: sim still exited — the GTK theme+schemas stack is not the fix (L0 falsified this run; see group 1). Next lever: L1 (dbus-run-session)."
             fi
@@ -477,9 +484,10 @@ jobs:
   # (tools/crosscheck/fixtures/) and asserted equal per second within 0.1 J (~9 orders above
   # the ~1e-11 J float-noise floor; catches sub-percent coefficient drift). This directly
   # guards R == the mirror; Monkey C is guarded TRANSITIVELY (the mirror is a faithful port —
-  # the residual mirror<->compiled-Monkey-C gap is tracked in #61). Runs with NO Connect IQ
-  # SDK / simulator, so it is deterministic and fast — which is why it, not the best-effort
-  # on-device `ciq-test`, is the enforced equality gate (in ci-required). Pure stdlib Python;
+  # the residual mirror<->compiled-Monkey-C gap is tracked in #116). Runs with NO Connect IQ
+  # SDK / simulator, so it is deterministic and fast. It is the equality gate against the R
+  # reference (in ci-required); `ciq-test` executes the (:test) suite in the simulator, which
+  # asserts other things and holds no R fixture comparison. Pure stdlib Python;
   # no pip install. Fixture freshness is enforced by the r-test job (regenerate-and-diff), so
   # an R-side model change with stale fixtures fails loudly instead of false-passing here.
   # ------------------------------------------------------------------
@@ -504,7 +512,9 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
       - run: ./scripts/check_manifest_appid.sh connectiq/manifest.xml
       # #42: CP/W' must keep the sentinel 0 default or the SET CP/W' guard silently re-inerts.
-      # Enforced here (a required job) because the headless (:test) suite segfault-skips in CI.
+      # A static check of properties.xml, independent of the simulator: testCpWprimeDefaultUnconfigured
+      # asserts the same default through the resource layer in the ciq-test job; this line keeps
+      # the fence up without a simulator (and in manifest-lint's few seconds).
       - run: ./scripts/check_settings_defaults.sh connectiq/resources/settings/properties.xml
       # #98 item 2 / #96: the FIT developer-field BYTE budget. Connect IQ caps a
       # data field at 32 B per message type; v0.6 shipped SESSION at 56 B and could
@@ -542,11 +552,11 @@ jobs:
         run: bash scripts/check_expected_tests.sh
       - name: (:test) log-parser self-test (RED/GREEN)
         # scripts/check_ciq_tests.py carries the whole PASS/FAIL verdict of the
-        # best-effort ciq-test job, but it is pure Python: no container, no SDK,
-        # no Xvfb. So its correctness is proven HERE, in a required job, on two
-        # real captures of ciq-test's own output (green and red) plus synthetic
-        # perturbations. SELF-TEST ONLY — this step never runs the simulator and
-        # says nothing about whether the suite executes in CI.
+        # ciq-test job, but it is pure Python: no container, no SDK, no Xvfb. So
+        # its correctness is proven HERE, runner-free, on two real captures of
+        # ciq-test's own output (green and red) plus synthetic perturbations.
+        # SELF-TEST ONLY — this step never runs the simulator and says nothing
+        # about whether the suite executed; the ciq-test job's gate line does.
         run: python3 scripts/test_check_ciq_tests.py
       - name: Ceiling-note checker self-test (RED/GREEN)
         run: python3 scripts/test_check_ceiling_notes.py
@@ -577,12 +587,36 @@ jobs:
   # ------------------------------------------------------------------
   # Stable required-check aggregator. Require ONLY this in branch protection so
   # adding/removing jobs later doesn't churn the protected list. `test` compiles
-  # clean on both edge1050 and fenix6pro, so it's promoted into the gate here.
+  # clean on both edge1050 and fenix6pro, so it's promoted into the gate here;
+  # ciq-test joined it in #61 item 3.
+  #
+  # `if: always()` + an explicit assert, NOT the default `if: success()`. With the
+  # default, a failed `needs` job SKIPS this job, and GitHub counts a skipped check
+  # as a successful status for branch protection — so no required job could ever
+  # block a merge through this aggregator. Measured before this change: run
+  # 36138717004 (test-tooling failure) left ci-required `skipped`. With always(),
+  # this job always runs and FAILS unless every needed job's result is `success`
+  # (a failed, cancelled or skipped dependency all red it).
   # ------------------------------------------------------------------
   ci-required:
     name: ci-required
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [ test, r-lint, r-test, manifest-lint, model-parity, test-tooling ]
+    needs: [ test, r-lint, r-test, manifest-lint, model-parity, test-tooling, ciq-test ]
+    if: ${{ always() }}
     steps:
-      - run: echo "required checks passed"
+      - name: Every required job succeeded
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          bad = {k: v["result"] for k, v in needs.items() if v["result"] != "success"}
+          for k, v in sorted(needs.items()):
+              print(f"{k}: {v['result']}")
+          if not needs or bad:
+              print(f"::error::required job(s) did not succeed: {bad or 'no needs reported'}")
+              sys.exit(1)
+          print("required checks passed")
+          PY

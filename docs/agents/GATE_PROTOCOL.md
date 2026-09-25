@@ -146,9 +146,11 @@ Y, N−1/N" is a claim about one specific run, and a shared total cannot make it
 ### 4.1 Local greens are not the measurement
 
 A local run is necessary and never sufficient. The measurement of record for
-the compile and parity layers is the CI run object for the exact commit; for
-the `(:test)` layer it is the only measurement there is, so state the device,
-the SDK version and the `PASSED` line verbatim. **If the Docker daemon is down,
+the compile and parity layers is the CI run object for the exact commit, and
+so it is for the `(:test)` layer on `edge1050`: the required `ciq-test` job's
+`gate:` line and `PASSED` line for that commit. For any other device a local
+run is the only measurement there is, so state the device, the SDK version and
+the `PASSED` line verbatim. **If the Docker daemon is down,
 the container run did not happen** (`FACTS.md` §1.3, §2.6).
 
 ---
