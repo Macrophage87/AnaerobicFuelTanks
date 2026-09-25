@@ -369,7 +369,9 @@ regression.** The other suites (`test_check_ceiling_notes` 10/10,
 `test_check_fit_budget` 30/30) are green on both. (This line read
 `test_check_agent_facts` **21/21** when it landed; the suite in the tree at
 `cea95c8` has 25 cases, so the figure was stale on arrival. Re-measured
-2026-09-05 — the tree wins.)
+2026-09-05 — the tree wins. #111 took it to **32/32**, measured 2026-09-25 on
+a Windows checkout, where the other figures on this line re-measured
+unchanged, `test_list_tests` included at 34/35.)
 
 `scripts/check_mc_literals.py` exists because `monkeyc` accepts a raw newline
 inside a string literal with no diagnostic; on a CRLF checkout that ships a
@@ -659,6 +661,20 @@ prose above is the explanation.
 The ceiling line in §5.1 is additionally checked by
 `scripts/check_ceiling_notes.py`, which requires it to be byte-identical to
 its copy in `connectiq/source/Tests.mc`.
+
+The `devfield` lines are derived from **every `.mc` file under
+`connectiq/source/`**, found by the same walk `check_fit_budget.py` uses
+(`list_tests.mc_files`, imported), so the id map and the byte totals are read
+from one scope (#111; the map used to be read from `DualTankView.mc` alone).
+Each file is read raw and comment-stripped and the two id sets must agree; a
+`const` id resolves only against a `const` in the **same file** as the call,
+and an id created in two files is refused. The per-file rule is **stricter
+than Monkey C**: a file-scope const does resolve across files (`Tests.mc`
+uses `DROPOUT_USE` from `DualTankView.mc`), but the checker's const map is a
+regex that cannot tell a file-scope const from a class const, and a class
+const from an unrelated class could bind the wrong id — so a cross-file name
+is refused, loudly, rather than guessed. No filename is pinned. The checker's
+module docstring is the full contract.
 
 **What is NOT machine-checked**, so nobody reads more into a green run: every
 prose claim in §1–§4, §6 and §7, the byte and type columns of §5.3 (a

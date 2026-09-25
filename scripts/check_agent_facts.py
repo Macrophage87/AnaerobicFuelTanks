@@ -44,8 +44,15 @@ under connectiq/, so every source path below carries that prefix):
                       "a test that re-implements logic instead of calling it
                       pins nothing" is a named defect class here;
   * devfield          every createField call with a literal name and id in
-                      connectiq/source/DualTankView.mc, read TWICE and required
-                      to agree. The comment-stripped read (scripts/list_tests.py's
+                      EVERY .mc file under connectiq/source/ (recursively), the
+                      same scope scripts/check_fit_budget.py sums bytes over and
+                      found by the same walk -- list_tests.mc_files, IMPORTED,
+                      so the two checkers cannot disagree about where a field
+                      may live (#111; this used to read DualTankView.mc alone,
+                      and a field moved to another file reddened with a message
+                      naming DualTankView.mc as though it were authoritative).
+                      Each file is read TWICE and the two reads are required to
+                      agree. The comment-stripped read (scripts/list_tests.py's
                       lexer, the repository's one Monkey C lexer) yields the
                       authoritative ID SET but blanks string literals, so it
                       cannot give names; the raw read gives id->name but would
@@ -53,6 +60,30 @@ under connectiq/, so every source path below carries that prefix):
                       the two id sets to be identical is what makes the raw read
                       safe. A createField whose name is a VARIABLE (the inert
                       cfgField helper) is not a live binding and is not counted.
+
+                      An id token that is a NAME resolves only against a
+                      `const NAME = <int>;` declared in the SAME file as the
+                      call (resolve_field_id, shared with check_fit_budget.py).
+                      A const declared in another file is REFUSED, not looked
+                      up. This is deliberately STRICTER than Monkey C: a
+                      FILE-SCOPE const does resolve across files (the tree
+                      relies on it -- Tests.mc uses DROPOUT_USE, declared at
+                      file scope in DualTankView.mc, and CI compiles that),
+                      while a CLASS const belongs to its class and two classes
+                      may each declare one name. CONST_RE is a regex, blind to
+                      which scope a const sits in, so a cross-file lookup could
+                      bind a class const from an unrelated class and pick the
+                      wrong id silently. Refusing fails loudly, naming the
+                      token; the remedy is to declare the id const beside the
+                      call, which is how the tree is written (FID_PCR_J and
+                      FID_GLY_J are class consts of DualTankView, in the file
+                      that calls createField). check_fit_budget.py shares the
+                      resolver and the per-file rule. An id declared in TWO
+                      files is refused (an id is unique per field_description
+                      across the whole app), and so are a missing
+                      connectiq/source/ and one holding zero .mc files. No
+                      filename is required: deleting the file that holds the
+                      calls reds on the id map, not on a name.
 
 WHAT THIS CANNOT CHECK, stated so nobody reads more into a green run.
 
@@ -69,6 +100,14 @@ WHAT THIS CANNOT CHECK, stated so nobody reads more into a green run.
   * It reads only docs/agents/FACTS.md. A copy of any of these figures made
     somewhere else is not seen (the CEILING line excepted, because
     check_ceiling_notes.py scans the whole tree for that marker).
+  * The devfield map sees only connectiq/source/. A field created from a
+    barrel or library outside that tree is invisible, exactly as it is to
+    check_fit_budget.py.
+  * Two id-resolution blind spots are open in #120: a createField whose id is
+    QUALIFIED (`Ids.FID_2`) matches neither read and is silently left out of
+    the map here (check_fit_budget.py refuses it, so CI still reds); and a
+    const name declared in two classes of ONE file resolves last-wins, in
+    both checkers, because CONST_RE is blind to class scope.
 
 FAIL-CLOSED. A missing FACTS.md, a missing key, an unrecognised key, or a
 derivation that cannot run are all failures. Deleting the marker lines must not
@@ -91,8 +130,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-# The repository's ONE Monkey C lexer, reused rather than copied.
-from list_tests import strip_comments                     # noqa: E402
+# The repository's ONE Monkey C lexer and its ONE source-tree walk, reused
+# rather than copied -- check_fit_budget.py scans with the same mc_files.
+from list_tests import mc_files, strip_comments           # noqa: E402
 # The CEILING note scanner, imported for the same reason.
 from check_ceiling_notes import scan as scan_ceiling      # noqa: E402
 
@@ -104,7 +144,7 @@ FACTS_REL = os.path.join("docs", "agents", "FACTS.md")
 CI_REL = os.path.join(".github", "workflows", "ci.yml")
 MANIFEST_REL = os.path.join("connectiq", "manifest.xml")
 PIN_REL = os.path.join("scripts", "expected_tests.txt")
-VIEW_REL = os.path.join("connectiq", "source", "DualTankView.mc")
+SOURCE_REL = os.path.join("connectiq", "source")
 
 LINE_RE = re.compile(r"^\s*" + MARK + r"\s+(?P<key>[a-z-]+)\s+(?P<rest>.*?)\s*$")
 
@@ -208,21 +248,20 @@ def resolve_field_id(tok, consts, path, problems):
     return None
 
 
-def derive_devfields(root, problems):
-    """{id: name} for every literal createField call, read twice and required
-    to agree."""
-    path = os.path.join(root, VIEW_REL)
-    if not os.path.isfile(path):
-        problems.append("%s is missing; the developer-field map cannot be "
-                        "derived." % path)
-        return None
+def devfields_in_file(path, shown, problems):
+    """{id: name} for every literal createField call in ONE file, read twice
+    and required to agree, or None with `problems` appended to.
+
+    Consts are resolved per FILE, on purpose (see the module docstring): an id
+    token naming a const declared in another file fails loudly here instead of
+    being resolved against an unrelated class that happens to use the name."""
     text = read_text(path)
     stripped = strip_comments(text)
     consts = {m.group("name"): int(m.group("val"))
               for m in CONST_RE.finditer(stripped)}
 
     def resolve(tok):
-        return resolve_field_id(tok, consts, path, problems)
+        return resolve_field_id(tok, consts, shown, problems)
 
     raw = {}
     dupes = []
@@ -237,7 +276,7 @@ def derive_devfields(root, problems):
         problems.append(
             "%s declares developer field id(s) %s more than once. An id is "
             "unique per field_description; a collision silently re-labels a "
-            "field." % (path, ", ".join(str(d) for d in sorted(set(dupes)))))
+            "field." % (shown, ", ".join(str(d) for d in sorted(set(dupes)))))
         return None
 
     stripped_ids = set()
@@ -255,9 +294,59 @@ def derive_devfields(root, problems):
             "(raw-only ids %s, stripped-only ids %s). The raw read is the one "
             "that can see a call written inside a comment, so a disagreement "
             "is refused rather than resolved."
-            % (path, only_raw or "none", only_stripped or "none"))
+            % (shown, only_raw or "none", only_stripped or "none"))
         return None
     return raw
+
+
+def derive_devfields(root, problems):
+    """({id: name}, {id: shown_path}) for every literal createField call in
+    every .mc file under connectiq/source/, or None with `problems` appended.
+
+    The file list is list_tests.mc_files -- the walk check_fit_budget.py uses
+    -- so both checkers see the same files. Every file is read (a bad file does
+    not stop the others being reported) before any verdict is returned."""
+    src_root = os.path.join(root, SOURCE_REL)
+    shown_root = SOURCE_REL.replace(os.sep, "/")
+    if not os.path.isdir(src_root):
+        problems.append(
+            "%s is missing or is not a directory; the developer-field map "
+            "cannot be derived. Every developer field this app creates is "
+            "created in a .mc file under it." % shown_root)
+        return None
+    paths = mc_files(src_root)          # imported; no second directory walk
+    if not paths:
+        problems.append(
+            "%s holds 0 .mc file(s). A source tree with no Monkey C in it is "
+            "refused rather than read as an empty developer-field map."
+            % shown_root)
+        return None
+
+    fields = {}
+    origin = {}
+    ok = True
+    for path in paths:
+        shown = shown_root + "/" + os.path.relpath(path, src_root).replace(
+            os.sep, "/")
+        got = devfields_in_file(path, shown, problems)
+        if got is None:
+            ok = False
+            continue
+        for fid in sorted(got):
+            if fid in fields:
+                problems.append(
+                    "developer field id %d is declared in both %s (%r) and %s "
+                    "(%r). An id is unique per field_description across the "
+                    "whole app; re-using one silently re-labels every file "
+                    "recorded with it."
+                    % (fid, origin[fid], fields[fid], shown, got[fid]))
+                ok = False
+                continue
+            fields[fid] = got[fid]
+            origin[fid] = shown
+    if not ok:
+        return None
+    return fields, origin
 
 
 def derive_ceiling(root, anchor, problems):
@@ -359,7 +448,8 @@ def main():
                     "the tree says %d used of %d, %d free."
                     % ((MARK, anchor) + stated + got))
 
-    derived_fields = derive_devfields(root, problems)
+    derived = derive_devfields(root, problems)
+    derived_fields, origin = derived if derived is not None else (None, None)
     if derived_fields is not None and facts.get("devfield"):
         stated_fields = {}
         malformed = []
@@ -372,27 +462,28 @@ def main():
         for bad in malformed:
             problems.append("%s devfield should read `<id> <name>`; got %r."
                             % (MARK, bad))
-        view = VIEW_REL.replace(os.sep, "/")
+        src = SOURCE_REL.replace(os.sep, "/")
         missing = sorted(set(derived_fields) - set(stated_fields))
         extra = sorted(set(stated_fields) - set(derived_fields))
         if missing:
             problems.append(
-                "%s: developer field id(s) %s exist in %s and are not listed "
-                "in FACTS.md."
-                % (MARK, ", ".join("%d (%s)" % (i, derived_fields[i])
-                                   for i in missing), view))
+                "%s: developer field id(s) %s exist in the source and are not "
+                "listed in FACTS.md."
+                % (MARK, ", ".join("%d (%s) in %s"
+                                   % (i, derived_fields[i], origin[i])
+                                   for i in missing)))
         if extra:
             problems.append(
                 "%s: FACTS.md lists developer field id(s) %s that no "
-                "createField call declares."
+                "createField call declares (every .mc under %s/ was read)."
                 % (MARK, ", ".join("%d (%s)" % (i, stated_fields[i])
-                                   for i in extra)))
+                                   for i in extra), src))
         for fid in sorted(set(stated_fields) & set(derived_fields)):
             if stated_fields[fid] != derived_fields[fid]:
                 problems.append(
                     "%s devfield %d is named %r in FACTS.md and %r in %s."
                     % (MARK, fid, stated_fields[fid], derived_fields[fid],
-                       view))
+                       origin[fid]))
 
     if problems:
         print("FAIL: %d problem(s) in %s." % (len(problems), FACTS_REL))
