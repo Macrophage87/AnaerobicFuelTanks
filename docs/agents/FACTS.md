@@ -339,14 +339,25 @@ filed under it.)
 ### 3.5 Clocks
 
 `nowSec()` is `Time.now().value()` (unix seconds) — wall clock, not
-`System.getTimer()`. The one `System.getTimer()` use is `mPauseAtMono`
-(`DualTankView.mc:654`, #41; re-pinned on PR #105), tested with `mPauseAtMono >= 0` at `:669` and
-`-1` as "not set". `System.getTimer()` is a **signed 32-bit** millisecond
-counter and is **negative from 24.9 to 49.7 days of device uptime**; during
-that half the `>= 0` test reads a valid stamp as "not set" and the resume path
-falls back to the wall-clock branch. That is a degradation (loss of the
-clock-jump immunity #41 added), not a corruption, and it is **observed at
-source, not measured on a device** — file it, do not fix it in passing.
+`System.getTimer()`. The one `System.getTimer()` use is `mPauseAtMono`, the
+#41 monotonic pause stamp: stamped in `enterPause()`, read in `exitPause()`
+through the pure seam `DualTankView.pauseElapsedSec(wallNow, wallStamp,
+monoNow, monoStamp, maxPause)`. `System.getTimer()` is a **signed 32-bit**
+millisecond counter and is **negative from 24.9 to 49.7 days of device
+uptime**, so **no sign test may mean "not set"**: since #104 an unset stamp is
+`null` and presence is `monoStamp != null`.
+
+Until #104 the sentinel was `-1` and the test `mPauseAtMono >= 0`, so a stamp
+taken in the negative half read as "not set" and the resume path fell back to
+the wall-clock branch — a degradation (loss of #41's clock-jump immunity), not
+a corruption. `testPauseStampNegativeClock` calls the seam with injected
+negative clocks; with the old guard it reds (`ciq-test` run 36138410601,
+`FAILED (passed=17, failed=0, errors=1)`), with the fix it passes (run
+36138693070, `PASSED (passed=18, failed=0, errors=0)`). **What that pins is the
+seam, not the device**: no device has been run through the negative half, and
+a pause whose two readings straddle the counter's sign change is not claimed
+either way (the seam's range check falls back to the wall clock if the delta
+comes out out of range). Neither is measured.
 
 ---
 
