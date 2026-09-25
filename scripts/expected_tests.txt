@@ -18,3 +18,4 @@ testCpWprimeDefaultUnconfigured
 testFitRecordSettingCoerces
 testWriteFieldNullSafe
 testShouldShowNoPower
+testPauseStampNegativeClock

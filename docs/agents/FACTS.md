@@ -318,9 +318,9 @@ were wrong (memory pressure, "throws", the #32 attribution, the shared budget,
 Skipping a `setData` **re-emits the previous value** on every subsequent
 record. It never produces a gap. This repository writes every record field on
 every tick, including the held and skipped paths. Re-pinned on PR #105 after
-#102 cut the seven fields to two: `DualTankView.mc:799-800`, `:820-821`,
-`:857-858`, `:892-893`, live at `:907-908` (and the `initialize()` seed at
-`:275-276`). Keep it that way: a gate on a FIT
+#102 cut the seven fields to two: `DualTankView.mc:823-824`, `:844-845`,
+`:881-882`, `:916-917`, live at `:931-932` (and the `initialize()` seed at
+`:278-279`). Keep it that way: a gate on a FIT
 write fails **open**, and "stop writing during X" fabricates a timeline rather
 than omitting one. #102's `fitRecord` gate is therefore on **creation**
 (`initialize()`), not on the writes — with the setting off the handles are null
@@ -339,14 +339,25 @@ filed under it.)
 ### 3.5 Clocks
 
 `nowSec()` is `Time.now().value()` (unix seconds) — wall clock, not
-`System.getTimer()`. The one `System.getTimer()` use is `mPauseAtMono`
-(`DualTankView.mc:654`, #41; re-pinned on PR #105), tested with `mPauseAtMono >= 0` at `:669` and
-`-1` as "not set". `System.getTimer()` is a **signed 32-bit** millisecond
-counter and is **negative from 24.9 to 49.7 days of device uptime**; during
-that half the `>= 0` test reads a valid stamp as "not set" and the resume path
-falls back to the wall-clock branch. That is a degradation (loss of the
-clock-jump immunity #41 added), not a corruption, and it is **observed at
-source, not measured on a device** — file it, do not fix it in passing.
+`System.getTimer()`. The one `System.getTimer()` use is `mPauseAtMono`, the
+#41 monotonic pause stamp: stamped in `enterPause()`, read in `exitPause()`
+through the pure seam `DualTankView.pauseElapsedSec(wallNow, wallStamp,
+monoNow, monoStamp, maxPause)`. `System.getTimer()` is a **signed 32-bit**
+millisecond counter and is **negative from 24.9 to 49.7 days of device
+uptime**, so **no sign test may mean "not set"**: since #104 an unset stamp is
+`null` and presence is `monoStamp != null`.
+
+Until #104 the sentinel was `-1` and the test `mPauseAtMono >= 0`, so a stamp
+taken in the negative half read as "not set" and the resume path fell back to
+the wall-clock branch — a degradation (loss of #41's clock-jump immunity), not
+a corruption. `testPauseStampNegativeClock` calls the seam with injected
+negative clocks; with the old guard it reds (`ciq-test` run 36138410601,
+`FAILED (passed=17, failed=0, errors=1)`), with the fix it passes (run
+36138693070, `PASSED (passed=18, failed=0, errors=0)`). **What that pins is the
+seam, not the device**: no device has been run through the negative half, and
+a pause whose two readings straddle the counter's `+2^31−1 → −2^31` wrap is not
+claimed either way (the seam's range check falls back to the wall clock if the delta
+comes out out of range). Neither is measured.
 
 ---
 
@@ -419,17 +430,18 @@ you started.
 
 `fenix6pro` caps module `globals` at **253** members (inclusive); a file-scope
 `(:test)` costs one member; a `(:test)` inside a `module { }` block costs none.
-**Re-measured 2026-09-05** by bisection on a clean archive of the #102 c2 tree
-(the commit that adds `testFitRecordSettingCoerces`, PR #105), SDK 9.2.0, §2.7
-recipe: 400 stubs reported `Found 428 members` (428 − 400 = 28 used); 225 stubs
-`BUILD SUCCESSFUL`; 226 stubs `Found 254 members in module 'globals', exceeding
-the limit of 253`. The single copy in source, `connectiq/source/Tests.mc`, reads:
+**Re-measured 2026-09-25** by bisection on a clean archive of `482d790` (PR #118,
+the commit series that adds `testPauseStampNegativeClock` for #104), SDK 9.2.0,
+§2.7 recipe, on the maintainer's machine: 400 stubs reported `Found 429 members`
+(429 − 400 = 29 used); 224 stubs `BUILD SUCCESSFUL`; 225 stubs `Found 254 members
+in module 'globals', exceeding the limit of 253`. The single copy in source,
+`connectiq/source/Tests.mc`, reads:
 
-    CEILING fit-prune-102 fenix6pro: 28 used of 253, 225 free -- the 226th file-scope (:test) added reds
+    CEILING gettimer-104 fenix6pro: 29 used of 253, 224 free -- the 225th file-scope (:test) added reds
 
-The **superseded** figure, measured at `30b2b99`, was 27 used of 253, 226 free.
-One file-scope declaration has been added since — the `(:test)` above — and the
-re-measurement confirms the count moved by exactly that one.
+**Superseded** figures: 28 used / 225 free on the #102 c2 tree (2026-09-05), and
+27 / 226 at `30b2b99`. Each step since has added exactly one file-scope
+`(:test)`, and each re-measurement moved the count by exactly that one.
 
 `scripts/check_ceiling_notes.py` enforces the arithmetic and that this
 quotation is byte-identical to the source copy; `scripts/check_agent_facts.py`
@@ -439,13 +451,16 @@ does not bind; a green `edge1050` build says nothing about this.
 
 ### 5.2 Pinned test count
 
-**17** `(:test)` functions, all file-scope in `connectiq/source/Tests.mc`,
-matching `scripts/expected_tests.txt` exactly (`bash scripts/check_expected_tests.sh`
-on the #102 c2 tree: "OK: 17 (:test) function(s) under connectiq/source/ match
-scripts/expected_tests.txt exactly."). It was **16** at `30b2b99`; #102 c2 added
-`testFitRecordSettingCoerces`, which is also the one file-scope declaration
-behind the §5.1 ceiling re-measurement. Measured with `scripts/list_tests.py`,
-never added up.
+**18** `(:test)` functions, all file-scope in `connectiq/source/Tests.mc`,
+matching `scripts/expected_tests.txt` exactly (on the #104 c2 tree,
+`python3 scripts/list_tests.py` lists 18 names and a sorted diff against the
+pin's non-comment lines is empty; `bash scripts/check_expected_tests.sh` runs
+the same comparison in the required `test-tooling` job). It was **16** at `30b2b99`; #102 c2 added
+`testFitRecordSettingCoerces` (17), which is also the one file-scope declaration
+behind the §5.1 ceiling re-measurement; #104 c2 added
+`testPauseStampNegativeClock` (18), also file-scope, so it spends one more
+`fenix6pro` `globals` slot; §5.1's re-measurement on `482d790` reflects it. Measured with
+`scripts/list_tests.py`, never added up.
 
 Any `(:test)` addition, removal or rename edits `scripts/expected_tests.txt`
 **in the same commit**. The check closes drift, not coordinated shrink.
@@ -653,8 +668,8 @@ prose above is the explanation.
 
     AGENTFACT ci-container sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
     AGENTFACT manifest-devices 15
-    AGENTFACT pinned-tests 17
-    AGENTFACT ceiling fit-prune-102 28 253 225
+    AGENTFACT pinned-tests 18
+    AGENTFACT ceiling gettimer-104 29 253 224
     AGENTFACT devfield 0 PCr_J
     AGENTFACT devfield 1 GLY_J
 

@@ -18,14 +18,14 @@ using Toybox.Application;
 // (:test) or helper function in this file costs one; a (:test) inside a `module { }` block
 // costs none. monkeyc prints the count only once the build is ALREADY over, so it can only be
 // learned by bisecting throwaway stubs against a real compile (SDK 9.2.0, `monkeyc -t -l 1
-// -d fenix6pro`, stubs in a scratch source file under source/). RE-MEASURED 2026-09-05 on a
-// clean archive of the #102 c2 tree, which adds testFitRecordSettingCoerces and so spends one
-// slot (27 used -> 28):
-//   CEILING fit-prune-102 fenix6pro: 28 used of 253, 225 free -- the 226th file-scope (:test) added reds
-// The limit is INCLUSIVE. Bisection outputs: 400 stubs -> "Found 428 members in module
-// 'globals', exceeding the limit of 253" (428 - 400 = 28 used); 225 stubs -> BUILD SUCCESSFUL;
-// 226 stubs -> "Found 254 members in module 'globals', exceeding the limit of 253". The
-// superseded measurement, taken at 30b2b99, read 27 used and 226 free. edge1050 (the other CI
+// -d fenix6pro`, stubs in a scratch source file under source/). RE-MEASURED 2026-09-25 on a
+// clean archive of 482d790 (PR #118, #104), which adds testPauseStampNegativeClock and so
+// spends one slot (28 used -> 29):
+//   CEILING gettimer-104 fenix6pro: 29 used of 253, 224 free -- the 225th file-scope (:test) added reds
+// The limit is INCLUSIVE. Bisection outputs: 400 stubs -> "Found 429 members in module
+// 'globals', exceeding the limit of 253" (429 - 400 = 29 used); 224 stubs -> BUILD SUCCESSFUL;
+// 225 stubs -> "Found 254 members in module 'globals', exceeding the limit of 253". Earlier
+// measurements: 28 used / 225 free on the #102 c2 tree (2026-09-05), 27 / 226 at 30b2b99. edge1050 (the other CI
 // compile target) stays green, so a green edge1050 build proves nothing here. The line above is
 // machine-checked -- scripts/check_ceiling_notes.py (arithmetic, copies agree) and
 // scripts/check_agent_facts.py (docs/agents/FACTS.md quotes it). Re-measure when file-scope
@@ -522,5 +522,37 @@ function testShouldShowNoPower(logger) {
     // Still within the #22 grace window (missCount == BRIDGE_SEC == 3, not > 3) -> not yet.
     Test.assert(!DualTankView.shouldShowNoPower(true, false, false, false, 3));
 
+    return true;
+}
+
+// ---- #104: pause-stamp presence must not depend on the sign of System.getTimer() ----
+//
+// System.getTimer() is a signed 32-bit ms counter, negative from 24.9 to 49.7 days of uptime (#104,
+// read at source; no device has been run through that half). pauseElapsedSec() is the pure seam
+// behind exitPause(): a stamp taken in the negative half is a valid stamp and must select the
+// MONOTONIC delta, not the wall-clock fallback. Clock values are injected. In every case the wall
+// delta (3900 s: a 300 s pause spanning a +1 h wall-clock correction) differs from the monotonic
+// one (300 s), so the returned value names the branch taken. The positive and unset cases run first
+// so a red on the negative ones shows the earlier cases passing on the same seam.
+// Args: (wallNow, wallStamp, monoNow, monoStamp, maxPause).
+(:test)
+function testPauseStampNegativeClock(logger) {
+    var wallStamp = 1758800000;          // unix s at pause start
+    var wallNow = wallStamp + 3900;      // wall delta: 300 s of pause + a 1 h forward correction
+    var cap = 86400;                     // MAX_PAUSE_SEC
+
+    // Positive half (uptime < 24.9 d): the monotonic delta wins.
+    Test.assertMessage(DualTankView.pauseElapsedSec(wallNow, wallStamp, 1300000, 1000000, cap) == 300,
+        "positive stamp: expected the monotonic 300 s");
+    // No stamp from this process (e.g. a restore across reboot): the wall delta.
+    Test.assertMessage(DualTankView.pauseElapsedSec(wallNow, wallStamp, 1300000, null, cap) == 3900,
+        "unset stamp: expected the wall-clock 3900 s");
+    // Negative half (uptime 24.9..49.7 d): stamp and now both negative, still the monotonic delta.
+    Test.assertMessage(DualTankView.pauseElapsedSec(wallNow, wallStamp, -1999700000, -2000000000, cap) == 300,
+        "negative stamp: expected the monotonic 300 s");
+    // -1 is itself a reading the counter passes through on its way back to 0, so it cannot mean
+    // "not set": a stamp of -1 is a stamp.
+    Test.assertMessage(DualTankView.pauseElapsedSec(wallNow, wallStamp, 299999, -1, cap) == 300,
+        "stamp == -1: expected the monotonic 300 s");
     return true;
 }
