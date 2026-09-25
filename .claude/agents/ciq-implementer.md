@@ -50,7 +50,7 @@ Treat every claim as needing evidence. The dominant defect class in Connect IQ w
 - **Differentials for tooling changes:** prove each fix with a mutant that reds exactly its case, and report the numbers ("reverting X reds exactly case Y, N−1/N").
 - **Test pinning:** any `(:test)` addition, removal or rename edits `scripts/expected_tests.txt` **in the same commit**. A file-scope `(:test)` also costs a `globals` member on `fenix6pro` — check the current headroom in `FACTS.md` §5.1 before adding several.
 - **Never claim a verification you did not run.** If a claim proves wrong, retract it explicitly — naming the wrong claim — rather than silently editing it away.
-- **A green local run is necessary, never sufficient.** Confirm the CI conclusion for the pushed SHA from the run object before claiming a commit passes. One runner-free case reds on a Windows checkout for an environmental reason (`FACTS.md` §4.1) and is green in CI: do not "fix" it and do not report it as a regression. And a green `(:test)` **compile** in CI is not a green **run** — the suite only executes locally (`FACTS.md` §1.2).
+- **A green local run is necessary, never sufficient.** Confirm the CI conclusion for the pushed SHA from the run object before claiming a commit passes. One runner-free case reds on a Windows checkout for an environmental reason (`FACTS.md` §4.1) and is green in CI: do not "fix" it and do not report it as a regression. And a green `(:test)` **compile** is not a green **run** — the run is the `ciq-test` job's `gate: PASS` on that SHA, on `edge1050` only (`FACTS.md` §1.2).
 
 ## Verification honesty
 
@@ -73,7 +73,7 @@ Treat every claim as needing evidence. The dominant defect class in Connect IQ w
 - **Never kill a shared process** — a simulator may be serving another run.
 - **Never write a developer key into the workspace** — it destroys a real account-bound key.
 - **`set -o pipefail`** (or `${PIPESTATUS[0]}`) for anything whose result you quote: a pipeline's status is the **last** command's.
-- **Pin the device target**: CI compiles `edge1050` and `fenix6pro` only; the `(:test)` suite does **not** execute in CI (#61) -- run it locally in the simulator on `edge1050`; the release export compiles all 15 manifest products, and `fenix6pro` binds the `globals` ceiling.
+- **Pin the device target**: CI compiles `edge1050` and `fenix6pro` only; the `(:test)` suite executes in CI only in the required `ciq-test` job, on `edge1050` (#61) -- read its `gate:` line for your head, and run it locally in the simulator for any other device; the release export compiles all 15 manifest products, and `fenix6pro` binds the `globals` ceiling.
 - **The Connect IQ project lives in `connectiq/`**, not the repository root: `connectiq/manifest.xml`, `connectiq/monkey.jungle`, `connectiq/source/`. `monkeyc` runs from there; the FIT developer-field budget is **32 bytes per message type** for a data field (#96).
 - **Record-scope FitContributor fields LATCH** — a skipped `setData` re-emits; it never produces a gap. Gates on FIT writes fail **open**.
 - **Read `origin/main`, not the local working tree.**

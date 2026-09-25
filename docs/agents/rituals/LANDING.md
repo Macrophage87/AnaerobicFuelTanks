@@ -44,14 +44,17 @@ gh api repos/Macrophage87/AnaerobicFuelTanks/commits/<full-sha>/check-runs \
 These must read `success`: `ci-required`, `Compile (edge1050)`,
 `Compile (fenix6pro)`, `R model tests (testthat)`, `R parse + lint`,
 `Model parity (R vs Python mirror)`, `Manifest app-id lint`,
-`Agent-loop tooling (runner-free)`. `CIQ (:test) headless (best-effort)` will
-also read `success` — **it skips green when the simulator segfaults** (#61), so
-its success is not evidence the suite ran. **Use the full SHA**, the one you
-are about to push.
+`Agent-loop tooling (runner-free)`, `CIQ (:test) headless (best-effort)` (the
+name is historical; the job is required since #61 item 3). For the last one,
+also read `gate: PASS` out of its log: `PASS`, `FAIL` and `SKIP` (no summary
+line; the simulator never ran the suite) are named separately, and only `PASS`
+is green. **Use the full SHA**, the one you are about to push.
 
-`ci-required` is the only name branch protection requires. It uses the
-default `if: success()`, so an upstream failure **skips** it rather than
-failing it (`FACTS.md` §1.2) — read the individual checks, not the aggregate.
+`ci-required` is the only name branch protection requires. It runs under
+`if: always()` and fails unless every job it needs reads `success`
+(`FACTS.md` §1.2); before #61 item 3 an upstream failure **skipped** it, and a
+skipped check satisfies branch protection. Still read the individual checks:
+the aggregate says that something failed, not what.
 
 Two attempts of one run on the same runner pool is a **flake check, not
 independent evidence** — phrase it that way.

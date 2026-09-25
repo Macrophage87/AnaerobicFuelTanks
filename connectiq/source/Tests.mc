@@ -350,8 +350,7 @@ function testValidateBlobRejects(logger) {
 //
 // Pure mirror of the inline #22 bridge-then-freeze decision in compute(), asserting the boundaries
 // the R suite and the compile-only gate can't reach. These (:test) cases COMPILE on the required -t
-// matrix but only EXECUTE once #61's headless runner is green — not a regression, since the identical
-// inline logic is already execution-unguarded today. `missCount` is the POST-increment value
+// matrix and EXECUTE in the required ciq-test job on edge1050 (#61). `missCount` is the POST-increment value
 // (compute() does mMissCount += 1 before the call). The mLastP reuse and the mHaveValidP arming stay
 // in compute() and are intentionally NOT covered by this decision-only helper.
 (:test)
@@ -439,9 +438,9 @@ function testIsConfigured(logger) {
 // revert to 250/20000 (the exact round-1 root cause) would make getValue() return those, flip
 // isConfigured true, and silently re-inert the SET CP/W' guard. Reads through the REAL
 // Application.Properties resource layer so that revert fails here.
-// NOTE: the ENFORCEABLE CI gate for the same revert is scripts/check_settings_defaults.sh (wired
-// into the required manifest-lint job) — the headless (:test) suite segfault-skips under Xvfb, so
-// this case runs only in a working simulator (local dev, or if the CI sim is ever fixed).
+// NOTE: this case runs in the required ciq-test job (headless simulator, edge1050) and locally.
+// scripts/check_settings_defaults.sh (required manifest-lint job) fences the same revert statically,
+// without a simulator.
 (:test)
 function testCpWprimeDefaultUnconfigured(logger) {
     var cp = Application.Properties.getValue("CP");

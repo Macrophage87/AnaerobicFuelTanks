@@ -115,7 +115,7 @@ And when you have run five rounds on one function, ask whether you are convergin
 - **Never kill a shared process** — a simulator may be serving another run.
 - **Never write a developer key into the workspace** — it destroys a real account-bound key.
 - **`set -o pipefail`** (or `${PIPESTATUS[0]}`) for anything whose result you quote: a pipeline's status is the **last** command's.
-- **Pin the device target**: CI compiles `edge1050` and `fenix6pro` only; the `(:test)` suite does **not** execute in CI (#61) -- run it locally in the simulator on `edge1050`; the release export compiles all 15 manifest products, and `fenix6pro` binds the `globals` ceiling.
+- **Pin the device target**: CI compiles `edge1050` and `fenix6pro` only; the `(:test)` suite executes in CI only in the required `ciq-test` job, on `edge1050` (#61) -- read its `gate:` line for your head, and run it locally in the simulator for any other device; the release export compiles all 15 manifest products, and `fenix6pro` binds the `globals` ceiling.
 - **The Connect IQ project lives in `connectiq/`**, not the repository root: `connectiq/manifest.xml`, `connectiq/monkey.jungle`, `connectiq/source/`. `monkeyc` runs from there; the FIT developer-field budget is **32 bytes per message type** for a data field (#96).
 - **Record-scope FitContributor fields LATCH** — a skipped `setData` re-emits; it never produces a gap. Gates on FIT writes fail **open**.
 - **Read `origin/main`, not the local working tree.**

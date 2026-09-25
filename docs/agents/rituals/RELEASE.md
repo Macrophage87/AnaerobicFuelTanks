@@ -75,8 +75,8 @@ saved a file has not passed this gate.
 
 ## 7. The suite total in the release body is a measurement, not a memory
 
-The `(:test)` suite executes in two places and neither is required
-(`FACTS.md` §1.2): the best-effort `ciq-test` CI job, whose parser prints
+The `(:test)` suite executes in two places (`FACTS.md` §1.2): the required
+`ciq-test` CI job (on `edge1050`), whose parser prints
 `gate: PASS` on a green suite, and a local `monkeydo` run. Quote the
 `PASSED (passed=N, failed=0, errors=0)` line **read off the CI job's log for the
 exact commit being tagged** (or off a local run at that commit), with N equal to

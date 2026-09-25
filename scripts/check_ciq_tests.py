@@ -19,11 +19,12 @@ To pass, ALL of the following must hold:
   * the expected list is non-empty.
 
 This is the verdict half of the `ciq-test` job in .github/workflows/ci.yml.
-The job stays best-effort, so the JOB distinguishes three outcomes and this
-script decides only two of them: it is invoked when a summary line is present,
-and its exit code is the PASS/FAIL split. "No summary line at all" (the
-simulator crashed or never ran) is the job's own SKIP branch and never reaches
-here -- see the gate block in ci.yml, and #61 for why that branch exists.
+The JOB distinguishes three outcomes and this script decides only two of
+them: it is invoked when a summary line is present, and its exit code is the
+PASS/FAIL split. "No summary line at all" (the simulator crashed or never ran)
+is the job's own SKIP branch and never reaches here; since the job became
+required (#61 item 3) SKIP fails the job too, under its own name -- see the
+gate block in ci.yml.
 
 Usage:
   check_ciq_tests.py --monkeydo-log FILE [--console-log FILE]

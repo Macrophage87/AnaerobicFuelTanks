@@ -44,7 +44,7 @@ Everything below is verified in `FACTS.md` §1.2 and §3.2.
 | | Here |
 |---|---|
 | **0** | `model-parity` + the R testthat suite already pin it (a model coefficient, a fixture), or a runner-free checker derives it (`check_settings_defaults`, `check_manifest_appid`, `check_expected_tests`, `check_agent_facts`, `check_ceiling_notes`, `check_mc_literals`, `check_calibrate_manifest`) |
-| **1** | a `(:test)` or an R test **could** cover it and this change adds one — remembering that a `(:test)` here **compiles in CI and executes only locally** (#61), so V=1 carries a local `monkeydo` run as evidence, not a CI checkmark |
+| **1** | a `(:test)` or an R test **could** cover it and this change adds one — a `(:test)` here executes in the required `ciq-test` job on `edge1050` (#61), so V=1's evidence is that job's `gate:` line on the exact head (and its red on c2), plus a local `monkeydo` run for anything device-specific |
 | **2** | only a static check or a local simulator run can see it — anything that needs a `Session` (`createField`, the 32 B budget arithmetic), `Application.Storage`, `Activity.Info`, or the simulator's activity playback |
 | **3** | **no `(:test)` can obtain a graphics `Dc`** (layouts, fonts, the red flash); **a comment cannot be red by any test**; **a claim about what a file this app wrote contains, beyond the committed ride fixtures (`tools/fielddata/`)** (#100's lag, #76's fabricated dataset); **on-device load** (#96's crash was green in CI); real ride data across several sessions (#92) |
 
@@ -229,7 +229,10 @@ Histogram over the 12 existing issues: **Trivial 1, Routine 2, Standard 5,
 Heavy 4, Critical 0.** Two adjacent bands (Standard + Heavy) hold 9 of 12
 (75%) — crowded, as the StrongRow re-anchoring also found after its R/P/I pass,
 and for the same reason: **V is the binding axis** in a repository whose test
-suite does not execute in CI and which decodes none of its own files. Median
+suite, when this backfill was scored (2026-09-05), executed in no required CI
+job and which decoded none of its own files. (Since #61 item 3 the suite
+executes in the required `ciq-test` job, and since #121 one ride's fixtures are
+committed; neither reaches a `Dc`, a `Session` or a device.) Median
 dispatch under this scoring is **2 agents** (Standard). The kit's acceptance
 test for a rubric ("if almost everything lands in one band, the anchors are
 wrong") passes narrowly; the V cells are where the next calibration pass goes.
