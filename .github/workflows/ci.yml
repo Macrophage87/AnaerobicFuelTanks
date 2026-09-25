@@ -290,7 +290,6 @@ jobs:
           # RESULTS block — header, rows, tally, summary — contiguously to its own stdout,
           # which `tee` captured into $LOG; /tmp/sim.log carries Qt chatter only. Feeding it
           # in would add a fallback nothing needs and a second stream that could disagree.
-          : > "$LOG"   # MUTANT (evidence only, reverted next commit): empty the log so the gate must take SKIP
           if ! command -v python3 >/dev/null 2>&1; then
             # Not one of the three outcomes: the gate could not render a verdict at all.
             # Fail loudly — this can only mean the pinned image
