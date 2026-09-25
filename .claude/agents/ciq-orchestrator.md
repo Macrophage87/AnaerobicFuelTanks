@@ -47,7 +47,7 @@ Score five axes, 0–3 each, **before** choosing agents. Full anchors, worked ex
 | Axis | 0 | 3 — *here, concretely* |
 |---|---|---|
 | **R** Reversibility | scratch file, unpushed commit, editable PR body | a published release asset or tag; the store package; a **developer field id** (unique per `field_description` — re-using one silently re-labels a field in every file already recorded) |
-| **V** Verifiability cost | an existing `(:test)` or runner-free checker already catches it | **nothing in the repo can catch it**: no `(:test)` can obtain a graphics `Dc` (so no real fonts, clipping or render); a comment cannot be red by any test (comments are stripped from the build); nothing here decodes a file this app wrote; a real pod, a real erg or on-water conditions are **field-only** |
+| **V** Verifiability cost | an existing `(:test)` or runner-free checker already catches it | **nothing in the repo can catch it**: no `(:test)` can obtain a graphics `Dc` (so no real fonts, clipping or render); a comment cannot be red by any test (comments are stripped from the build); a claim about what a file this app wrote contains, beyond the committed ride fixtures (`tools/fielddata/`); a real pod, a real erg or on-water conditions are **field-only** |
 | **S** Settledness | an accepted design comment exists and nothing contradicts it | the premise is contested, or measured behaviour disagrees with the issue's diagnosis |
 | **P** Prose surface | no published words change | `README.md`, `docs/**`, an agent operating prompt, a release note, the store description |
 | **I** Interaction | one file, no shared constant | a manifest device change, a workflow change, a developer field id, `startSession` — several in-flight branches touch it |

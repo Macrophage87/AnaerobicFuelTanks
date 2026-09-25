@@ -46,7 +46,7 @@ Everything below is verified in `FACTS.md` §1.2 and §3.2.
 | **0** | `model-parity` + the R testthat suite already pin it (a model coefficient, a fixture), or a runner-free checker derives it (`check_settings_defaults`, `check_manifest_appid`, `check_expected_tests`, `check_agent_facts`, `check_ceiling_notes`, `check_mc_literals`, `check_calibrate_manifest`) |
 | **1** | a `(:test)` or an R test **could** cover it and this change adds one — remembering that a `(:test)` here **compiles in CI and executes only locally** (#61), so V=1 carries a local `monkeydo` run as evidence, not a CI checkmark |
 | **2** | only a static check or a local simulator run can see it — anything that needs a `Session` (`createField`, the 32 B budget arithmetic), `Application.Storage`, `Activity.Info`, or the simulator's activity playback |
-| **3** | **no `(:test)` can obtain a graphics `Dc`** (layouts, fonts, the red flash); **a comment cannot be red by any test**; **nothing here decodes a file this app wrote** (#100's lag, #76's fabricated dataset); **on-device load** (#96's crash was green in CI); real ride data across several sessions (#92) |
+| **3** | **no `(:test)` can obtain a graphics `Dc`** (layouts, fonts, the red flash); **a comment cannot be red by any test**; **a claim about what a file this app wrote contains, beyond the committed ride fixtures (`tools/fielddata/`)** (#100's lag, #76's fabricated dataset); **on-device load** (#96's crash was green in CI); real ride data across several sessions (#92) |
 
 Two incident anchors for why V is the axis that gets under-scored:
 
