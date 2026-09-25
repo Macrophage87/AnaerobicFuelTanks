@@ -349,6 +349,30 @@ two-compartment hypothesis (that is §6.10). Test–retest targets: CP ≤ ±3 %
   it. A pause *between* efforts is fine.
 - **Developer-field FIT files** are readable via the base-R `read_power_raw()` fallback (native power
   field 7 + timestamp 253); confirm the fallback fired.
+- **Time alignment (#100): a required step, not a caveat.** In every file recorded so far, the
+  model streams this field writes lag the recorded power by one record. That covers `PCr_J`/`GLY_J`,
+  and `PCr_cons`/`GLY_cons` in pre-#102 files. The offset is platform-inherent, so no app change
+  removes it (`../connectiq/README.md`). Apply these four steps before any fit or check that uses a
+  recorded model stream together with recorded power. They belong in the `hygiene` stage of §5.1:
+  1. **Shift by one record.** Pair the power at record *t−1* with the stream at record *t*.
+  2. **Shift by time, never by array index.** Pair only across 1 s steps, never across a pause or a
+     dropout. An index shift pairs pre-pause power with a post-pause draw: on the 2026-09-20 ride it
+     adds 21 such pairs at a two-record shift (`RIDEFACT lag_r +2` vs `lag_r_index +2`,
+     `fielddata/ride-2026-09-20-edge1050.md`).
+  3. **Drop the step into the second record after every resume** from any draw reconstructed as
+     `max(0, −ΔR)`. The first post-resume record repeats the pre-pause reserves. The second carries
+     the rest-recovery refill netted against that step's draw, so its draw is under-counted
+     (`RIDEFACT boundary_latch`, `boundary_change_at_next`: 23/23 boundaries on that ride).
+  4. **Check the alignment with the threshold test.** Fit one power threshold that separates a
+     reconstructed draw > 0.5 J from no draw. When the alignment is right it should land close to the
+     configured CP and misclassify well under 1 % of seconds. On the 2026-09-20 ride:
+     - shifted: CP 255 W, 13/11858 misclassified (0.11 %);
+     - unshifted: CP 257 W, 488/11879 misclassified (4.1 %) (`RIDEFACT threshold`).
+
+     #100's stronger criterion is "within ~1 W of the configured CP". It could **not** be checked on
+     that ride, because the configured CP is not in the file (#102 keeps config out of the FIT).
+     Keep each ride's settings out of band (`calibration-session-checklist.md`) so the next ride can
+     be checked against them.
 - **Power meter:** prefer dual-sided; zero-offset before every session; same meter across the whole
   battery (cross-meter offsets alias into W′ drift).
 - **HR / VO₂ / [La] / NIRS:** HR is a freshness check only; VO₂/[La]/NIRS are the only channels that

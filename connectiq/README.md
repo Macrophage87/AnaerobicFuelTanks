@@ -22,6 +22,25 @@ default**; the fields are created once at load, so a change applies at the next 
 
 - **Per second (record stream):** `PCr_J`, `GLY_J` — reserve energy remaining, **joules**, FLOAT,
   ids 0 and 1. 8 B of Connect IQ's 32-byte-per-message developer-field budget for data fields.
+
+  **These streams lag the recorded power by one record (#100).** The reserve at record *t*
+  reflects the power recorded at record *t−1*. This is platform-inherent:
+  - `compute()` reads the power, steps the model and writes both fields in one call, so
+    write-ordering in the app was ruled out at source on #100.
+  - What the file shows is consistent with each record carrying the value latched by the
+    previous `compute()`.
+
+  On the 2026-09-20 ride (`../docs/fielddata/ride-2026-09-20-edge1050.md`), a single-threshold
+  fit of the draw reconstructed from these two streams misclassifies 13/11858 seconds when
+  power is shifted one record, against 488/11879 unshifted (`RIDEFACT threshold`). The
+  2026-07-26 ride shows the same offset (#100).
+
+  The pause boundaries are the direct case. The first record after a resume repeats the
+  pre-pause reserves, and the rest-recovery refill lands one record later
+  (`RIDEFACT boundary_latch`, 23/23 boundaries).
+
+  Every file recorded so far carries the offset. Align before comparing these streams
+  with power: [`../docs/calibration-protocol.md`](../docs/calibration-protocol.md) §5.6.
 - **Per ride (session summary):** _nothing._ SESSION contributions are 0 B.
 
 Issue #102 cut this from seven fields to two (RECORD 16 B → 8 B, SESSION 8 B → 0 B). Whether the
