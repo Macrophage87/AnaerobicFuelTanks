@@ -556,3 +556,23 @@ function testPauseStampNegativeClock(logger) {
         "stamp == -1: expected the monotonic 300 s");
     return true;
 }
+
+// ---- #76: the FIT fields are created only when fitRecord is on AND CP/W' are configured ----
+//
+// shouldCreateFitFields is the pure seam behind initialize()'s createField block; this drives the
+// SHIPPING static (FIX_ROUND.md section 4). No (:test) can obtain a Session, so what a saved file
+// contains with CP/W' unset is NOT reached here (FACTS.md 3.2) -- only the decision is.
+// The (true, true) case runs first so a red on the unconfigured case shows the configured one
+// passing on the same seam. Args: (fitRecord, configured).
+(:test)
+function testShouldCreateFitFields(logger) {
+    Test.assertMessage(DualTankView.shouldCreateFitFields(true, true),
+        "fitRecord on, configured: expected the fields to be created");
+    Test.assertMessage(!DualTankView.shouldCreateFitFields(true, false),
+        "fitRecord on, CP/W' unset: expected NO fields (#76)");
+    Test.assertMessage(!DualTankView.shouldCreateFitFields(false, true),
+        "fitRecord off, configured: expected NO fields (#102)");
+    Test.assertMessage(!DualTankView.shouldCreateFitFields(false, false),
+        "fitRecord off, CP/W' unset: expected NO fields");
+    return true;
+}

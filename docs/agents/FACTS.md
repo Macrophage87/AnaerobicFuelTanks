@@ -480,15 +480,17 @@ does not bind; a green `edge1050` build says nothing about this.
 
 ### 5.2 Pinned test count
 
-**18** `(:test)` functions, all file-scope in `connectiq/source/Tests.mc`,
-matching `scripts/expected_tests.txt` exactly (on the #104 c2 tree,
-`python3 scripts/list_tests.py` lists 18 names and a sorted diff against the
+**19** `(:test)` functions, all file-scope in `connectiq/source/Tests.mc`,
+matching `scripts/expected_tests.txt` exactly (on the #76 c2 tree,
+`python3 scripts/list_tests.py` lists 19 names and a sorted diff against the
 pin's non-comment lines is empty; `bash scripts/check_expected_tests.sh` runs
 the same comparison in the required `test-tooling` job). It was **16** at `30b2b99`; #102 c2 added
 `testFitRecordSettingCoerces` (17), which is also the one file-scope declaration
 behind the §5.1 ceiling re-measurement; #104 c2 added
 `testPauseStampNegativeClock` (18), also file-scope, so it spends one more
-`fenix6pro` `globals` slot; §5.1's re-measurement on `482d790` reflects it. Measured with
+`fenix6pro` `globals` slot; §5.1's re-measurement on `482d790` reflects it; #76 c2 added
+`testShouldCreateFitFields` (19), file-scope as well, so it spends one more slot and §5.1
+is re-measured on the #76 fix commit. Measured with
 `scripts/list_tests.py`, never added up.
 
 Any `(:test)` addition, removal or rename edits `scripts/expected_tests.txt`
@@ -722,7 +724,7 @@ prose above is the explanation.
 
     AGENTFACT ci-container sha256:7a6f586cb0e0393ff288da09cf27b6dad40a0058a346c529b99fd0fc19858f0f
     AGENTFACT manifest-devices 15
-    AGENTFACT pinned-tests 18
+    AGENTFACT pinned-tests 19
     AGENTFACT ceiling gettimer-104 29 253 224
     AGENTFACT devfield 0 PCr_J
     AGENTFACT devfield 1 GLY_J
