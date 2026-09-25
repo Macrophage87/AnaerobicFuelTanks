@@ -524,3 +524,35 @@ function testShouldShowNoPower(logger) {
 
     return true;
 }
+
+// ---- #104: pause-stamp presence must not depend on the sign of System.getTimer() ----
+//
+// System.getTimer() is a signed 32-bit ms counter, negative from 24.9 to 49.7 days of uptime (#104,
+// read at source; no device has been run through that half). pauseElapsedSec() is the pure seam
+// behind exitPause(): a stamp taken in the negative half is a valid stamp and must select the
+// MONOTONIC delta, not the wall-clock fallback. Clock values are injected. In every case the wall
+// delta (3900 s: a 300 s pause spanning a +1 h wall-clock correction) differs from the monotonic
+// one (300 s), so the returned value names the branch taken. The positive and unset cases run first
+// so a red on the negative ones shows the earlier cases passing on the same seam.
+// Args: (wallNow, wallStamp, monoNow, monoStamp, maxPause).
+(:test)
+function testPauseStampNegativeClock(logger) {
+    var wallStamp = 1758800000;          // unix s at pause start
+    var wallNow = wallStamp + 3900;      // wall delta: 300 s of pause + a 1 h forward correction
+    var cap = 86400;                     // MAX_PAUSE_SEC
+
+    // Positive half (uptime < 24.9 d): the monotonic delta wins.
+    Test.assertMessage(DualTankView.pauseElapsedSec(wallNow, wallStamp, 1300000, 1000000, cap) == 300,
+        "positive stamp: expected the monotonic 300 s");
+    // No stamp from this process (e.g. a restore across reboot): the wall delta.
+    Test.assertMessage(DualTankView.pauseElapsedSec(wallNow, wallStamp, 1300000, null, cap) == 3900,
+        "unset stamp: expected the wall-clock 3900 s");
+    // Negative half (uptime 24.9..49.7 d): stamp and now both negative, still the monotonic delta.
+    Test.assertMessage(DualTankView.pauseElapsedSec(wallNow, wallStamp, -1999700000, -2000000000, cap) == 300,
+        "negative stamp: expected the monotonic 300 s");
+    // -1 is itself a reading the counter passes through on its way back to 0, so it cannot mean
+    // "not set": a stamp of -1 is a stamp.
+    Test.assertMessage(DualTankView.pauseElapsedSec(wallNow, wallStamp, 299999, -1, cap) == 300,
+        "stamp == -1: expected the monotonic 300 s");
+    return true;
+}
