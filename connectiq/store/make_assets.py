@@ -296,13 +296,55 @@ def make_icons():
     write_png16(icon, p64)
     return p24, p64
 
+# ============================ LAUNCHER ICONS (on-device) ============================
+# The launcher icon ships inside the .prg, so it lives under ../resources*, not in this
+# folder. Each device's compiler.json (SDK device definitions,
+# <ConnectIQ>/Devices/<id>/compiler.json, key "launcherIcon": {"width", "height"})
+# names the size it expects; a mismatched icon makes `monkeyc -e -w` warn and the
+# compiler rescale it (#114). The base resources/ copy is 40x40, the size every other
+# manifest product expects; the others are device-qualified resource folders
+# (resources-<device id>), which the SDK's Build Configuration guide documents as
+# overriding a base resource with the same id for that device only.
+LAUNCHER_BASE_PX = 40   # edge1040, fr255, fr255m, fr955, fenix6pro, fenix7, fenix7x
+LAUNCHER_DEVICE_PX = {
+    "edge530": 35, "edge540": 35, "edge830": 35, "edge840": 35,
+    "edge1030": 36, "edge1030plus": 36,
+    "fr965": 65,
+    "edge1050": 68,
+}
+
+def render_launcher_icon(px):
+    """The device-icon art (render_icon_rgba), resampled to px x px, alpha kept."""
+    return render_icon_rgba().resize((px, px), Image.LANCZOS)
+
+def make_launcher_icons():
+    root = os.path.dirname(OUT)          # connectiq/
+    targets = [(os.path.join(root, "resources", "drawables"), LAUNCHER_BASE_PX)]
+    for dev, px in sorted(LAUNCHER_DEVICE_PX.items()):
+        targets.append((os.path.join(root, "resources-" + dev, "drawables"), px))
+    written = []
+    for folder, px in targets:
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "launcher_icon.png")
+        render_launcher_icon(px).save(path, "PNG", optimize=True)
+        written.append((path, px))
+    return written
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["launcher"]:
+        # Launcher icons only: no fonts involved, so the output does not depend on
+        # which TrueType font the machine resolves (see font()).
+        for path, px in make_launcher_icons():
+            print("launcher {}x{}:".format(px, px), path)
+        sys.exit(0)
     try:
         h = make_hero(); print("hero:", h, os.path.getsize(h)//1024, "KB")
         c = make_cover(); print("cover:", c, os.path.getsize(c)//1024, "KB")
         a, b = make_icons()
         print("icon24:", a, os.path.getsize(a)//1024, "KB")
         print("icon64:", b, os.path.getsize(b)//1024, "KB")
+        for path, px in make_launcher_icons():
+            print("launcher {}x{}:".format(px, px), path)
     except Exception as e:
         print("ERROR: {}".format(e), file=sys.stderr)
         sys.exit(1)

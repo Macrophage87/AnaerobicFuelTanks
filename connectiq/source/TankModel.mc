@@ -271,7 +271,8 @@ class TankModel {
             mConsP = takeP / dt;
             mConsG = takeG / dt;
         } else {
-            // RESTORATION — PCr with fatigue-slowed tau; glycolytic gated below LT1.
+            // RESTORATION — PCr with fatigue-slowed tau; glycolytic recovers whenever P < CP, at a
+            // rate that lt1Frac scales (the gate20 anchor below), not a gate at LT1.
             var kOff = (mTauOn > 0.0) ? (1.0 - Math.pow(Math.E, -dt / mTauOn)) : 1.0;
             mG -= mG * kOff;                          // glycolytic deactivation during recovery
             // PCr resynthesis is OXIDATIVE: it needs aerobic ATP above what the ride itself

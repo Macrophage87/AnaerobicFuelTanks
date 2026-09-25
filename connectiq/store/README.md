@@ -13,8 +13,28 @@ Marketing/store imagery for the Connect IQ app. Two glossy fuel tanks:
 Regenerate all four with:
 
 ```bash
-python3 make_assets.py     # requires Pillow; writes into this folder
+python3 make_assets.py     # requires Pillow; writes the four store assets here and the nine launcher icons under ../resources*/
 ```
+
+### On-device launcher icons
+
+The launcher icon ships inside the `.prg`, so it lives under `../resources*/drawables/`,
+not here. It is the same art as the device icon, resampled to the size each device's SDK
+definition asks for (`<ConnectIQ>/Devices/<id>/compiler.json`, key `launcherIcon`; #114):
+
+| Folder | Size | Devices |
+|---|---|---|
+| `resources/` | 40×40 | edge1040, fr255, fr255m, fr955, fenix6pro, fenix7, fenix7x |
+| `resources-edge530/`, `-edge540/`, `-edge830/`, `-edge840/` | 35×35 | one each |
+| `resources-edge1030/`, `-edge1030plus/` | 36×36 | one each |
+| `resources-fr965/` | 65×65 | fr965 |
+| `resources-edge1050/` | 68×68 | edge1050 |
+
+A `resources-<device id>` folder overrides the base resource with the same id for that device
+only (SDK *Build Configuration* guide, device qualifiers). Regenerate just these with
+`python3 make_assets.py launcher` (no fonts involved, so the output does not depend on the
+machine's fonts). A new manifest product needs its size read from its `compiler.json` and,
+if it is not 40×40, an entry in `LAUNCHER_DEVICE_PX` plus a `drawables.xml` beside the PNG.
 
 Palette (RGB): PCr bright `#B44DFF` / deep `#6C26A8`; GLY bright `#37E85A` / deep `#1A8C3A`.
 
