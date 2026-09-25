@@ -365,11 +365,11 @@ followed" — with `OSError(22, 'A required privilege is not held by the client'
 because Windows withholds the symlink-creation privilege. 34/35 locally; 35/35
 in CI is the expectation. **Do not "fix" it and do not report it as a
 regression.** The other suites (`test_check_ceiling_notes` 10/10,
-`test_check_mc_literals` 8/8, `test_check_agent_facts` 25/25,
+`test_check_mc_literals` 8/8, `test_check_agent_facts` 32/32,
 `test_check_fit_budget` 30/30) are green on both. (This line read
 `test_check_agent_facts` **21/21** when it landed; the suite in the tree at
 `cea95c8` has 25 cases, so the figure was stale on arrival. Re-measured
-2026-09-05 — the tree wins. #111 took it to **32/32**, measured 2026-09-25 on
+2026-09-05 — the tree wins. #111 took it from 25/25 to **32/32**, measured 2026-09-25 on
 a Windows checkout, where the other figures on this line re-measured
 unchanged, `test_list_tests` included at 34/35.)
 
